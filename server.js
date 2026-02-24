@@ -154,11 +154,21 @@ const QUIC_PRESETS = {
     // Verified real captured DNS/QUIC packet (Yandex/Kinopoisk)
     yandex: '<b 0x084481800001000300000000077469636b65747306776964676574096b696e6f706f69736b0272750000010001c00c0005000100000039001806776964676574077469636b6574730679616e646578c025c0390005000100000039002b1765787465726e616c2d7469636b6574732d776964676574066166697368610679616e646578036e657400c05d000100010000001c000457fafe25>',
     // Generated QUIC v1 Initial Packets with correct TLS ClientHello + SNI
+    // Russian services
     vk: buildQUICInitialPacket('vk.com'),
     ok: buildQUICInitialPacket('ok.ru'),
     mail: buildQUICInitialPacket('mail.ru'),
     gosuslugi: buildQUICInitialPacket('gosuslugi.ru'),
     sberbank: buildQUICInitialPacket('online.sberbank.ru'),
+    ya: buildQUICInitialPacket('ya.ru'),
+    dzen: buildQUICInitialPacket('dzen.ru'),
+    rutube: buildQUICInitialPacket('rutube.ru'),
+    ozon: buildQUICInitialPacket('ozon.ru'),
+    wildberries: buildQUICInitialPacket('wildberries.ru'),
+    avito: buildQUICInitialPacket('avito.ru'),
+    mos: buildQUICInitialPacket('mos.ru'),
+    nalog: buildQUICInitialPacket('nalog.gov.ru'),
+    // International services
     google: buildQUICInitialPacket('www.google.com'),
     youtube: buildQUICInitialPacket('www.youtube.com'),
     apple: buildQUICInitialPacket('www.apple.com'),
@@ -166,6 +176,11 @@ const QUIC_PRESETS = {
     amazon: buildQUICInitialPacket('www.amazon.com'),
     discord: buildQUICInitialPacket('discord.com'),
     twitch: buildQUICInitialPacket('www.twitch.tv'),
+    whatsapp: buildQUICInitialPacket('www.whatsapp.com'),
+    zoom: buildQUICInitialPacket('zoom.us'),
+    skype: buildQUICInitialPacket('www.skype.com'),
+    steam: buildQUICInitialPacket('steampowered.com'),
+    github: buildQUICInitialPacket('github.com'),
 };
 
 const QUIC_KEYS = Object.keys(QUIC_PRESETS);
@@ -263,12 +278,21 @@ app.post('/api/generate', async (req, res) => {
             i1 = QUIC_PRESETS[QUIC_KEYS[Math.floor(Math.random() * QUIC_KEYS.length)]];
         } else if (QUIC_PRESETS[quicPreset]) {
             // For generated presets (not static captures), regenerate each time
-            const generatedKeys = ['vk', 'ok', 'mail', 'gosuslugi', 'sberbank', 'google', 'youtube', 'apple', 'microsoft', 'amazon', 'discord', 'twitch'];
+            const generatedKeys = [
+                'vk', 'ok', 'mail', 'gosuslugi', 'sberbank',
+                'ya', 'dzen', 'rutube', 'ozon', 'wildberries', 'avito', 'mos', 'nalog',
+                'google', 'youtube', 'apple', 'microsoft', 'amazon',
+                'discord', 'twitch', 'whatsapp', 'zoom', 'skype', 'steam', 'github',
+            ];
             const sniMap = {
                 vk: 'vk.com', ok: 'ok.ru', mail: 'mail.ru', gosuslugi: 'gosuslugi.ru',
-                sberbank: 'online.sberbank.ru', google: 'www.google.com', youtube: 'www.youtube.com',
+                sberbank: 'online.sberbank.ru',
+                ya: 'ya.ru', dzen: 'dzen.ru', rutube: 'rutube.ru', ozon: 'ozon.ru',
+                wildberries: 'wildberries.ru', avito: 'avito.ru', mos: 'mos.ru', nalog: 'nalog.gov.ru',
+                google: 'www.google.com', youtube: 'www.youtube.com',
                 apple: 'www.apple.com', microsoft: 'www.microsoft.com', amazon: 'www.amazon.com',
-                discord: 'discord.com', twitch: 'www.twitch.tv',
+                discord: 'discord.com', twitch: 'www.twitch.tv', whatsapp: 'www.whatsapp.com',
+                zoom: 'zoom.us', skype: 'www.skype.com', steam: 'steampowered.com', github: 'github.com',
             };
             i1 = generatedKeys.includes(quicPreset)
                 ? buildQUICInitialPacket(sniMap[quicPreset])
