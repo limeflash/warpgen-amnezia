@@ -3,8 +3,18 @@ services:
     build: .
     container_name: warpgen
     restart: unless-stopped
-    ports:
-      - "3000:3000"   # проксируй через nginx на warpgen.simg.pro
     environment:
       - PORT=3000
       - NODE_ENV=production
+    networks:
+      - stremio_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.warpgen.rule=Host(`warpgen.simg.pro`)"
+      - "traefik.http.routers.warpgen.entrypoints=websecure"
+      - "traefik.http.routers.warpgen.tls.certresolver=letsencrypt"
+      - "traefik.http.services.warpgen.loadbalancer.server.port=3000"
+
+networks:
+  stremio_default:
+    external: true   # используем существующую сеть Traefik
