@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WarpGen — Генератор WARP для AmneziaWG 2.0</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0a0d14;
+    --surface:   rgba(255,255,255,0.04);
+    --border:    rgba(255,255,255,0.08);
+    --accent:    #7c6bdb;
+    --accent2:   #4fc3f7;
+    --success:   #4ade80;
+    --danger:    #f87171;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --radius:    14px;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 16px 80px;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124,107,219,0.18) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 80% 80%, rgba(79,195,247,0.08) 0%, transparent 60%);
+  }
+
+  /* ── Header ── */
+  header { text-align: center; margin-bottom: 36px; }
+  .logo {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-size: 28px; font-weight: 700; letter-spacing: -0.5px;
+  }
+  .logo svg { width: 36px; height: 36px; }
+  .logo-accent { color: var(--accent); }
+  .logo-accent2 { color: var(--accent2); }
+  header p { color: var(--muted); margin-top: 8px; font-size: 14px; }
+
+  /* ── Card ── */
+  .card {
+    width: 100%; max-width: 640px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    backdrop-filter: blur(20px);
+    padding: 28px 28px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 1.2px; color: var(--muted); margin-bottom: 16px;
+  }
+
+  /* ── Form elements ── */
+  .field { margin-bottom: 20px; }
+  label {
+    display: block; font-size: 13px; font-weight: 500;
+    color: #94a3b8; margin-bottom: 7px;
+  }
+  input[type="text"], select {
+    width: 100%; background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border); border-radius: 9px;
+    color: var(--text); font-family: inherit; font-size: 14px;
+    padding: 11px 14px; outline: none;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  input[type="text"]:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(124,107,219,0.15);
+  }
+  input[type="text"]::placeholder { color: var(--muted); }
+  select { appearance: none; cursor: pointer; }
+  select option { background: #1a1f2e; }
+
+  /* ── Toggle row (proxy) ── */
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border); border-radius: 10px;
+    cursor: pointer; user-select: none; transition: background .2s;
+  }
+  .toggle-row:hover { background: rgba(255,255,255,0.06); }
+  .toggle-label { font-size: 14px; }
+  .toggle-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .toggle {
+    width: 44px; height: 24px; background: rgba(255,255,255,0.1);
+    border-radius: 99px; position: relative; flex-shrink: 0;
+    transition: background .25s;
+  }
+  .toggle::after {
+    content: ''; position: absolute; top: 4px; left: 4px;
+    width: 16px; height: 16px; background: #fff;
+    border-radius: 50%; transition: transform .25s;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle.on::after { transform: translateX(20px); }
+
+  /* ── Grid for selects ── */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media(max-width:480px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* ── Generate button ── */
+  .btn-generate {
+    width: 100%; padding: 14px;
+    background: linear-gradient(135deg, var(--accent), #5b4fcf);
+    border: none; border-radius: 10px; color: #fff;
+    font-family: inherit; font-size: 15px; font-weight: 600;
+    cursor: pointer; letter-spacing: 0.2px;
+    transition: opacity .2s, transform .15s, box-shadow .2s;
+    box-shadow: 0 4px 24px rgba(124,107,219,0.3);
+  }
+  .btn-generate:hover:not(:disabled) { opacity: .9; transform: translateY(-1px); box-shadow: 0 6px 28px rgba(124,107,219,0.4); }
+  .btn-generate:active { transform: translateY(0); }
+  .btn-generate:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+  /* ── Spinner ── */
+  .spinner {
+    display: inline-block; width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff; border-radius: 50%;
+    animation: spin .7s linear infinite; vertical-align: middle; margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Result card ── */
+  #result-card { display: none; }
+  .result-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
+  }
+  .badge {
+    font-size: 11px; font-weight: 600; padding: 3px 10px;
+    border-radius: 99px; text-transform: uppercase; letter-spacing: .8px;
+  }
+  .badge-plus { background: rgba(250,204,21,0.15); color: #fbbf24; }
+  .badge-free { background: rgba(100,116,139,0.2); color: var(--muted); }
+
+  #config-output {
+    width: 100%; font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; line-height: 1.65; color: #94a3b8;
+    background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; resize: vertical; min-height: 300px;
+    outline: none;
+  }
+
+  .btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .btn-dl {
+    flex: 1; min-width: 140px; padding: 11px 16px;
+    background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.2);
+    border-radius: 9px; color: var(--success);
+    font-family: inherit; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background .2s;
+  }
+  .btn-dl:hover { background: rgba(74,222,128,0.18); }
+  .btn-copy {
+    flex: 1; min-width: 140px; padding: 11px 16px;
+    background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+    border-radius: 9px; color: var(--text);
+    font-family: inherit; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background .2s;
+  }
+  .btn-copy:hover { background: rgba(255,255,255,0.09); }
+
+  /* ── Error ── */
+  .error-box {
+    display: none; padding: 12px 14px;
+    background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2);
+    border-radius: 9px; color: var(--danger); font-size: 13px; margin-top: 12px;
+  }
+
+  /* ── Status line ── */
+  .status-pill {
+    font-size: 12px; color: var(--muted); margin-top: 12px; text-align: center;
+  }
+
+  /* ── Footer ── */
+  footer { margin-top: 32px; text-align: center; font-size: 12px; color: var(--muted); }
+  footer a { color: var(--accent2); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="18" cy="18" r="17" stroke="url(#g1)" stroke-width="2"/>
+      <path d="M11 18 C11 13 15 10 18 10 C21 10 25 13 25 18 C25 23 21 26 18 26 C16 26 14 25 13 23" stroke="url(#g2)" stroke-width="2.2" stroke-linecap="round"/>
+      <circle cx="18" cy="18" r="4" fill="url(#g1)"/>
+      <defs>
+        <linearGradient id="g1" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#7c6bdb"/>
+          <stop offset="1" stop-color="#4fc3f7"/>
+        </linearGradient>
+        <linearGradient id="g2" x1="10" y1="10" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#7c6bdb"/>
+          <stop offset="1" stop-color="#4fc3f7"/>
+        </linearGradient>
+      </defs>
+    </svg>
+    <span>Warp<span class="logo-accent">Gen</span></span>
+  </div>
+  <p>Генератор конфигов Cloudflare WARP для <strong>AmneziaWG 2.0</strong></p>
+</header>
+
+<!-- Settings card -->
+<div class="card">
+  <div class="card-title">Настройки конфига</div>
+
+  <div class="field">
+    <label>Ключ WARP+ (опционально)</label>
+    <input type="text" id="licenseKey" placeholder="xxxxxxxx-xxxxxxxx-xxxxxxxx (оставьте пустым для бесплатного)">
+  </div>
+
+  <div class="grid2">
+    <div class="field">
+      <label>Профиль обфускации</label>
+      <select id="obfsProfile">
+        <option value="1">Jc=120, Jmin=23, Jmax=911 — стандарт</option>
+        <option value="2">Jc=4, Jmin=40, Jmax=70 — стабильный</option>
+        <option value="3">Jc=10, Jmin=100, Jmax=300 — агрессивный DPI</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Порт Endpoint</label>
+      <select id="endpointPort">
+        <option value="2408">2408 — рекомендуется</option>
+        <option value="500">500 — IPSec</option>
+        <option value="4500">4500 — стандартный WARP</option>
+        <option value="1701">1701 — L2TP</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>QUIC-маскировка (I1)</label>
+    <select id="quicPreset">
+      <option value="random">🎲 Случайный из всех</option>
+      <optgroup label="Российские">
+        <option value="yandex">Яндекс / Кинопоиск — проверено ✓</option>
+        <option value="vk">ВКонтакте (vk.com)</option>
+        <option value="ok">Одноклассники (ok.ru)</option>
+        <option value="mail">Mail.ru</option>
+        <option value="gosuslugi">Госуслуги</option>
+        <option value="sberbank">Сбербанк</option>
+      </optgroup>
+      <optgroup label="Международные">
+        <option value="google">Google</option>
+        <option value="youtube">YouTube</option>
+        <option value="apple">Apple</option>
+        <option value="microsoft">Microsoft</option>
+        <option value="amazon">Amazon</option>
+        <option value="cloudflare">Cloudflare DNS (1.1.1.1)</option>
+      </optgroup>
+      <option value="none">Без маскировки</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <div class="toggle-row" id="proxyToggleRow">
+      <div>
+        <div class="toggle-label">Прокси для API Cloudflare</div>
+        <div class="toggle-sub">Помогает при блокировках api.cloudflareclient.com в РФ</div>
+      </div>
+      <div class="toggle" id="proxyToggle"></div>
+    </div>
+  </div>
+
+  <button class="btn-generate" id="generateBtn" onclick="generate()">
+    Сгенерировать конфиг
+  </button>
+
+  <div class="error-box" id="errorBox"></div>
+</div>
+
+<!-- Result card -->
+<div class="card" id="result-card">
+  <div class="result-header">
+    <div class="card-title" style="margin:0">Готовый конфиг</div>
+    <span class="badge" id="accountBadge"></span>
+  </div>
+  <textarea id="config-output" readonly spellcheck="false"></textarea>
+  <div class="btn-row">
+    <button class="btn-dl" onclick="download()">⬇ Скачать .conf</button>
+    <button class="btn-copy" id="copyBtn" onclick="copyConfig()">⎘ Копировать</button>
+  </div>
+  <div class="status-pill" id="statusPill"></div>
+</div>
+
+<footer>
+  Импортируйте <code>.conf</code> в <a href="https://github.com/amnezia-vpn/amneziawg-windows" target="_blank">AmneziaWG</a> или <a href="https://amnezia.org" target="_blank">AmneziaVPN</a>
+</footer>
+
+<script>
+  // ── Proxy toggle ──
+  let proxyOn = false;
+  document.getElementById('proxyToggleRow').addEventListener('click', () => {
+    proxyOn = !proxyOn;
+    document.getElementById('proxyToggle').classList.toggle('on', proxyOn);
+  });
+
+  // ── Generate ──
+  async function generate() {
+    const btn = document.getElementById('generateBtn');
+    const errBox = document.getElementById('errorBox');
+    const resultCard = document.getElementById('result-card');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Генерируем...';
+    errBox.style.display = 'none';
+    resultCard.style.display = 'none';
+
+    try {
+      const resp = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          licenseKey:   document.getElementById('licenseKey').value.trim(),
+          obfsProfile:  document.getElementById('obfsProfile').value,
+          endpointPort: document.getElementById('endpointPort').value,
+          quicPreset:   document.getElementById('quicPreset').value,
+          useProxy:     proxyOn,
+        }),
+      });
+
+      const data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        throw new Error(data.error || `Ошибка сервера: ${resp.status}`);
+      }
+
+      document.getElementById('config-output').value = data.config;
+
+      const badge = document.getElementById('accountBadge');
+      if (data.accountType === 'warp_plus' || data.accountType === 'unlimited') {
+        badge.textContent = 'WARP+';
+        badge.className = 'badge badge-plus';
+      } else {
+        badge.textContent = 'Free';
+        badge.className = 'badge badge-free';
+      }
+
+      document.getElementById('statusPill').textContent = `Endpoint: ${data.endpoint}`;
+      resultCard.style.display = 'block';
+      resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    } catch (err) {
+      errBox.textContent = '⚠ ' + err.message;
+      errBox.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = 'Сгенерировать конфиг';
+    }
+  }
+
+  // ── Download ──
+  function download() {
+    const text = document.getElementById('config-output').value;
+    const a = document.createElement('a');
+    a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
+    a.download = 'WARP_AmneziaWG.conf';
+    a.click();
+  }
+
+  // ── Copy ──
+  async function copyConfig() {
+    const text = document.getElementById('config-output').value;
+    const btn = document.getElementById('copyBtn');
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = '✓ Скопировано!';
+      setTimeout(() => { btn.textContent = '⎘ Копировать'; }, 2000);
+    } catch {
+      btn.textContent = 'Ошибка :(';
+    }
+  }
+
+  // Allow Ctrl+Enter to generate
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') generate();
+  });
+</script>
+</body>
+</html>

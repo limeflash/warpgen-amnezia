@@ -1,0 +1,14 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Env
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated configs (don't commit personal keys)
+*.conf

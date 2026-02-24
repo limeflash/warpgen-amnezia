@@ -1,0 +1,10 @@
+services:
+  warpgen:
+    build: .
+    container_name: warpgen
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # проксируй через nginx на warpgen.simg.pro
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
