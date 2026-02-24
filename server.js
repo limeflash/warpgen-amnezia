@@ -37,96 +37,76 @@ function encodeQUICVarInt(n) {
     throw new Error('VarInt too large');
 }
 
+function prependLen16(buf) {
+    return Buffer.concat([Buffer.from([(buf.length >> 8) & 0xff, buf.length & 0xff]), buf]);
+}
+
 function buildTLSClientHello(sni) {
     const random = crypto.randomBytes(32);
     const sessionId = crypto.randomBytes(32);
-    const cipherSuites = Buffer.from([
-        0x00, 0x1a, // length (13 cipher suites × 2 = 26)
+
+    const cipherSuites = prependLen16(Buffer.from([
         0x13, 0x01, // TLS_AES_128_GCM_SHA256
         0x13, 0x02, // TLS_AES_256_GCM_SHA384
         0x13, 0x03, // TLS_CHACHA20_POLY1305_SHA256
-        0xc0, 0x2b, // ECDHE-ECDSA-AES128-GCM-SHA256
-        0xc0, 0x2f, // ECDHE-RSA-AES128-GCM-SHA256
-        0xc0, 0x2c, // ECDHE-ECDSA-AES256-GCM-SHA384
-        0xc0, 0x30, // ECDHE-RSA-AES256-GCM-SHA384
-        0xc0, 0x09, // ECDHE-ECDSA-AES128-SHA
-        0xc0, 0x13, // ECDHE-RSA-AES128-SHA
-        0xc0, 0x0a, // ECDHE-ECDSA-AES256-SHA
-        0xc0, 0x14, // ECDHE-RSA-AES256-SHA
-        0x00, 0x9c, // RSA-AES128-GCM-SHA256
-        0x00, 0xff, // TLS_EMPTY_RENEGOTIATION_INFO_SCSV
-    ]);
-    const compression = Buffer.from([0x01, 0x00]);
+        0xc0, 0x2b, 0xc0, 0x2f, 0xc0, 0x2c, 0xc0, 0x30,
+        0xc0, 0x09, 0xc0, 0x13, 0xc0, 0x0a, 0xc0, 0x14,
+        0x00, 0x9c, 0x00, 0xff,
+    ]));
 
-    // SNI extension
+    // SNI extension  type=0x0000
     const sniBytes = Buffer.from(sni, 'ascii');
-    const sniExt = Buffer.concat([
-        Buffer.from([0x00, 0x00]), // extension type: server_name
-        ...buildLen16(Buffer.concat([
-            buildLen16(Buffer.concat([
-                Buffer.from([0x00]), // host_name type
-                buildLen16(sniBytes),
-            ])),
-        ])),
+    const sniEntry = Buffer.concat([Buffer.from([0x00]), prependLen16(sniBytes)]);
+    const sniList = prependLen16(sniEntry);
+    const sniExt = Buffer.concat([Buffer.from([0x00, 0x00]), prependLen16(sniList)]);
+
+    // Supported groups  type=0x000a
+    const groupsExt = Buffer.concat([
+        Buffer.from([0x00, 0x0a]),
+        prependLen16(prependLen16(Buffer.from([0x00, 0x1d, 0x00, 0x17, 0x00, 0x18]))),
     ]);
 
-    // Supported groups extension
-    const groupsExt = Buffer.from([
-        0x00, 0x0a, // type: supported_groups
-        0x00, 0x08, 0x00, 0x06, // length
-        0x00, 0x1d, // x25519
-        0x00, 0x17, // secp256r1
-        0x00, 0x18, // secp384r1
+    // Supported versions  type=0x002b
+    const versionsExt = Buffer.concat([
+        Buffer.from([0x00, 0x2b]),
+        prependLen16(Buffer.from([0x04, 0x03, 0x04, 0x03, 0x03])),
     ]);
 
-    // Supported versions extension (TLS 1.3)
-    const versionsExt = Buffer.from([
-        0x00, 0x2b, // type: supported_versions
-        0x00, 0x05, 0x04, // length
-        0x03, 0x04, // TLS 1.3
-        0x03, 0x03, // TLS 1.2
-    ]);
-
-    // Key share extension (x25519)
+    // Key share  type=0x0033
     const pubKey = crypto.randomBytes(32);
+    const ksEntry = Buffer.concat([Buffer.from([0x00, 0x1d]), prependLen16(pubKey)]);
     const keyShareExt = Buffer.concat([
-        Buffer.from([0x00, 0x33, 0x00, 0x26, 0x00, 0x24]), // type + lengths
-        Buffer.from([0x00, 0x1d, 0x00, 0x20]), // group + key length
-        pubKey,
+        Buffer.from([0x00, 0x33]),
+        prependLen16(prependLen16(ksEntry)),
     ]);
 
-    // QUIC transport params extension
-    const quicParams = Buffer.from([
-        0xff, 0xa5, // type: quic_transport_parameters (draft)
-        0x00, 0x00, // empty for simplicity
+    // QUIC transport params  type=0xffa5
+    const quicParamsExt = Buffer.concat([
+        Buffer.from([0xff, 0xa5]),
+        prependLen16(Buffer.alloc(0)),
     ]);
 
-    const extensions = Buffer.concat([sniExt, groupsExt, versionsExt, keyShareExt, quicParams]);
-    const extLen = Buffer.from([0, extensions.length]);
+    const extensions = Buffer.concat([sniExt, groupsExt, versionsExt, keyShareExt, quicParamsExt]);
 
     const clientHelloBody = Buffer.concat([
-        Buffer.from([0x03, 0x03]), // legacy version
+        Buffer.from([0x03, 0x03]),          // legacy version
         random,
         Buffer.from([sessionId.length]),
         sessionId,
         cipherSuites,
-        compression,
-        extLen,
-        extensions,
+        Buffer.from([0x01, 0x00]),          // compression: null only
+        prependLen16(extensions),
     ]);
 
-    // TLS record wrapper: Handshake type 0x01 (ClientHello)
-    const len3 = [
+    // Handshake type 0x01 = ClientHello
+    const len3 = Buffer.from([
         (clientHelloBody.length >> 16) & 0xff,
         (clientHelloBody.length >> 8) & 0xff,
         clientHelloBody.length & 0xff,
-    ];
-    return Buffer.concat([Buffer.from([0x01, ...len3]), clientHelloBody]);
+    ]);
+    return Buffer.concat([Buffer.from([0x01]), len3, clientHelloBody]);
 }
 
-function buildLen16(buf) {
-    return [Buffer.from([(buf.length >> 8) & 0xff, buf.length & 0xff]), buf];
-}
 
 function buildQUICInitialPacket(sni) {
     const dcid = crypto.randomBytes(8);
