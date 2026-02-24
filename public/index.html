@@ -489,6 +489,39 @@
     </div>
 
     <div class="field">
+      <label>DNS сервер</label>
+      <select id="dnsServer">
+        <optgroup label="Без фильтрации — быстрые публичные">
+          <option value="cloudflare" selected>Cloudflare 1.1.1.1 — приватный, быстрый</option>
+          <option value="google">Google 8.8.8.8</option>
+          <option value="quad9_nofilter">Quad9 9.9.9.10 — без фильтрации</option>
+          <option value="quad9_ecs">Quad9 9.9.9.11 — ECS (быстрее CDN)</option>
+          <option value="opendns">OpenDNS 208.67.222.222</option>
+          <option value="gcore">G-Core 95.85.95.85 — EU anycast</option>
+          <option value="yandex">Яндекс 77.88.8.8</option>
+        </optgroup>
+        <optgroup label="🛡 Блокировка рекламы и трекеров">
+          <option value="adguard">AdGuard DNS — реклама + трекеры</option>
+          <option value="adguard_nofilter">AdGuard DNS — без фильтрации</option>
+          <option value="nextdns">NextDNS — реклама + трекеры</option>
+          <option value="cloudflare_mal">Cloudflare 1.1.1.2 — только малварь</option>
+          <option value="quad9">Quad9 9.9.9.9 — малварь + фишинг</option>
+        </optgroup>
+        <optgroup label="👨‍👩‍👧 Семейный (блокировка для взрослых)">
+          <option value="adguard_family">AdGuard Family</option>
+          <option value="yandex_safe">Яндекс Safe — фишинг</option>
+          <option value="yandex_family">Яндекс Family — 18+</option>
+          <option value="opendns_family">OpenDNS Family Shield</option>
+        </optgroup>
+        <optgroup label="🔒 Privacy / независимые">
+          <option value="mullvad">Mullvad — без логов, без рекламы</option>
+          <option value="dnssb">DNS.SB — Швейцария, без логов</option>
+          <option value="dns0eu">dns0.eu — Европа, GDPR</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <div class="field">
       <label>Маскировка трафика (I1)</label>
       <select id="quicPreset">
         <option value="random">🎲 Случайный из всех протоколов</option>
@@ -599,6 +632,7 @@
             endpointPort: document.getElementById('endpointPort').value,
             endpointIp: document.getElementById('endpointIp').value,
             quicPreset: document.getElementById('quicPreset').value,
+            dnsServer: document.getElementById('dnsServer').value,
           }),
         });
 
@@ -662,6 +696,7 @@
       document.getElementById('obfsProfile').value = '1';
       document.getElementById('endpointPort').value = '2408';
       document.getElementById('endpointIp').value = 'auto';
+      document.getElementById('dnsServer').value = 'cloudflare';
       document.getElementById('quicPreset').value = 'yandex';
     }
 
