@@ -489,49 +489,71 @@
     </div>
 
     <div class="field">
-      <label>QUIC-маскировка (I1)</label>
+      <label>Маскировка трафика (I1)</label>
       <select id="quicPreset">
-        <option value="random">🎲 Случайный из всех</option>
-        <optgroup label="✓ Верифицированные захваты">
-          <option value="warpgen">warpgen.net QUIC — реальный захват ✓</option>
-          <option value="yandex">Яндекс / Кинопоиск — реальный захват ✓</option>
+        <option value="random">🎲 Случайный из всех протоколов</option>
+        <optgroup label="✓ Верифицированные захваты (реальный трафик)">
+          <option value="warpgen">QUIC — warpgen.net захват ✓</option>
+          <option value="yandex" selected>DNS — Яндекс/Кинопоиск захват ✓ (рекомендуется)</option>
         </optgroup>
-        <optgroup label="Российские ★ (лучше для ТСПУ)">
-          <option value="ya">Яндекс (ya.ru) ★</option>
-          <option value="rutube">Rutube ★</option>
-          <option value="ozon">Ozon ★</option>
-          <option value="vk">ВКонтакте</option>
-          <option value="ok">Одноклассники</option>
-          <option value="mail">Mail.ru</option>
-          <option value="gosuslugi">Госуслуги</option>
-          <option value="sberbank">Сбербанк</option>
-          <option value="dzen">Дзен</option>
-          <option value="wildberries">Wildberries</option>
-          <option value="avito">Авито</option>
-          <option value="mos">mos.ru</option>
-          <option value="nalog">nalog.gov.ru</option>
+        <optgroup label="DNS ответ (генерируется — как реальный захват)">
+          <option value="dns_ya">DNS → ya.ru ★ (лучше для ТСПУ)</option>
+          <option value="dns_vk">DNS → vk.com ★</option>
+          <option value="dns_ozon">DNS → ozon.ru ★</option>
+          <option value="dns_rutube">DNS → rutube.ru</option>
+          <option value="dns_google">DNS → google.com</option>
+          <option value="dns_youtube">DNS → youtube.com</option>
         </optgroup>
-        <optgroup label="Международные">
-          <option value="google">Google</option>
-          <option value="youtube">YouTube</option>
-          <option value="apple">Apple</option>
-          <option value="microsoft">Microsoft</option>
-          <option value="amazon">Amazon</option>
-          <option value="discord">Discord</option>
-          <option value="twitch">Twitch</option>
-          <option value="whatsapp">WhatsApp</option>
-          <option value="zoom">Zoom</option>
-          <option value="skype">Skype</option>
-          <option value="steam">Steam</option>
-          <option value="github">GitHub</option>
+        <optgroup label="STUN / NTP / DTLS (стандартные протоколы)">
+          <option value="stun">STUN — WebRTC/VoIP трафик</option>
+          <option value="ntp">NTP — синхронизация времени</option>
+          <option value="dtls">DTLS 1.2 — WebRTC медиа</option>
+        </optgroup>
+        <optgroup label="QUIC v1 — российские сервисы">
+          <option value="ya">QUIC → ya.ru</option>
+          <option value="rutube">QUIC → rutube.ru</option>
+          <option value="ozon">QUIC → ozon.ru</option>
+          <option value="vk">QUIC → vk.com</option>
+          <option value="ok">QUIC → ok.ru</option>
+          <option value="mail">QUIC → mail.ru</option>
+          <option value="gosuslugi">QUIC → gosuslugi.ru</option>
+          <option value="sberbank">QUIC → sberbank</option>
+          <option value="dzen">QUIC → dzen.ru</option>
+          <option value="wildberries">QUIC → wildberries.ru</option>
+          <option value="avito">QUIC → avito.ru</option>
+          <option value="mos">QUIC → mos.ru</option>
+          <option value="nalog">QUIC → nalog.gov.ru</option>
+        </optgroup>
+        <optgroup label="QUIC v1 — международные сервисы">
+          <option value="google">QUIC → google.com</option>
+          <option value="youtube">QUIC → youtube.com</option>
+          <option value="apple">QUIC → apple.com</option>
+          <option value="microsoft">QUIC → microsoft.com</option>
+          <option value="amazon">QUIC → amazon.com</option>
+          <option value="discord">QUIC → discord.com</option>
+          <option value="twitch">QUIC → twitch.tv</option>
+          <option value="whatsapp">QUIC → whatsapp.com</option>
+          <option value="zoom">QUIC → zoom.us</option>
+          <option value="skype">QUIC → skype.com</option>
+          <option value="steam">QUIC → steam</option>
+          <option value="github">QUIC → github.com</option>
         </optgroup>
         <option value="none">Без маскировки</option>
       </select>
     </div>
 
-    <button class="btn-generate" id="generateBtn" onclick="generate()">
-      Сгенерировать конфиг
-    </button>
+    <div style="display:flex; gap:10px;">
+      <button class="btn-generate" id="generateBtn" onclick="generate()" style="flex:1">
+        Сгенерировать конфиг
+      </button>
+      <button onclick="resetDefaults()" title="Сбросить к рекомендуемым значениям" style="padding:14px 16px; background:rgba(255,255,255,0.05); border:1px solid var(--border);
+               border-radius:10px; color:var(--muted); font-family:inherit; font-size:13px;
+               cursor:pointer; white-space:nowrap; transition:background .2s;"
+        onmouseover="this.style.background='rgba(255,255,255,0.09)'"
+        onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+        ↺ Сброс
+      </button>
+    </div>
 
     <div class="error-box" id="errorBox"></div>
   </div>
@@ -632,6 +654,15 @@
       } catch {
         btn.textContent = 'Ошибка :(';
       }
+    }
+
+    // ── Reset to defaults ──
+    function resetDefaults() {
+      document.getElementById('licenseKey').value = '';
+      document.getElementById('obfsProfile').value = '1';
+      document.getElementById('endpointPort').value = '2408';
+      document.getElementById('endpointIp').value = 'auto';
+      document.getElementById('quicPreset').value = 'yandex';
     }
 
     document.addEventListener('keydown', (e) => {

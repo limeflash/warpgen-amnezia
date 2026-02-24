@@ -41,6 +41,102 @@ function prependLen16(buf) {
     return Buffer.concat([Buffer.from([(buf.length >> 8) & 0xff, buf.length & 0xff]), buf]);
 }
 
+// ─────────────── DNS Response builder ───────────────
+// RFC 1035 — mimics a real DNS response (like the Yandex/Kinopoisk capture).
+// QR=1 (response), RA=1 — looks like a reply from a DNS server.
+// DPI sees normal DNS response traffic.
+function buildDNSResponse(domain) {
+    const txId = crypto.randomBytes(2);
+    // Flags: QR=1 Response, Opcode=0, AA=0, TC=0, RD=1, RA=1, RCODE=0
+    const flags = Buffer.from([0x81, 0x80]);
+    const qdcount = Buffer.from([0x00, 0x01]); // 1 question
+    const ancount = Buffer.from([0x00, 0x01]); // 1 answer
+    const nscount = Buffer.from([0x00, 0x00]);
+    const arcount = Buffer.from([0x00, 0x00]);
+
+    // Question: encode domain name
+    const labels = domain.split('.');
+    const nameParts = labels.map(l => Buffer.concat([Buffer.from([l.length]), Buffer.from(l, 'ascii')]));
+    const qname = Buffer.concat([...nameParts, Buffer.from([0x00])]);
+    const question = Buffer.concat([qname, Buffer.from([0x00, 0x01, 0x00, 0x01])]); // type A, class IN
+
+    // Answer: CNAME pointer back to name, then fake A record IP
+    const fakeIp = crypto.randomBytes(4); // random plausible IP
+    const answer = Buffer.concat([
+        Buffer.from([0xc0, 0x0c]),          // pointer to question name
+        Buffer.from([0x00, 0x01]),          // type A
+        Buffer.from([0x00, 0x01]),          // class IN
+        Buffer.from([0x00, 0x00, 0x00, 0x3c]), // TTL 60s
+        Buffer.from([0x00, 0x04]),          // rdlength 4
+        fakeIp,
+    ]);
+
+    const pkt = Buffer.concat([txId, flags, qdcount, ancount, nscount, arcount, question, answer]);
+    return `<b 0x${pkt.toString('hex')}>`;
+}
+
+// ─────────────── STUN Binding Request ───────────────
+// RFC 5389 — looks like WebRTC / VoIP traffic to DPI.
+function buildSTUNRequest() {
+    const magicCookie = Buffer.from([0x21, 0x12, 0xa4, 0x42]);
+    const txId = crypto.randomBytes(12);
+    const msgType = Buffer.from([0x00, 0x01]); // Binding Request
+    const msgLength = Buffer.from([0x00, 0x00]); // no attributes
+    return `<b 0x${Buffer.concat([msgType, msgLength, magicCookie, txId]).toString('hex')}>`;
+}
+
+// ─────────────── NTP Request ───────────────
+// RFC 5905 — looks like routine clock sync traffic, never blocked.
+function buildNTPRequest() {
+    const pkt = Buffer.alloc(48, 0);
+    pkt[0] = 0x1b; // LI=0, VN=3, Mode=3 (client)
+    // Reference timestamp — random-ish to avoid fingerprinting
+    crypto.randomBytes(8).copy(pkt, 24);
+    return `<b 0x${pkt.toString('hex')}>`;
+}
+
+// ─────────────── DTLS 1.2 ClientHello ───────────────
+// RFC 6347 — datagram TLS used by WebRTC, DTLS-SRTP, etc.
+// DPI sees a normal DTLS handshake initiation.
+function buildDTLS12Hello() {
+    const random = crypto.randomBytes(32);
+    const sessionId = Buffer.from([0x00]); // empty
+    const cookie = Buffer.from([0x00]);    // empty (first flight)
+    const cipherSuites = prependLen16(Buffer.from([
+        0xc0, 0x2b, // ECDHE-ECDSA-AES128-GCM-SHA256
+        0xc0, 0x2f, // ECDHE-RSA-AES128-GCM-SHA256
+        0xc0, 0x0a, // ECDHE-ECDSA-AES256-SHA
+        0xc0, 0x14, // ECDHE-RSA-AES256-SHA
+        0x00, 0xff, // TLS_EMPTY_RENEGOTIATION_INFO_SCSV
+    ]));
+    const compression = Buffer.from([0x01, 0x00]); // null
+    const helloBody = Buffer.concat([
+        Buffer.from([0xfe, 0xfd]),  // client version: DTLS 1.2
+        random,
+        sessionId,
+        cookie,
+        cipherSuites,
+        compression,
+    ]);
+    const msgSeq = Buffer.from([0x00, 0x00]);
+    const fragOffset = Buffer.from([0x00, 0x00, 0x00]);
+    const len3 = Buffer.from([
+        (helloBody.length >> 16) & 0xff,
+        (helloBody.length >> 8) & 0xff,
+        helloBody.length & 0xff,
+    ]);
+    // DTLS Handshake header: type=0x01, length, msg_seq, frag_offset, frag_length
+    const handshake = Buffer.concat([
+        Buffer.from([0x01]), len3, msgSeq, fragOffset, len3, helloBody,
+    ]);
+    // DTLS Record: ContentType=22 (Handshake), Version=FE FD, Epoch=0, Seq=0
+    const record = Buffer.concat([
+        Buffer.from([0x16, 0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+        prependLen16(handshake),
+    ]);
+    return `<b 0x${record.toString('hex')}>`;
+}
+
 function buildTLSClientHello(sni) {
     const random = crypto.randomBytes(32);
     const sessionId = crypto.randomBytes(32);
@@ -175,6 +271,19 @@ const QUIC_PRESETS = {
     skype: buildQUICInitialPacket('www.skype.com'),
     steam: buildQUICInitialPacket('steampowered.com'),
     github: buildQUICInitialPacket('github.com'),
+    // Other protocols - DNS Response (like Yandex capture)
+    dns_vk: buildDNSResponse('vk.com'),
+    dns_ya: buildDNSResponse('ya.ru'),
+    dns_ozon: buildDNSResponse('ozon.ru'),
+    dns_rutube: buildDNSResponse('rutube.ru'),
+    dns_google: buildDNSResponse('www.google.com'),
+    dns_youtube: buildDNSResponse('www.youtube.com'),
+    // STUN - looks like WebRTC/VoIP traffic
+    stun: buildSTUNRequest(),
+    // NTP - clock sync, virtually never blocked
+    ntp: buildNTPRequest(),
+    // DTLS 1.2 - WebRTC media transport
+    dtls: buildDTLS12Hello(),
 };
 
 const QUIC_KEYS = Object.keys(QUIC_PRESETS);
