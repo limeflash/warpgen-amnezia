@@ -303,8 +303,14 @@ app.post('/api/generate', async (req, res) => {
             if (acType === 'warp_plus' || acType === 'unlimited') {
                 accountType = acType;
             } else {
-                licenseError = licResult.body?.errors?.[0]?.message
-                    || `Key not accepted (HTTP ${licResult.status})`;
+                const rawErr = licResult.body?.errors?.[0]?.message || '';
+                if (rawErr.toLowerCase().includes('too many connected devices') || rawErr.toLowerCase().includes('too many devices')) {
+                    licenseError = 'На этом ключе превышен лимит устройств (макс. 5). Удалите лишние устройства: откройте приложение 1.1.1.1 → Меню → Устройства → удалите старые.';
+                } else if (rawErr.toLowerCase().includes('invalid') || rawErr.toLowerCase().includes('not found')) {
+                    licenseError = 'Ключ WARP+ недействителен или не существует.';
+                } else {
+                    licenseError = rawErr || `Ключ не применён (HTTP ${licResult.status})`;
+                }
             }
         }
 
