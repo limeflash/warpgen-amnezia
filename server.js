@@ -121,24 +121,18 @@ function buildQUICInitialPacket(sni) {
         clientHello,
     ]);
 
-    // Padding to typical Initial packet size (~1200 bytes)
-    const targetSize = 1200;
-    const headerOverhead = 4 + 1 + dcid.length + 1 + scid.length + 1 + 4 + 4; // approx
-    const padLen = Math.max(0, targetSize - cryptoFrame.length - headerOverhead);
-    const padding = padLen > 0
-        ? Buffer.concat([encodeQUICVarInt(0), Buffer.alloc(padLen)]) // PADDING frames
-        : Buffer.alloc(0);
-
-    const payload = Buffer.concat([cryptoFrame, padding]);
-    const pktNum = Buffer.from([0x00, 0x00, 0x00, 0x00]);
+    // No artificial zero-padding — compact packet only contains real QUIC/TLS data.
+    // Padding with zeros was causing DPI to flag the packets as synthetic.
+    const payload = cryptoFrame;
+    const pktNum = Buffer.from([0x00]);       // 1-byte packet number (more common)
     const lengthField = encodeQUICVarInt(pktNum.length + payload.length);
 
     const packet = Buffer.concat([
-        Buffer.from([0xC3]),                    // Long header | Initial | 4-byte pkt num
+        Buffer.from([0xC0]),                    // Long header | Initial | 1-byte pkt num
         Buffer.from([0x00, 0x00, 0x00, 0x01]), // QUIC v1
         Buffer.from([dcid.length]), dcid,
         Buffer.from([scid.length]), scid,
-        Buffer.from([0x00]),                    // Token length
+        Buffer.from([0x00]),                    // Token length = 0
         lengthField,
         pktNum,
         payload,
