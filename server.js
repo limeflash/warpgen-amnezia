@@ -299,17 +299,32 @@ app.post('/api/generate', async (req, res) => {
         let licenseError = null;
         if (licenseKey.trim()) {
             const licResult = await cfRequest('PUT', `reg/${id}/account`, token, { license: licenseKey.trim() });
-            const acType = licResult.body?.result?.account_type;
+            console.log('[WARP+] license response:', JSON.stringify(licResult.body));
+
+            // Cloudflare API returns account_type in different places depending on version
+            const body = licResult.body;
+            const acType = body?.result?.account_type       // most common
+                || body?.result?.account?.account_type  // nested
+                || body?.result?.type                   // legacy
+                || (body?.result?.warp_plus ? 'warp_plus' : null); // boolean flag
+
             if (acType === 'warp_plus' || acType === 'unlimited') {
                 accountType = acType;
             } else {
-                const rawErr = licResult.body?.errors?.[0]?.message || '';
+                const rawErr = body?.errors?.[0]?.message || body?.error || '';
                 if (rawErr.toLowerCase().includes('too many connected devices') || rawErr.toLowerCase().includes('too many devices')) {
-                    licenseError = 'На этом ключе превышен лимит устройств (макс. 5). Удалите лишние устройства: откройте приложение 1.1.1.1 → Меню → Устройства → удалите старые.';
+                    licenseError = 'На этом ключе превышен лимит устройств (макс. 5). Удалите лишние — откройте приложение 1.1.1.1 → Меню → Устройства.';
                 } else if (rawErr.toLowerCase().includes('invalid') || rawErr.toLowerCase().includes('not found')) {
                     licenseError = 'Ключ WARP+ недействителен или не существует.';
+                } else if (rawErr) {
+                    licenseError = rawErr;
                 } else {
-                    licenseError = rawErr || `Ключ не применён (HTTP ${licResult.status})`;
+                    // HTTP 200 but type unknown — treat as applied if success=true
+                    if (body?.success === true) {
+                        accountType = 'warp_plus';
+                    } else {
+                        licenseError = `Ключ принят, но тип аккаунта не распознан (см. логи сервера)`;
+                    }
                 }
             }
         }
