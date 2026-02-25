@@ -225,6 +225,85 @@
       }
     }
 
+    /* ── Split tunneling ── */
+    .split-targets {
+      margin-top: 10px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    .split-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .split-tool-btn {
+      padding: 7px 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+
+    .split-tool-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .split-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .split-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      transition: background .2s, border-color .2s;
+    }
+
+    .split-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(124, 107, 219, 0.45);
+    }
+
+    .split-item input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+      margin: 0;
+      accent-color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .split-note {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    @media(max-width:640px) {
+      .split-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
     /* ── Generate button ── */
     .btn-generate {
       width: 100%;
@@ -579,6 +658,51 @@
       </select>
     </div>
 
+    <div class="field">
+      <label>Маршрутизация трафика</label>
+      <select id="splitMode">
+        <option value="full" selected>Весь трафик через VPN (Full Tunnel)</option>
+        <option value="selective">Только выбранные сервисы через VPN (Split Tunnel)</option>
+      </select>
+      <div class="split-note">
+        Split tunnel работает по IP/подсетям: домены резолвятся во время генерации конфига.
+      </div>
+
+      <div id="splitTargetsWrap" class="split-targets" style="display:none;">
+        <div class="split-tools">
+          <button type="button" class="split-tool-btn" onclick="applySplitPreset('social')">Часто нужно</button>
+          <button type="button" class="split-tool-btn" onclick="applySplitPreset('gaming')">Игры</button>
+          <button type="button" class="split-tool-btn" onclick="applySplitPreset('all')">Выбрать всё</button>
+          <button type="button" class="split-tool-btn" onclick="applySplitPreset('clear')">Очистить</button>
+        </div>
+
+        <div class="split-grid">
+          <label class="split-item"><input type="checkbox" data-split-target value="discord"><span>Discord</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="youtube"><span>YouTube</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="x_com"><span>X.com</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="instagram"><span>Instagram</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="twitch"><span>Twitch</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="telegram"><span>Telegram</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="steam"><span>Steam</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="faceit"><span>FACEIT</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="whatsapp"><span>WhatsApp</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="viber"><span>Viber</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="jetbrains"><span>JetBrains (+ CDN)</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="tiktok"><span>TikTok</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="apex_legends"><span>Apex Legends</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="ea_app"><span>EA App</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="battle_net"><span>Battle.net</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="cs2"><span>CS2</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="hearthstone"><span>Hearthstone</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="pubg"><span>PUBG</span></label>
+        </div>
+
+        <div class="split-note">
+          Для игровых сервисов это best effort: IP бэкендов часто меняются, иногда требуется обновить конфиг.
+        </div>
+      </div>
+    </div>
+
     <div style="display:flex; gap:10px;">
       <button class="btn-generate" id="generateBtn" onclick="generate()" style="flex:1">
         Сгенерировать конфиг
@@ -615,6 +739,44 @@
   </footer>
 
   <script>
+    const SPLIT_PRESETS = {
+      social: ['discord', 'youtube', 'x_com', 'instagram', 'twitch', 'telegram', 'whatsapp', 'viber', 'tiktok'],
+      gaming: ['steam', 'faceit', 'apex_legends', 'ea_app', 'battle_net', 'cs2', 'hearthstone', 'pubg'],
+    };
+
+    function getSplitCheckboxes() {
+      return Array.from(document.querySelectorAll('input[data-split-target]'));
+    }
+
+    function getSelectedSplitTargets() {
+      return getSplitCheckboxes().filter((el) => el.checked).map((el) => el.value);
+    }
+
+    function setSelectedSplitTargets(targets) {
+      const set = new Set(targets || []);
+      getSplitCheckboxes().forEach((el) => {
+        el.checked = set.has(el.value);
+      });
+    }
+
+    function applySplitPreset(kind) {
+      if (kind === 'clear') {
+        setSelectedSplitTargets([]);
+        return;
+      }
+      if (kind === 'all') {
+        setSelectedSplitTargets(getSplitCheckboxes().map((el) => el.value));
+        return;
+      }
+      setSelectedSplitTargets(SPLIT_PRESETS[kind] || []);
+    }
+
+    function updateSplitTargetsVisibility() {
+      const wrap = document.getElementById('splitTargetsWrap');
+      const mode = document.getElementById('splitMode').value;
+      wrap.style.display = mode === 'selective' ? 'block' : 'none';
+    }
+
     // ── Generate ──
     async function generate() {
       const btn = document.getElementById('generateBtn');
@@ -637,6 +799,8 @@
             endpointIp: document.getElementById('endpointIp').value,
             quicPreset: document.getElementById('quicPreset').value,
             dnsServer: document.getElementById('dnsServer').value,
+            splitMode: document.getElementById('splitMode').value,
+            splitTargets: getSelectedSplitTargets(),
           }),
         });
 
@@ -659,6 +823,13 @@
 
         let statusText = `Endpoint: ${data.endpoint}`;
         if (data.licenseError) statusText += ` · ⚠ Ключ: ${data.licenseError}`;
+        if (data.splitTunnel?.mode === 'selective') {
+          const selectedCount = data.splitTunnel.selectedTargets?.length || 0;
+          const routeCount = data.splitTunnel.resolvedAllowedIps || 0;
+          const unresolvedCount = data.splitTunnel.unresolvedDomains?.length || 0;
+          statusText += ` · Split: ${selectedCount} сервисов / ${routeCount} маршрутов`;
+          if (unresolvedCount) statusText += ` · DNS miss: ${unresolvedCount}`;
+        }
         document.getElementById('statusPill').textContent = statusText;
         resultCard.style.display = 'block';
         resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -702,7 +873,13 @@
       document.getElementById('endpointIp').value = 'auto';
       document.getElementById('dnsServer').value = 'cloudflare';
       document.getElementById('quicPreset').value = 'yandex';
+      document.getElementById('splitMode').value = 'full';
+      setSelectedSplitTargets([]);
+      updateSplitTargetsVisibility();
     }
+
+    document.getElementById('splitMode').addEventListener('change', updateSplitTargetsVisibility);
+    updateSplitTargetsVisibility();
 
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') generate();

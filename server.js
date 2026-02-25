@@ -2,6 +2,7 @@ const express = require('express');
 const https = require('https');
 const dns = require('dns').promises;
 const crypto = require('crypto');
+const net = require('net');
 const path = require('path');
 
 const app = express();
@@ -320,6 +321,84 @@ const WARP_ENDPOINTS = {
     'auto': 'Авто (из API)',
 };
 
+// ─────────────── Split tunneling targets ───────────────
+// Important: domain-based split routing is best-effort.
+// CDNs and game backends can change IPs frequently.
+const SPLIT_TUNNEL_TARGETS = {
+    discord: {
+        label: 'Discord',
+        domains: ['discord.com', 'discord.gg', 'discordapp.com', 'discordapp.net'],
+    },
+    youtube: {
+        label: 'YouTube',
+        domains: ['youtube.com', 'youtu.be', 'ytimg.com', 'googlevideo.com'],
+    },
+    x_com: {
+        label: 'X.com',
+        domains: ['x.com', 'twitter.com', 't.co', 'twimg.com'],
+    },
+    instagram: {
+        label: 'Instagram',
+        domains: ['instagram.com', 'cdninstagram.com', 'ig.me'],
+    },
+    twitch: {
+        label: 'Twitch',
+        domains: ['twitch.tv', 'ttvnw.net', 'jtvnw.net'],
+    },
+    telegram: {
+        label: 'Telegram',
+        domains: ['telegram.org', 't.me', 'telegram.me', 'tdesktop.com'],
+    },
+    steam: {
+        label: 'Steam',
+        domains: ['steampowered.com', 'steamcommunity.com', 'steamstatic.com', 'steamcontent.com', 'steam-chat.com'],
+    },
+    faceit: {
+        label: 'FACEIT',
+        domains: ['faceit.com', 'cdn.faceit.com'],
+    },
+    whatsapp: {
+        label: 'WhatsApp',
+        domains: ['whatsapp.com', 'whatsapp.net'],
+    },
+    viber: {
+        label: 'Viber',
+        domains: ['viber.com', 'vibercdn.com'],
+    },
+    jetbrains: {
+        label: 'JetBrains',
+        domains: ['jetbrains.com', 'download.jetbrains.com', 'plugins.jetbrains.com', 'account.jetbrains.com'],
+    },
+    tiktok: {
+        label: 'TikTok',
+        domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'byteoversea.com'],
+    },
+    apex_legends: {
+        label: 'Apex Legends',
+        domains: ['apexlegends.com', 'ea.com', 'origin.com'],
+    },
+    ea_app: {
+        label: 'EA App',
+        domains: ['ea.com', 'origin.com', 'eaassets-a.akamaihd.net'],
+    },
+    battle_net: {
+        label: 'Battle.net',
+        domains: ['battle.net', 'blizzard.com', 'blzstatic.com'],
+    },
+    cs2: {
+        label: 'CS2',
+        domains: ['steampowered.com', 'steamcommunity.com', 'steamstatic.com', 'valve.net'],
+    },
+    hearthstone: {
+        label: 'Hearthstone',
+        domains: ['battle.net', 'blizzard.com', 'blzstatic.com'],
+    },
+    pubg: {
+        label: 'PUBG',
+        domains: ['pubg.com', 'krafton.com', 'pubgmobile.com'],
+    },
+};
+
 // ─────────────── Cloudflare API helper ───────────────
 function cfRequest(method, urlPath, token, body) {
     return new Promise((resolve, reject) => {
@@ -351,11 +430,78 @@ function cfRequest(method, urlPath, token, body) {
 }
 
 async function resolveHost(host) {
-    if (!host || /^\d+\.\d+\.\d+\.\d+$/.test(host)) return host || '162.159.192.1';
+    if (!host || net.isIP(host)) return host || '162.159.192.1';
     try {
         const addrs = await dns.resolve4(host);
         return addrs[0] || '162.159.192.1';
     } catch { return '162.159.192.1'; }
+}
+
+function normalizeSplitTargets(splitTargets) {
+    if (!Array.isArray(splitTargets)) return [];
+    const uniq = new Set();
+    for (const raw of splitTargets) {
+        if (typeof raw !== 'string') continue;
+        const key = raw.trim();
+        if (!key || !SPLIT_TUNNEL_TARGETS[key]) continue;
+        uniq.add(key);
+    }
+    return Array.from(uniq);
+}
+
+async function resolveSplitAllowedIPs(targetKeys) {
+    const cidrs = new Set();
+    const domains = new Set();
+
+    for (const key of targetKeys) {
+        const target = SPLIT_TUNNEL_TARGETS[key];
+        if (!target) continue;
+        for (const domain of target.domains || []) {
+            if (typeof domain !== 'string') continue;
+            const clean = domain.trim().toLowerCase();
+            if (clean) domains.add(clean);
+        }
+        for (const cidr of target.cidrs || []) {
+            if (typeof cidr === 'string' && cidr.trim()) cidrs.add(cidr.trim());
+        }
+    }
+
+    const unresolvedDomains = [];
+
+    await Promise.all(Array.from(domains).map(async (domain) => {
+        const ipType = net.isIP(domain);
+        if (ipType === 4) {
+            cidrs.add(`${domain}/32`);
+            return;
+        }
+        if (ipType === 6) {
+            cidrs.add(`${domain}/128`);
+            return;
+        }
+
+        const [a4, a6] = await Promise.allSettled([dns.resolve4(domain), dns.resolve6(domain)]);
+        let resolved = false;
+
+        if (a4.status === 'fulfilled') {
+            for (const ip of a4.value) {
+                cidrs.add(`${ip}/32`);
+                resolved = true;
+            }
+        }
+        if (a6.status === 'fulfilled') {
+            for (const ip of a6.value) {
+                cidrs.add(`${ip}/128`);
+                resolved = true;
+            }
+        }
+        if (!resolved) unresolvedDomains.push(domain);
+    }));
+
+    return {
+        allowedIps: Array.from(cidrs).sort((a, b) => a.localeCompare(b)),
+        unresolvedDomains: unresolvedDomains.sort((a, b) => a.localeCompare(b)),
+        sourceDomains: domains.size,
+    };
 }
 
 // Return endpoint list to populate frontend
@@ -373,6 +519,8 @@ app.post('/api/generate', async (req, res) => {
             endpointIp = 'auto',
             quicPreset = 'yandex',
             dnsServer = 'cloudflare',
+            splitMode = 'full',
+            splitTargets = [],
         } = req.body;
 
         const DNS_SERVERS = {
@@ -397,6 +545,14 @@ app.post('/api/generate', async (req, res) => {
             mullvad: '194.242.2.2, 2a07:e340::2',                            // без логов, без рекламы
         };
         const dnsLine = DNS_SERVERS[dnsServer] || DNS_SERVERS.cloudflare;
+        const normalizedSplitTargets = splitMode === 'selective'
+            ? normalizeSplitTargets(splitTargets)
+            : [];
+        if (splitMode === 'selective' && !normalizedSplitTargets.length) {
+            return res.status(400).json({
+                error: 'Включен split tunneling, но не выбраны сервисы.',
+            });
+        }
 
         const profiles = {
             '1': { jc: 4, jmin: 40, jmax: 70 },
@@ -513,6 +669,36 @@ app.post('/api/generate', async (req, res) => {
         const ep = `${epIp}:${endpointPort}`;
 
         const address = ipv6 ? `${ipv4}, ${ipv6}` : ipv4;
+        let allowedIpsLine = '0.0.0.0/0, ::/0';
+        const splitTunnel = {
+            mode: 'full',
+            selectedTargets: [],
+            resolvedAllowedIps: 2,
+            unresolvedDomains: [],
+        };
+
+        if (splitMode === 'selective') {
+            const splitResolved = await resolveSplitAllowedIPs(normalizedSplitTargets);
+            if (!splitResolved.allowedIps.length) {
+                return res.status(400).json({
+                    error: 'Не удалось получить IP для выбранных сервисов. Выберите другие сервисы или попробуйте позже.',
+                });
+            }
+
+            // Keep config size under control for clients with strict parser limits.
+            if (splitResolved.allowedIps.length > 512) {
+                return res.status(400).json({
+                    error: `Слишком много маршрутов для split tunneling (${splitResolved.allowedIps.length}). Уменьшите количество выбранных сервисов.`,
+                });
+            }
+
+            allowedIpsLine = splitResolved.allowedIps.join(', ');
+            splitTunnel.mode = 'selective';
+            splitTunnel.selectedTargets = normalizedSplitTargets;
+            splitTunnel.resolvedAllowedIps = splitResolved.allowedIps.length;
+            splitTunnel.unresolvedDomains = splitResolved.unresolvedDomains;
+            splitTunnel.sourceDomains = splitResolved.sourceDomains;
+        }
 
         const config = [
             '[Interface]',
@@ -533,12 +719,12 @@ app.post('/api/generate', async (req, res) => {
             '',
             '[Peer]',
             `PublicKey = ${peerPub}`,
-            'AllowedIPs = 0.0.0.0/0, ::/0',
+            `AllowedIPs = ${allowedIpsLine}`,
             `Endpoint = ${ep}`,
             'PersistentKeepalive = 25',
         ].join('\n');
 
-        res.json({ config, accountType, endpoint: ep, licenseError });
+        res.json({ config, accountType, endpoint: ep, licenseError, splitTunnel });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: err.message });
