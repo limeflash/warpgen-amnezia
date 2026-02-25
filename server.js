@@ -334,19 +334,38 @@ const SPLIT_TUNNEL_TARGETS = {
         domains: [
             // Core app/web
             'discord.com',
+            'canary.discord.com',
+            'ptb.discord.com',
+            'discord.co',
             'discord.gg',
+            'dis.gd',
+            'discord.new',
+            'discord.store',
+            'discordapp.net',
+            'discordapp.io',
+            'discordcdn.com',
+            'api.discord.gg',
             'gateway.discord.gg',
+            'voice.discord.gg',
+            'rtc.discord.gg',
             'discordapp.com',
             // Updater / desktop binaries
             'updates.discord.com',
+            'dl.discordapp.net',
+            'dl2.discordapp.net',
             'stable.dl2.discordapp.net',
             // API/media/CDN endpoints seen in Discord desktop logs
             'cdn.discordapp.com',
+            'cdn.discordapp.net',
             'media.discordapp.net',
             'images-ext-1.discordapp.net',
             'images-ext-2.discordapp.net',
             'router.discordapp.net',
             'discord-attachments-uploads-prd.storage.googleapis.com',
+            'discord.media',
+            'discord.tools',
+            'meticulous-ingest.discord.tools',
+            'discordsays.com',
             'best.discord.media',
             'latency.discord.media',
             // Status/support endpoints that desktop client can open in-app
@@ -354,10 +373,32 @@ const SPLIT_TUNNEL_TARGETS = {
             'status.discordapp.com',
             'support.discord.com',
             'support.discordapp.com',
+            'discordstatus.com',
+            // Extra Discord-owned domains from community route lists
+            'discord-activities.com',
+            'discordactivities.com',
+            'discord.design',
+            'discord.dev',
+            'discord.gift',
+            'discord.gifts',
+            'discordmerch.com',
+            'discordpartygames.com',
             // Common regional gateway names (only resolvable ones are used)
             'gateway-us-east1-b.discord.gg',
             'gateway-us-east1-c.discord.gg',
             'gateway-us-east1-d.discord.gg',
+        ],
+        // Fallback for frequently rotating Discord/Cloudflare edge IPs.
+        // This keeps split mode stable for desktop/mobile apps when DNS answers
+        // differ after config generation.
+        cidrs: [
+            '162.159.128.0/19',
+            '162.159.136.0/22',
+            '188.114.96.0/20',
+            '104.16.0.0/13',
+            '172.64.0.0/13',
+            '2606:4700::/32',
+            '2a06:98c0::/29',
         ],
     },
     youtube: {
