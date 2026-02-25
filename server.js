@@ -331,7 +331,34 @@ const WARP_ENDPOINTS = {
 const SPLIT_TUNNEL_TARGETS = {
     discord: {
         label: 'Discord',
-        domains: ['discord.com', 'discord.gg', 'discordapp.com', 'discordapp.net'],
+        domains: [
+            // Core app/web
+            'discord.com',
+            'discord.gg',
+            'gateway.discord.gg',
+            'discordapp.com',
+            // Updater / desktop binaries
+            'updates.discord.com',
+            'stable.dl2.discordapp.net',
+            // API/media/CDN endpoints seen in Discord desktop logs
+            'cdn.discordapp.com',
+            'media.discordapp.net',
+            'images-ext-1.discordapp.net',
+            'images-ext-2.discordapp.net',
+            'router.discordapp.net',
+            'discord-attachments-uploads-prd.storage.googleapis.com',
+            'best.discord.media',
+            'latency.discord.media',
+            // Status/support endpoints that desktop client can open in-app
+            'status.discord.com',
+            'status.discordapp.com',
+            'support.discord.com',
+            'support.discordapp.com',
+            // Common regional gateway names (only resolvable ones are used)
+            'gateway-us-east1-b.discord.gg',
+            'gateway-us-east1-c.discord.gg',
+            'gateway-us-east1-d.discord.gg',
+        ],
     },
     youtube: {
         label: 'YouTube',
