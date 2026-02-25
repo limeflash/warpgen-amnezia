@@ -377,6 +377,22 @@ const SPLIT_TUNNEL_TARGETS = {
         label: 'TikTok',
         domains: ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'byteoversea.com'],
     },
+    ipcheck_2ip: {
+        label: '2IP',
+        domains: ['2ip.ru', '2ip.io', 'www.2ip.ru', 'www.2ip.io'],
+    },
+    speedtest: {
+        label: 'Speedtest',
+        domains: ['speedtest.com', 'speedtest.net', 'www.speedtest.net', 'ookla.com'],
+    },
+    fast_com: {
+        label: 'Fast.com',
+        domains: ['fast.com', 'api.fast.com', 'netflix.com', 'nflxvideo.net', 'nflximg.net'],
+    },
+    whoer: {
+        label: 'Whoer',
+        domains: ['whoer.net', 'www.whoer.net'],
+    },
     apex_legends: {
         label: 'Apex Legends',
         domains: ['apexlegends.com', 'ea.com', 'origin.com'],
