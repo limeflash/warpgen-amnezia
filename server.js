@@ -495,6 +495,19 @@ function normalizeInterfaceAddress(rawAddress) {
     return value;
 }
 
+function dnsServersToCidrs(dnsLine) {
+    if (typeof dnsLine !== 'string' || !dnsLine.trim()) return [];
+    const cidrs = new Set();
+    for (const raw of dnsLine.split(',')) {
+        const host = raw.trim();
+        if (!host) continue;
+        const ipType = net.isIP(host);
+        if (ipType === 4) cidrs.add(`${host}/32`);
+        if (ipType === 6) cidrs.add(`${host}/128`);
+    }
+    return Array.from(cidrs);
+}
+
 function normalizeSplitTargets(splitTargets) {
     if (!Array.isArray(splitTargets)) return [];
     const uniq = new Set();
@@ -764,17 +777,26 @@ app.post('/api/generate', async (req, res) => {
                 });
             }
 
+            const selectiveAllowedIps = new Set(splitResolved.allowedIps);
+            // Route selected DNS servers through tunnel in selective mode.
+            // Without this, OS can resolve blocked domains via local DNS and
+            // desktop apps may fail with TLS errors on update endpoints.
+            for (const dnsCidr of dnsServersToCidrs(dnsLine)) {
+                selectiveAllowedIps.add(dnsCidr);
+            }
+            const finalAllowedIps = Array.from(selectiveAllowedIps).sort((a, b) => a.localeCompare(b));
+
             // Keep config size under control for clients with strict parser limits.
-            if (splitResolved.allowedIps.length > 512) {
+            if (finalAllowedIps.length > 512) {
                 return res.status(400).json({
-                    error: `Слишком много маршрутов для split tunneling (${splitResolved.allowedIps.length}). Уменьшите количество выбранных сервисов.`,
+                    error: `Слишком много маршрутов для split tunneling (${finalAllowedIps.length}). Уменьшите количество выбранных сервисов.`,
                 });
             }
 
-            allowedIpsLine = splitResolved.allowedIps.join(', ');
+            allowedIpsLine = finalAllowedIps.join(', ');
             splitTunnel.mode = 'selective';
             splitTunnel.selectedTargets = normalizedSplitTargets;
-            splitTunnel.resolvedAllowedIps = splitResolved.allowedIps.length;
+            splitTunnel.resolvedAllowedIps = finalAllowedIps.length;
             splitTunnel.unresolvedDomains = splitResolved.unresolvedDomains;
             splitTunnel.sourceDomains = splitResolved.sourceDomains;
         }
