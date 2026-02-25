@@ -441,6 +441,17 @@ async function resolveHost(host) {
     } catch { return '162.159.192.1'; }
 }
 
+function normalizeInterfaceAddress(rawAddress) {
+    if (typeof rawAddress !== 'string') return '';
+    const value = rawAddress.trim();
+    if (!value) return '';
+    if (value.includes('/')) return value;
+    const ipType = net.isIP(value);
+    if (ipType === 4) return `${value}/32`;
+    if (ipType === 6) return `${value}/128`;
+    return value;
+}
+
 function normalizeSplitTargets(splitTargets) {
     if (!Array.isArray(splitTargets)) return [];
     const uniq = new Set();
@@ -672,7 +683,16 @@ app.post('/api/generate', async (req, res) => {
         }
         const ep = `${epIp}:${endpointPort}`;
 
-        const address = ipv6 ? `${ipv4}, ${ipv6}` : ipv4;
+        const address = [ipv4, ipv6]
+            .map(normalizeInterfaceAddress)
+            .filter(Boolean)
+            .join(', ');
+        if (!address) {
+            return res.status(502).json({
+                error: 'Cloudflare не вернул корректный адрес интерфейса',
+                details: cfg.interface?.addresses || null,
+            });
+        }
         let allowedIpsLine = '0.0.0.0/0, ::/0';
         const splitTunnel = {
             mode: 'full',
