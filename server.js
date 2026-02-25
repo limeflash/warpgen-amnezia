@@ -545,6 +545,7 @@ app.post('/api/generate', async (req, res) => {
     try {
         const {
             licenseKey = '',
+            configType = 'amnezia',
             obfsProfile = '1',
             endpointPort = '2408',
             endpointIp = 'auto',
@@ -553,6 +554,15 @@ app.post('/api/generate', async (req, res) => {
             splitMode = 'full',
             splitTargets = [],
         } = req.body;
+        const normalizedConfigType = typeof configType === 'string'
+            ? configType.trim().toLowerCase()
+            : 'amnezia';
+        if (!['amnezia', 'wireguard'].includes(normalizedConfigType)) {
+            return res.status(400).json({
+                error: 'Неверный тип конфига. Поддерживается: amnezia, wireguard.',
+            });
+        }
+        const isAmneziaConfig = normalizedConfigType === 'amnezia';
 
         const DNS_SERVERS = {
             cloudflare: '1.1.1.1, 2606:4700:4700::1111, 1.0.0.1, 2606:4700:4700::1001',
@@ -592,35 +602,37 @@ app.post('/api/generate', async (req, res) => {
         };
         const { jc, jmin, jmax } = profiles[obfsProfile] || profiles['1'];
 
-        // QUIC I1 — generate fresh per request when using generated presets
-        let i1;
-        if (quicPreset === 'none') {
-            i1 = '';
-        } else if (quicPreset === 'random') {
-            i1 = QUIC_PRESETS[QUIC_KEYS[Math.floor(Math.random() * QUIC_KEYS.length)]];
-        } else if (QUIC_PRESETS[quicPreset]) {
-            // For generated presets (not static captures), regenerate each time
-            const generatedKeys = [
-                'vk', 'ok', 'mail', 'gosuslugi', 'sberbank',
-                'ya', 'dzen', 'rutube', 'ozon', 'wildberries', 'avito', 'mos', 'nalog',
-                'google', 'youtube', 'apple', 'microsoft', 'amazon',
-                'discord', 'twitch', 'whatsapp', 'zoom', 'skype', 'steam', 'github',
-            ];
-            const sniMap = {
-                vk: 'vk.com', ok: 'ok.ru', mail: 'mail.ru', gosuslugi: 'gosuslugi.ru',
-                sberbank: 'online.sberbank.ru',
-                ya: 'ya.ru', dzen: 'dzen.ru', rutube: 'rutube.ru', ozon: 'ozon.ru',
-                wildberries: 'wildberries.ru', avito: 'avito.ru', mos: 'mos.ru', nalog: 'nalog.gov.ru',
-                google: 'www.google.com', youtube: 'www.youtube.com',
-                apple: 'www.apple.com', microsoft: 'www.microsoft.com', amazon: 'www.amazon.com',
-                discord: 'discord.com', twitch: 'www.twitch.tv', whatsapp: 'www.whatsapp.com',
-                zoom: 'zoom.us', skype: 'www.skype.com', steam: 'steampowered.com', github: 'github.com',
-            };
-            i1 = generatedKeys.includes(quicPreset)
-                ? buildQUICInitialPacket(sniMap[quicPreset])
-                : QUIC_PRESETS[quicPreset];
-        } else {
-            i1 = QUIC_PRESETS[QUIC_KEYS[Math.floor(Math.random() * QUIC_KEYS.length)]];
+        // QUIC I1 and obfuscation params are Amnezia-only.
+        let i1 = '';
+        if (isAmneziaConfig) {
+            if (quicPreset === 'none') {
+                i1 = '';
+            } else if (quicPreset === 'random') {
+                i1 = QUIC_PRESETS[QUIC_KEYS[Math.floor(Math.random() * QUIC_KEYS.length)]];
+            } else if (QUIC_PRESETS[quicPreset]) {
+                // For generated presets (not static captures), regenerate each time
+                const generatedKeys = [
+                    'vk', 'ok', 'mail', 'gosuslugi', 'sberbank',
+                    'ya', 'dzen', 'rutube', 'ozon', 'wildberries', 'avito', 'mos', 'nalog',
+                    'google', 'youtube', 'apple', 'microsoft', 'amazon',
+                    'discord', 'twitch', 'whatsapp', 'zoom', 'skype', 'steam', 'github',
+                ];
+                const sniMap = {
+                    vk: 'vk.com', ok: 'ok.ru', mail: 'mail.ru', gosuslugi: 'gosuslugi.ru',
+                    sberbank: 'online.sberbank.ru',
+                    ya: 'ya.ru', dzen: 'dzen.ru', rutube: 'rutube.ru', ozon: 'ozon.ru',
+                    wildberries: 'wildberries.ru', avito: 'avito.ru', mos: 'mos.ru', nalog: 'nalog.gov.ru',
+                    google: 'www.google.com', youtube: 'www.youtube.com',
+                    apple: 'www.apple.com', microsoft: 'www.microsoft.com', amazon: 'www.amazon.com',
+                    discord: 'discord.com', twitch: 'www.twitch.tv', whatsapp: 'www.whatsapp.com',
+                    zoom: 'zoom.us', skype: 'www.skype.com', steam: 'steampowered.com', github: 'github.com',
+                };
+                i1 = generatedKeys.includes(quicPreset)
+                    ? buildQUICInitialPacket(sniMap[quicPreset])
+                    : QUIC_PRESETS[quicPreset];
+            } else {
+                i1 = QUIC_PRESETS[QUIC_KEYS[Math.floor(Math.random() * QUIC_KEYS.length)]];
+            }
         }
 
         const { priv, pub } = generateWireGuardKeys();
@@ -740,22 +752,29 @@ app.post('/api/generate', async (req, res) => {
             splitTunnel.sourceDomains = splitResolved.sourceDomains;
         }
 
-        const config = [
+        const interfaceLines = [
             '[Interface]',
             `PrivateKey = ${priv}`,
-            'S1 = 0',
-            'S2 = 0',
-            `Jc = ${jc}`,
-            `Jmin = ${jmin}`,
-            `Jmax = ${jmax}`,
-            'H1 = 1',
-            'H2 = 2',
-            'H3 = 3',
-            'H4 = 4',
+            ...(isAmneziaConfig
+                ? [
+                    'S1 = 0',
+                    'S2 = 0',
+                    `Jc = ${jc}`,
+                    `Jmin = ${jmin}`,
+                    `Jmax = ${jmax}`,
+                    'H1 = 1',
+                    'H2 = 2',
+                    'H3 = 3',
+                    'H4 = 4',
+                ]
+                : []),
             'MTU = 1280',
             `Address = ${address}`,
             `DNS = ${dnsLine}`,
-            ...(i1 ? [`I1 = ${i1}`] : []),
+            ...(isAmneziaConfig && i1 ? [`I1 = ${i1}`] : []),
+        ];
+        const config = [
+            ...interfaceLines,
             '',
             '[Peer]',
             `PublicKey = ${peerPub}`,
@@ -764,7 +783,7 @@ app.post('/api/generate', async (req, res) => {
             'PersistentKeepalive = 25',
         ].join('\n');
 
-        res.json({ config, accountType, endpoint: ep, licenseError, splitTunnel });
+        res.json({ config, accountType, endpoint: ep, licenseError, splitTunnel, configType: normalizedConfigType });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: err.message });

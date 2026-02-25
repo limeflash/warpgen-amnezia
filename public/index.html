@@ -506,7 +506,7 @@
       </svg>
       <span>Warp<span class="logo-accent">Gen</span></span>
     </div>
-    <p>Генератор конфигов Cloudflare WARP для <strong>AmneziaWG 2.0</strong></p>
+    <p>Генератор конфигов Cloudflare WARP для <strong>AmneziaWG 2.0</strong> и <strong>WireGuard</strong></p>
   </header>
 
   <!-- Settings card -->
@@ -518,8 +518,19 @@
       <input type="text" id="licenseKey" placeholder="xxxxxxxx-xxxxxxxx-xxxxxxxx (оставьте пустым для бесплатного)">
     </div>
 
-    <div class="grid2">
-      <div class="field">
+    <div class="field">
+      <label>Тип конфига</label>
+      <select id="configType">
+        <option value="amnezia" selected>AmneziaWG / AmneziaVPN (S/J/H/I1)</option>
+        <option value="wireguard">WireGuard (vanilla)</option>
+      </select>
+      <div class="split-note">
+        Если на macOS нестабильно работает Amnezia-формат, попробуйте WireGuard (vanilla).
+      </div>
+    </div>
+
+    <div class="grid2" id="connectionGrid">
+      <div class="field amnezia-only">
         <label>Профиль обфускации</label>
         <select id="obfsProfile">
           <option value="1">Jc=4, Jmin=40, Jmax=70 — стабильный ✓</option>
@@ -600,7 +611,7 @@
       </select>
     </div>
 
-    <div class="field">
+    <div class="field amnezia-only">
       <label>Маскировка трафика (I1)</label>
       <select id="quicPreset">
         <option value="random">🎲 Случайный из всех протоколов</option>
@@ -745,10 +756,26 @@
   </footer>
 
   <script>
+    let lastGeneratedConfigType = 'amnezia';
+
     const SPLIT_PRESETS = {
       social: ['discord', 'youtube', 'x_com', 'instagram', 'twitch', 'telegram', 'whatsapp', 'viber', 'tiktok', 'ipcheck_2ip', 'speedtest', 'fast_com', 'whoer'],
       gaming: ['steam', 'faceit', 'apex_legends', 'ea_app', 'battle_net', 'cs2', 'hearthstone', 'pubg'],
     };
+
+    function getSelectedConfigType() {
+      const value = document.getElementById('configType').value;
+      return value === 'wireguard' ? 'wireguard' : 'amnezia';
+    }
+
+    function updateConfigTypeVisibility() {
+      const isAmnezia = getSelectedConfigType() === 'amnezia';
+      document.querySelectorAll('.amnezia-only').forEach((el) => {
+        el.style.display = isAmnezia ? '' : 'none';
+      });
+      const connectionGrid = document.getElementById('connectionGrid');
+      connectionGrid.style.gridTemplateColumns = isAmnezia ? '' : '1fr';
+    }
 
     function getSplitCheckboxes() {
       return Array.from(document.querySelectorAll('input[data-split-target]'));
@@ -800,6 +827,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             licenseKey: document.getElementById('licenseKey').value.trim(),
+            configType: getSelectedConfigType(),
             obfsProfile: document.getElementById('obfsProfile').value,
             endpointPort: document.getElementById('endpointPort').value,
             endpointIp: document.getElementById('endpointIp').value,
@@ -817,6 +845,7 @@
         }
 
         document.getElementById('config-output').value = data.config;
+        lastGeneratedConfigType = data.configType === 'wireguard' ? 'wireguard' : 'amnezia';
 
         const badge = document.getElementById('accountBadge');
         if (data.accountType === 'warp_plus' || data.accountType === 'unlimited') {
@@ -827,7 +856,7 @@
           badge.className = 'badge badge-free';
         }
 
-        let statusText = `Endpoint: ${data.endpoint}`;
+        let statusText = `Endpoint: ${data.endpoint} · ${lastGeneratedConfigType === 'wireguard' ? 'WireGuard' : 'Amnezia'}`;
         if (data.licenseError) statusText += ` · ⚠ Ключ: ${data.licenseError}`;
         if (data.splitTunnel?.mode === 'selective') {
           const selectedCount = data.splitTunnel.selectedTargets?.length || 0;
@@ -854,7 +883,9 @@
       const text = document.getElementById('config-output').value;
       const a = document.createElement('a');
       a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
-      a.download = 'WARP_AmneziaWG.conf';
+      a.download = lastGeneratedConfigType === 'wireguard'
+        ? 'WARP_WireGuard.conf'
+        : 'WARP_AmneziaWG.conf';
       a.click();
     }
 
@@ -874,17 +905,22 @@
     // ── Reset to defaults ──
     function resetDefaults() {
       document.getElementById('licenseKey').value = '';
+      document.getElementById('configType').value = 'amnezia';
       document.getElementById('obfsProfile').value = '1';
       document.getElementById('endpointPort').value = '2408';
       document.getElementById('endpointIp').value = 'auto';
       document.getElementById('dnsServer').value = 'cloudflare';
       document.getElementById('quicPreset').value = 'yandex';
       document.getElementById('splitMode').value = 'full';
+      lastGeneratedConfigType = 'amnezia';
       setSelectedSplitTargets([]);
+      updateConfigTypeVisibility();
       updateSplitTargetsVisibility();
     }
 
+    document.getElementById('configType').addEventListener('change', updateConfigTypeVisibility);
     document.getElementById('splitMode').addEventListener('change', updateSplitTargetsVisibility);
+    updateConfigTypeVisibility();
     updateSplitTargetsVisibility();
 
     document.addEventListener('keydown', (e) => {
