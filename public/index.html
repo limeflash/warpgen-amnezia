@@ -154,64 +154,6 @@
       font-size: 11px;
     }
 
-    /* ── Toggle row (proxy) ── */
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      cursor: pointer;
-      user-select: none;
-      transition: background .2s;
-    }
-
-    .toggle-row:hover {
-      background: rgba(255, 255, 255, 0.06);
-    }
-
-    .toggle-label {
-      font-size: 14px;
-    }
-
-    .toggle-sub {
-      font-size: 12px;
-      color: var(--muted);
-      margin-top: 2px;
-    }
-
-    .toggle {
-      width: 44px;
-      height: 24px;
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 99px;
-      position: relative;
-      flex-shrink: 0;
-      transition: background .25s;
-    }
-
-    .toggle::after {
-      content: '';
-      position: absolute;
-      top: 4px;
-      left: 4px;
-      width: 16px;
-      height: 16px;
-      background: #fff;
-      border-radius: 50%;
-      transition: transform .25s;
-    }
-
-    .toggle.on {
-      background: var(--accent);
-    }
-
-    .toggle.on::after {
-      transform: translateX(20px);
-    }
-
     /* ── Grid for selects ── */
     .grid2 {
       display: grid;
@@ -481,13 +423,26 @@
       color: var(--accent2);
       text-decoration: none;
     }
+
+    .version-line {
+      margin-top: 8px;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.55);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .secret-note {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
   </style>
 </head>
 
 <body>
 
   <header>
-    <div class="logo">
+    <div class="logo" id="logoTrigger" title="WarpGen">
       <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
         <circle cx="18" cy="18" r="17" stroke="url(#g1)" stroke-width="2" />
         <path d="M11 18 C11 13 15 10 18 10 C21 10 25 13 25 18 C25 23 21 26 18 26 C16 26 14 25 13 23" stroke="url(#g2)"
@@ -509,7 +464,6 @@
     <p>Генератор конфигов Cloudflare WARP для <strong>AmneziaWG 2.0</strong> и <strong>WireGuard</strong></p>
   </header>
 
-  <!-- Settings card -->
   <div class="card">
     <div class="card-title">Настройки конфига</div>
 
@@ -736,7 +690,32 @@
     <div class="error-box" id="errorBox"></div>
   </div>
 
-  <!-- Result card -->
+  <div class="card" id="secret-card" style="display:none;">
+    <div class="card-title">Секретные инструменты</div>
+
+    <div class="field">
+      <label>Проверка WARP+ ключа</label>
+      <div style="display:flex; gap:10px;">
+        <input type="text" id="secretLicenseKey" placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX" style="flex:1">
+        <button class="btn-copy" id="secretGenBtn" onclick="generateTestLicense()" style="width:220px; padding: 11px 16px;">
+          Сгенерировать TEST ключ
+        </button>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px;">
+      <button class="btn-generate" id="secretCheckBtn" onclick="checkSecretLicense()" style="flex:1">
+        Проверить ключ
+      </button>
+    </div>
+
+    <div class="status-pill" id="secretStatus"></div>
+
+    <div class="secret-note" style="margin-top: 15px;">
+      Генерируется легальный FREE ключ через официальный API Cloudflare, затем его можно сразу проверить.
+    </div>
+  </div>
+
   <div class="card" id="result-card">
     <div class="result-header">
       <div class="card-title" style="margin:0">Готовый конфиг</div>
@@ -753,10 +732,13 @@
   <footer>
     Импортируйте <code>.conf</code> в <a href="https://github.com/amnezia-vpn/amneziawg-windows"
       target="_blank">AmneziaWG</a> или <a href="https://amnezia.org" target="_blank">AmneziaVPN</a>
+    <div class="version-line">Версия: <span id="siteVersion">loading...</span></div>
   </footer>
 
   <script>
     let lastGeneratedConfigType = 'amnezia';
+    let secretTapCount = 0;
+    let secretTapTimer = null;
 
     const SPLIT_PRESETS = {
       social: ['discord', 'youtube', 'x_com', 'instagram', 'twitch', 'telegram', 'whatsapp', 'viber', 'tiktok', 'ipcheck_2ip', 'speedtest', 'fast_com', 'whoer'],
@@ -808,6 +790,107 @@
       const wrap = document.getElementById('splitTargetsWrap');
       const mode = document.getElementById('splitMode').value;
       wrap.style.display = mode === 'selective' ? 'block' : 'none';
+    }
+
+    async function loadVersion() {
+      const el = document.getElementById('siteVersion');
+      try {
+        const resp = await fetch('/api/version', { cache: 'no-store' });
+        const data = await resp.json();
+        if (!resp.ok || !data?.display) throw new Error('version_unavailable');
+        el.textContent = `v${data.display}`;
+      } catch {
+        el.textContent = 'unavailable';
+      }
+    }
+
+    function toggleSecretCard(forceShow = null) {
+      const card = document.getElementById('secret-card');
+      const shouldShow = forceShow === null ? card.style.display === 'none' : !!forceShow;
+      card.style.display = shouldShow ? 'block' : 'none';
+      if (shouldShow) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function handleLogoSecretTap() {
+      secretTapCount += 1;
+      if (secretTapTimer) clearTimeout(secretTapTimer);
+      secretTapTimer = setTimeout(() => {
+        secretTapCount = 0;
+      }, 3500);
+      if (secretTapCount >= 7) {
+        secretTapCount = 0;
+        toggleSecretCard();
+      }
+    }
+
+    async function checkSecretLicense() {
+      const key = document.getElementById('secretLicenseKey').value.trim();
+      const btn = document.getElementById('secretCheckBtn');
+      const status = document.getElementById('secretStatus');
+      status.textContent = '';
+      if (!key) {
+        status.textContent = 'Введите ключ для проверки.';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Проверяем...';
+      try {
+        const resp = await fetch('/api/check-license', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ licenseKey: key }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+          throw new Error(data.error || `Ошибка проверки: ${resp.status}`);
+        }
+        const verdict = data.valid ? 'валидный' : 'невалидный';
+        const accountType = data.accountType || 'unknown';
+        const referral = typeof data.referralCount === 'number' ? ` · referrals: ${data.referralCount}` : '';
+        const reason = data.message ? ` · ${data.message}` : '';
+        status.textContent = `Ключ ${verdict} · type: ${accountType}${referral}${reason}`;
+      } catch (err) {
+        status.textContent = `Ошибка: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Проверить ключ';
+      }
+    }
+
+    async function generateTestLicense() {
+      const btn = document.getElementById('secretGenBtn');
+      const status = document.getElementById('secretStatus');
+      const keyInput = document.getElementById('secretLicenseKey');
+      status.textContent = '';
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Генерируем...';
+      try {
+        const resp = await fetch('/api/generate-test-license', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+          throw new Error(data.error || `Ошибка генерации: ${resp.status}`);
+        }
+
+        if (!data.license) {
+          throw new Error('Сервер не вернул ключ.');
+        }
+
+        keyInput.value = data.license;
+        const type = data.accountType || 'free';
+        status.textContent = `Сгенерирован TEST ключ · type: ${type} · авто-проверка...`;
+        await checkSecretLicense();
+      } catch (err) {
+        status.textContent = `Ошибка: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Сгенерировать TEST ключ';
+      }
     }
 
     // ── Generate ──
@@ -920,8 +1003,10 @@
 
     document.getElementById('configType').addEventListener('change', updateConfigTypeVisibility);
     document.getElementById('splitMode').addEventListener('change', updateSplitTargetsVisibility);
+    document.getElementById('logoTrigger').addEventListener('click', handleLogoSecretTap);
     updateConfigTypeVisibility();
     updateSplitTargetsVisibility();
+    loadVersion();
 
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') generate();
