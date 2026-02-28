@@ -514,9 +514,10 @@
       <select id="configType">
         <option value="amnezia" selected>AmneziaWG / AmneziaVPN (S/J/H/I1)</option>
         <option value="wireguard">WireGuard (vanilla)</option>
+        <option value="wiresock">WireSock (WG + DisallowedIPs)</option>
       </select>
       <div class="split-note">
-        Если на macOS нестабильно работает Amnezia-формат, попробуйте WireGuard (vanilla).
+        Для режима blacklist/direct используйте WireSock.
       </div>
     </div>
 
@@ -650,15 +651,17 @@
       <select id="splitMode">
         <option value="full" selected>Весь трафик через VPN (Full Tunnel)</option>
         <option value="selective">Только выбранные сервисы через VPN (Split Tunnel)</option>
+        <option value="blacklist">Весь трафик через VPN, выбранные сервисы в DIRECT (Blacklist)</option>
       </select>
       <div class="split-note">
-        Split tunnel работает по IP/подсетям: домены резолвятся во время генерации конфига.
+        Split tunnel работает по IP/подсетям: домены резолвятся во время генерации конфига. Blacklist/direct поддерживается в WireSock.
       </div>
 
       <div id="splitTargetsWrap" class="split-targets" style="display:none;">
         <div class="split-tools">
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('social')">Часто нужно</button>
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('gaming')">Игры</button>
+          <button type="button" class="split-tool-btn" onclick="applySplitPreset('ru_direct')">geosite:ru</button>
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('all')">Выбрать всё</button>
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('clear')">Очистить</button>
         </div>
@@ -680,6 +683,7 @@
           <label class="split-item"><input type="checkbox" data-split-target value="speedtest"><span>Speedtest.com</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="fast_com"><span>Fast.com</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="whoer"><span>Whoer.net</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="geosite_ru"><span>geosite:ru (core)</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="apex_legends"><span>Apex Legends</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="ea_app"><span>EA App</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="battle_net"><span>Battle.net</span></label>
@@ -757,6 +761,15 @@
   <footer>
     Импортируйте <code>.conf</code> в <a href="https://github.com/amnezia-vpn/amneziawg-windows"
       target="_blank">AmneziaWG</a> или <a href="https://amnezia.org" target="_blank">AmneziaVPN</a>
+    <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; justify-content:center;">
+      <button type="button" class="split-tool-btn" onclick="downloadClientApp('wireguard')">Скачать WireGuard</button>
+      <button type="button" class="split-tool-btn" onclick="downloadClientApp('amnezia')">Скачать Amnezia</button>
+      <button type="button" class="split-tool-btn" onclick="downloadClientApp('clash_verge')">Скачать Clash Verge</button>
+      <button type="button" class="split-tool-btn" onclick="downloadClientApp('wiresock')">Скачать WireSock</button>
+    </div>
+    <div class="split-note" id="downloadHint" style="text-align:center; margin-top:8px;">
+      Платформа определяется автоматически. Скачивание идет через proxy вашего сервера.
+    </div>
     <div class="version-line">Версия: <span id="siteVersion">loading...</span></div>
   </footer>
 
@@ -770,6 +783,7 @@
     const SPLIT_PRESETS = {
       social: ['discord', 'youtube', 'x_com', 'instagram', 'twitch', 'telegram', 'whatsapp', 'viber', 'tiktok', 'ipcheck_2ip', 'speedtest', 'fast_com', 'whoer'],
       gaming: ['steam', 'faceit', 'apex_legends', 'ea_app', 'battle_net', 'cs2', 'hearthstone', 'pubg'],
+      ru_direct: ['geosite_ru'],
     };
 
     function addSelectOption(selectEl, value, label) {
@@ -829,6 +843,7 @@
 
     function getSelectedConfigType() {
       const value = document.getElementById('configType').value;
+      if (value === 'wiresock') return 'wiresock';
       return value === 'wireguard' ? 'wireguard' : 'amnezia';
     }
 
@@ -871,7 +886,48 @@
     function updateSplitTargetsVisibility() {
       const wrap = document.getElementById('splitTargetsWrap');
       const mode = document.getElementById('splitMode').value;
-      wrap.style.display = mode === 'selective' ? 'block' : 'none';
+      wrap.style.display = (mode === 'selective' || mode === 'blacklist') ? 'block' : 'none';
+    }
+
+    function detectClientPlatform() {
+      const ua = navigator.userAgent.toLowerCase();
+      const p = navigator.platform.toLowerCase();
+      if (ua.includes('android')) return 'android';
+      if (/iphone|ipad|ipod/.test(ua)) return 'ios';
+      if (p.includes('mac')) return 'macos';
+      if (p.includes('win')) return 'windows';
+      if (p.includes('linux')) return 'linux';
+      return 'windows';
+    }
+
+    function setDownloadHint(text) {
+      const el = document.getElementById('downloadHint');
+      if (el) el.textContent = text;
+    }
+
+    async function downloadClientApp(app) {
+      const platform = detectClientPlatform();
+      const url = `/api/client-download/${encodeURIComponent(app)}?platform=${encodeURIComponent(platform)}`;
+      setDownloadHint(`Запрашиваю ${app} для платформы ${platform} через proxy...`);
+      try {
+        const resp = await fetch(url, { method: 'GET' });
+        if (!resp.ok) throw new Error(`Download error ${resp.status}`);
+        const blob = await resp.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        const defaultName = `${app}-${platform}`;
+        const cd = resp.headers.get('content-disposition') || '';
+        const fileMatch = cd.match(/filename=\"?([^\";]+)\"?/i);
+        a.download = fileMatch?.[1] || defaultName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+        setDownloadHint(`Скачано: ${a.download || defaultName}`);
+      } catch (err) {
+        setDownloadHint(`Ошибка скачивания через proxy: ${err.message}`);
+      }
     }
 
     function renderDnsMiss(unresolvedDomains) {
@@ -1133,7 +1189,9 @@
         }
 
         document.getElementById('config-output').value = data.config;
-        lastGeneratedConfigType = data.configType === 'wireguard' ? 'wireguard' : 'amnezia';
+        if (data.configType === 'wireguard') lastGeneratedConfigType = 'wireguard';
+        else if (data.configType === 'wiresock') lastGeneratedConfigType = 'wiresock';
+        else lastGeneratedConfigType = 'amnezia';
 
         const badge = document.getElementById('accountBadge');
         if (data.accountType === 'warp_plus' || data.accountType === 'unlimited') {
@@ -1144,13 +1202,25 @@
           badge.className = 'badge badge-free';
         }
 
-        let statusText = `Endpoint: ${data.endpoint} · ${lastGeneratedConfigType === 'wireguard' ? 'WireGuard' : 'Amnezia'}`;
+        const configTitle = lastGeneratedConfigType === 'wireguard'
+          ? 'WireGuard'
+          : lastGeneratedConfigType === 'wiresock'
+            ? 'WireSock'
+            : 'Amnezia';
+        let statusText = `Endpoint: ${data.endpoint} · ${configTitle}`;
         if (data.licenseError) statusText += ` · ⚠ Ключ: ${data.licenseError}`;
         if (data.splitTunnel?.mode === 'selective') {
           const selectedCount = data.splitTunnel.selectedTargets?.length || 0;
           const routeCount = data.splitTunnel.resolvedAllowedIps || 0;
           const unresolvedCount = data.splitTunnel.unresolvedDomains?.length || 0;
           statusText += ` · Split: ${selectedCount} сервисов / ${routeCount} маршрутов`;
+          if (unresolvedCount) statusText += ` · DNS miss: ${unresolvedCount}`;
+        }
+        if (data.splitTunnel?.mode === 'blacklist') {
+          const selectedCount = data.splitTunnel.selectedTargets?.length || 0;
+          const routeCount = data.splitTunnel.disallowedIps || data.splitTunnel.resolvedAllowedIps || 0;
+          const unresolvedCount = data.splitTunnel.unresolvedDomains?.length || 0;
+          statusText += ` · Blacklist: ${selectedCount} сервисов / ${routeCount} direct-исключений`;
           if (unresolvedCount) statusText += ` · DNS miss: ${unresolvedCount}`;
         }
         renderDnsMiss(data.splitTunnel?.unresolvedDomains || []);
@@ -1174,6 +1244,8 @@
       a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
       a.download = lastGeneratedConfigType === 'wireguard'
         ? 'WARP_WireGuard.conf'
+        : lastGeneratedConfigType === 'wiresock'
+          ? 'WARP_WireSock.conf'
         : 'WARP_AmneziaWG.conf';
       a.click();
     }

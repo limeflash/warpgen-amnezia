@@ -359,6 +359,68 @@ const CLASH_DOMAIN_PRESETS = {
     ru_direct: ['yandex.ru', 'vk.com', 'rutube.ru', 'gosuslugi.ru', 'sberbank.ru'],
 };
 
+const CLIENT_DOWNLOADS = {
+    wireguard: {
+        title: 'WireGuard',
+        links: {
+            windows: 'https://download.wireguard.com/windows-client/wireguard-installer.exe',
+            macos: 'https://apps.apple.com/us/app/wireguard/id1451685025',
+            linux: 'https://www.wireguard.com/install/',
+            android: 'https://play.google.com/store/apps/details?id=com.wireguard.android',
+            ios: 'https://apps.apple.com/us/app/wireguard/id1451685025',
+        },
+    },
+    amnezia: {
+        title: 'AmneziaVPN',
+        github: {
+            repo: 'amnezia-vpn/amnezia-client',
+            platformAssetPatterns: {
+                windows: /_x64\.exe$/i,
+                macos: /_macos\.pkg$/i,
+                linux: /_linux_x64\.tar$/i,
+                android: /android9\+_arm64-v8a\.apk$/i,
+            },
+        },
+        links: {
+            windows: 'https://github.com/amnezia-vpn/amnezia-client/releases/latest',
+            macos: 'https://github.com/amnezia-vpn/amnezia-client/releases/latest',
+            linux: 'https://github.com/amnezia-vpn/amnezia-client/releases/latest',
+            android: 'https://github.com/amnezia-vpn/amnezia-client/releases/latest',
+            ios: 'https://apps.apple.com/us/app/amneziavpn/id1600529900',
+        },
+    },
+    clash_verge: {
+        title: 'Clash Verge',
+        github: {
+            repo: 'clash-verge-rev/clash-verge-rev',
+            platformAssetPatterns: {
+                windows: /_x64-setup\.exe$/i,
+                macos: /_x64\.dmg$/i,
+                linux: /_amd64\.deb$/i,
+            },
+        },
+        links: {
+            windows: 'https://github.com/clash-verge-rev/clash-verge-rev/releases/latest',
+            macos: 'https://github.com/clash-verge-rev/clash-verge-rev/releases/latest',
+            linux: 'https://github.com/clash-verge-rev/clash-verge-rev/releases/latest',
+            android: 'https://github.com/clash-verge-rev/clash-verge-rev/releases/latest',
+            ios: 'https://github.com/clash-verge-rev/clash-verge-rev/releases/latest',
+        },
+    },
+    wiresock: {
+        title: 'WireSock',
+        links: {
+            windows: 'https://www.wiresock.net/downloads/wiresock-secure-connect-win64-1.4.11.msi',
+            macos: 'https://www.wiresock.net/download/',
+            linux: 'https://www.wiresock.net/download/',
+            android: 'https://www.wiresock.net/download/',
+            ios: 'https://www.wiresock.net/download/',
+        },
+    },
+};
+const CLIENT_DOWNLOAD_CACHE_TTL_MS = 30 * 60 * 1000;
+const CLIENT_DOWNLOAD_CACHE = new Map();
+
 const SPLIT_TUNNEL_TARGETS = {
     discord: {
         label: 'Discord',
@@ -380,6 +442,16 @@ const SPLIT_TUNNEL_TARGETS = {
     speedtest: { label: 'Speedtest', domains: ['speedtest.com', 'speedtest.net', 'www.speedtest.net', 'ookla.com'] },
     fast_com: { label: 'Fast.com', domains: ['fast.com', 'api.fast.com', 'netflix.com', 'www.netflix.com', 'nflxvideo.net', 'assets.nflxext.com'] },
     whoer: { label: 'Whoer', domains: ['whoer.net', 'www.whoer.net'] },
+    geosite_ru: {
+        label: 'geosite:ru (core)',
+        domains: [
+            'yandex.ru', 'ya.ru', 'vk.com', 'mail.ru', 'ok.ru', 'dzen.ru', 'rutube.ru', 'avito.ru', 'gosuslugi.ru',
+            'sberbank.ru', 'alfabank.ru', 'tbank.ru', 'vtb.ru', 'ozon.ru', 'wildberries.ru', 'cdek.ru', 'pochta.ru',
+            'rbc.ru', 'lenta.ru', 'gazeta.ru', 'ria.ru', 'tass.ru', 'kommersant.ru', 'championat.com', 'sports.ru',
+            'kinopoisk.ru', 'ivi.ru', 'okko.tv', 'yoomoney.ru', 'qiwi.com', 'consultant.ru', 'garant.ru',
+            'nalog.gov.ru', 'mos.ru', 'moex.com', 'hh.ru', '2gis.ru', 'pikabu.ru', 'habr.com', 'yaplakal.com',
+        ],
+    },
     apex_legends: { label: 'Apex Legends', domains: ['apexlegends.com', 'www.playapex.com', 'respawn.com', 'ea.com', 'www.ea.com', 'origin.com', 'accounts.ea.com', 'gateway.ea.com', 'api1.origin.com', 'download.dm.origin.com', 'origin-a.akamaihd.net'] },
     ea_app: { label: 'EA App', domains: ['ea.com', 'www.ea.com', 'origin.com', 'accounts.ea.com', 'gateway.ea.com', 'api1.origin.com', 'download.dm.origin.com', 'origin-a.akamaihd.net', 'eaassets-a.akamaihd.net'] },
     battle_net: { label: 'Battle.net', domains: ['battle.net', 'www.battle.net', 'blizzard.com', 'www.blizzard.com', 'us.patch.battle.net', 'eu.patch.battle.net', 'blzddist1-a.akamaihd.net'] },
@@ -619,6 +691,108 @@ function getClientIp(req) {
         return xff.split(',')[0].trim();
     }
     return req.ip || req.socket?.remoteAddress || '';
+}
+
+function normalizeClientPlatform(value) {
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (['windows', 'macos', 'linux', 'android', 'ios'].includes(raw)) return raw;
+    return 'windows';
+}
+
+function proxyRemoteDownload(remoteUrl, res, depth = 0) {
+    if (depth > 5) {
+        res.status(502).json({ error: 'Too many redirects.' });
+        return;
+    }
+    const parsed = new URL(remoteUrl);
+    const client = parsed.protocol === 'https:' ? https : null;
+    if (!client) {
+        res.status(400).json({ error: 'Only https downloads are supported.' });
+        return;
+    }
+    const req = client.request({
+        method: 'GET',
+        hostname: parsed.hostname,
+        path: `${parsed.pathname}${parsed.search}`,
+        headers: { 'User-Agent': 'WarpGen-Download-Proxy/1.0' },
+    }, (remoteRes) => {
+        const code = remoteRes.statusCode || 500;
+        const location = remoteRes.headers.location;
+        if (code >= 300 && code < 400 && location) {
+            remoteRes.resume();
+            const nextUrl = new URL(location, remoteUrl).toString();
+            proxyRemoteDownload(nextUrl, res, depth + 1);
+            return;
+        }
+        res.status(code);
+        const passHeaders = ['content-type', 'content-length', 'content-disposition', 'last-modified', 'etag'];
+        for (const header of passHeaders) {
+            const val = remoteRes.headers[header];
+            if (val) res.setHeader(header, val);
+        }
+        remoteRes.pipe(res);
+    });
+    req.on('error', (err) => {
+        if (!res.headersSent) res.status(502).json({ error: `Download proxy failed: ${err.message}` });
+        else res.end();
+    });
+    req.end();
+}
+
+function githubApiJson(pathname) {
+    return new Promise((resolve, reject) => {
+        const req = https.request({
+            method: 'GET',
+            hostname: 'api.github.com',
+            path: pathname,
+            headers: {
+                'User-Agent': 'WarpGen-Download-Proxy/1.0',
+                'Accept': 'application/vnd.github+json',
+            },
+        }, (apiRes) => {
+            let raw = '';
+            apiRes.on('data', (chunk) => { raw += chunk; });
+            apiRes.on('end', () => {
+                if ((apiRes.statusCode || 500) >= 400) {
+                    reject(new Error(`GitHub API ${apiRes.statusCode}`));
+                    return;
+                }
+                try { resolve(JSON.parse(raw)); }
+                catch { reject(new Error('Invalid GitHub JSON')); }
+            });
+        });
+        req.on('error', reject);
+        req.end();
+    });
+}
+
+async function resolveGithubLatestAsset(appKey, appMeta, platform) {
+    const repo = appMeta?.github?.repo;
+    const pattern = appMeta?.github?.platformAssetPatterns?.[platform];
+    if (!repo || !pattern) return null;
+    const cacheKey = `${appKey}:${platform}`;
+    const cached = CLIENT_DOWNLOAD_CACHE.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < CLIENT_DOWNLOAD_CACHE_TTL_MS) return cached.url;
+
+    const release = await githubApiJson(`/repos/${repo}/releases/latest`);
+    const assets = Array.isArray(release?.assets) ? release.assets : [];
+    const asset = assets.find((x) => pattern.test(String(x?.name || '')));
+    const url = asset?.browser_download_url || null;
+    if (url) CLIENT_DOWNLOAD_CACHE.set(cacheKey, { ts: Date.now(), url });
+    return url;
+}
+
+async function resolveClientDownloadUrl(appKey, platform) {
+    const appMeta = CLIENT_DOWNLOADS[appKey];
+    if (!appMeta) return null;
+    let url = null;
+    try {
+        url = await resolveGithubLatestAsset(appKey, appMeta, platform);
+    } catch {
+        url = null;
+    }
+    if (url) return url;
+    return appMeta.links?.[platform] || appMeta.links?.windows || null;
 }
 
 function cleanupSpeedtestSessions() {
@@ -1013,6 +1187,33 @@ app.get('/api/version', (req, res) => {
     });
 });
 
+app.get('/api/client-downloads', (req, res) => {
+    const apps = Object.entries(CLIENT_DOWNLOADS).map(([key, meta]) => ({
+        key,
+        title: meta.title,
+        platforms: Object.keys(meta.links || {}),
+    }));
+    res.json({
+        apps,
+        platforms: ['windows', 'macos', 'linux', 'android', 'ios'],
+    });
+});
+
+app.get('/api/client-download/:app', async (req, res) => {
+    try {
+        const appKey = typeof req.params?.app === 'string' ? req.params.app.trim().toLowerCase() : '';
+        if (!CLIENT_DOWNLOADS[appKey]) {
+            return res.status(404).json({ error: 'Unknown app.' });
+        }
+        const platform = normalizeClientPlatform(req.query?.platform);
+        const url = await resolveClientDownloadUrl(appKey, platform);
+        if (!url) return res.status(404).json({ error: 'No download URL for platform.' });
+        proxyRemoteDownload(url, res);
+    } catch (err) {
+        res.status(502).json({ error: `Failed to resolve download: ${err.message}` });
+    }
+});
+
 app.get('/api/clash/options', (req, res) => {
     const cdnProviders = Object.keys(CDN_CIDRS).map((key) => ({
         key,
@@ -1236,12 +1437,13 @@ app.post('/api/generate', async (req, res) => {
         const normalizedConfigType = typeof configType === 'string'
             ? configType.trim().toLowerCase()
             : 'amnezia';
-        if (!['amnezia', 'wireguard'].includes(normalizedConfigType)) {
+        if (!['amnezia', 'wireguard', 'wiresock'].includes(normalizedConfigType)) {
             return res.status(400).json({
-                error: 'Неверный тип конфига. Поддерживается: amnezia, wireguard.',
+                error: 'Неверный тип конфига. Поддерживается: amnezia, wireguard, wiresock.',
             });
         }
         const isAmneziaConfig = normalizedConfigType === 'amnezia';
+        const isWireSockConfig = normalizedConfigType === 'wiresock';
         const normalizedEndpointIp = normalizeEndpointInput(endpointIp) || 'auto';
         const normalizedEndpointPort = normalizePortInput(endpointPort);
         if (!isAllowedWarpEndpoint(normalizedEndpointIp)) {
@@ -1278,12 +1480,17 @@ app.post('/api/generate', async (req, res) => {
             mullvad: '194.242.2.2, 2a07:e340::2',
         };
         const dnsLine = DNS_SERVERS[dnsServer] || DNS_SERVERS.malw_link;
-        const normalizedSplitTargets = splitMode === 'selective'
+        const normalizedSplitTargets = (splitMode === 'selective' || splitMode === 'blacklist')
             ? normalizeSplitTargets(splitTargets)
             : [];
-        if (splitMode === 'selective' && !normalizedSplitTargets.length) {
+        if ((splitMode === 'selective' || splitMode === 'blacklist') && !normalizedSplitTargets.length) {
             return res.status(400).json({
-                error: 'Включен split tunneling, но не выбраны сервисы.',
+                error: 'Включен split tunneling, но не выбраны сервисы/исключения.',
+            });
+        }
+        if (splitMode === 'blacklist' && !isWireSockConfig) {
+            return res.status(400).json({
+                error: 'Режим blacklist/direct поддерживается только для WireSock-конфига.',
             });
         }
 
@@ -1401,6 +1608,7 @@ app.post('/api/generate', async (req, res) => {
             });
         }
         let allowedIpsLine = '0.0.0.0/0, ::/0';
+        let disallowedIpsLine = '';
         const splitTunnel = {
             mode: 'full',
             selectedTargets: [],
@@ -1435,6 +1643,26 @@ app.post('/api/generate', async (req, res) => {
             splitTunnel.unresolvedDomains = splitResolved.unresolvedDomains;
             splitTunnel.sourceDomains = splitResolved.sourceDomains;
         }
+        if (splitMode === 'blacklist') {
+            const splitResolved = await resolveSplitAllowedIPs(normalizedSplitTargets);
+            if (!splitResolved.allowedIps.length) {
+                return res.status(400).json({
+                    error: 'Не удалось получить IP для direct-исключений.',
+                });
+            }
+            if (splitResolved.allowedIps.length > 512) {
+                return res.status(400).json({
+                    error: `Слишком много direct-исключений (${splitResolved.allowedIps.length}). Уменьшите количество выбранных сервисов.`,
+                });
+            }
+            disallowedIpsLine = splitResolved.allowedIps.join(', ');
+            splitTunnel.mode = 'blacklist';
+            splitTunnel.selectedTargets = normalizedSplitTargets;
+            splitTunnel.resolvedAllowedIps = splitResolved.allowedIps.length;
+            splitTunnel.unresolvedDomains = splitResolved.unresolvedDomains;
+            splitTunnel.sourceDomains = splitResolved.sourceDomains;
+            splitTunnel.disallowedIps = splitResolved.allowedIps.length;
+        }
 
         const interfaceLines = [
             '[Interface]',
@@ -1465,6 +1693,13 @@ app.post('/api/generate', async (req, res) => {
             `AllowedIPs = ${allowedIpsLine}`,
             `Endpoint = ${ep}`,
             'PersistentKeepalive = 25',
+            ...(isWireSockConfig && splitMode === 'blacklist'
+                ? [
+                    '',
+                    '[WireSock]',
+                    `DisallowedIPs = ${disallowedIpsLine}`,
+                ]
+                : []),
         ].join('\n');
 
         res.json({ config, accountType, endpoint: ep, licenseError, splitTunnel, configType: normalizedConfigType });
