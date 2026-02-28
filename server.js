@@ -653,9 +653,6 @@ $normalized = foreach ($r in $rows) {
 $best = $normalized | Sort-Object loss, latencyMs | Select-Object -First 1
 if (-not $best) { throw 'Cannot determine best endpoint' }
 $bestEndpoint = $best.endpoint
-if ($engageIps -contains ($best.endpoint -split ':')[0]) {
-  $bestEndpoint = 'engage.cloudflareclient.com:' + (($best.endpoint -split ':')[1])
-}
 
 Write-Host '[5/5] Reporting to site...'
 $payload = @{
