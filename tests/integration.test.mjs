@@ -153,8 +153,17 @@ test('Windows speedtest helper script contains fallback endpoint logic', async (
   assert.match(scriptText, /candidate-by-candidate check/);
   assert.match(scriptText, /windows-local-helper-fallback/);
   assert.match(scriptText, /162\.159\.192\.5:2408/);
+  assert.match(scriptText, /Get-FileHash\s+-Path\s+\$Path\s+-Algorithm\s+SHA256/);
+  assert.match(scriptText, /Get-AuthenticodeSignature/);
+  assert.match(scriptText, /Try-VerifyByChecksums/);
   assert.doesNotMatch(scriptText, /\$host\s*=/i);
   assert.match(scriptText, /\$candidateHostName\s*=/);
+
+  const fallbackJsonMatch = scriptText.match(/\$fallbackEndpoints = ConvertFrom-Json @'\s*([\s\S]*?)\s*'@/);
+  assert.ok(fallbackJsonMatch && fallbackJsonMatch[1], 'fallback JSON block should exist');
+  const fallbackEndpoints = JSON.parse(fallbackJsonMatch[1]);
+  assert.equal(fallbackEndpoints[0], '162.159.192.5:2408');
+  assert.ok(fallbackEndpoints.includes('engage.cloudflareclient.com:2408'));
 });
 
 test('Windows speedtest PS1 script contains DPI bypass via zapret block', async () => {
@@ -190,6 +199,23 @@ test('Windows speedtest PS1 script contains DPI bypass via zapret block', async 
   // Admin check is present
   assert.match(scriptText, /WindowsPrincipal/);
   assert.match(scriptText, /WindowsBuiltInRole/);
+});
+
+test('Windows speedtest session propagates dpiFirst flag into helper script', async () => {
+  const sessionResp = await fetch(`${BASE}/api/speedtest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dpiFirst: true }),
+  });
+  assert.equal(sessionResp.status, 200);
+  const { downloadPath } = await sessionResp.json();
+  assert.ok(downloadPath);
+
+  const scriptResp = await fetch(`${BASE}${downloadPath}`);
+  assert.equal(scriptResp.status, 200);
+  const scriptText = await scriptResp.text();
+  assert.match(scriptText, /\$dpiFirst = \$true/);
+  assert.match(scriptText, /DPI-first mode: skipping direct speedtest/);
 });
 
 test('Windows .bat script contains admin check and DPI info', async () => {

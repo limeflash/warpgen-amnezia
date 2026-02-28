@@ -329,10 +329,12 @@ const SPEEDTEST_SESSIONS = new Map();
 const SPEEDTEST_LAST_GOOD_BY_IP = new Map();
 const SPEEDTEST_ENDPOINT_STATS = new Map();
 const SPEEDTEST_FALLBACK_CURSOR_BY_IP = new Map();
+const SPEEDTEST_IP_TOUCH_TS = new Map();
+const SPEEDTEST_IP_STATE_TTL_MS = 24 * 60 * 60 * 1000;
+const SPEEDTEST_ENDPOINT_STATS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SPEEDTEST_MAX_TRACKED_CLIENTS = 5000;
+const SPEEDTEST_MAX_ENDPOINT_STATS = 4096;
 const SPEEDTEST_DEFAULT_FALLBACK_ENDPOINTS = [
-    'engage.cloudflareclient.com:2408',
-    'engage.cloudflareclient.com:1701',
-    'engage.cloudflareclient.com:908',
     '162.159.192.5:2408',
     '162.159.192.1:2408',
     '162.159.195.1:1701',
@@ -340,6 +342,9 @@ const SPEEDTEST_DEFAULT_FALLBACK_ENDPOINTS = [
     '162.159.192.18:908',
     '162.159.195.1:1843',
     '162.159.192.15:7559',
+    'engage.cloudflareclient.com:2408',
+    'engage.cloudflareclient.com:1701',
+    'engage.cloudflareclient.com:908',
 ];
 const CLASH_PROFILE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CLASH_PROFILES = new Map();
@@ -1501,6 +1506,63 @@ function cleanupSpeedtestSessions() {
             SPEEDTEST_SESSIONS.delete(id);
         }
     }
+    cleanupSpeedtestAdaptiveState();
+}
+
+function normalizeSpeedtestClientKey(clientIp) {
+    return typeof clientIp === 'string' ? clientIp.trim() : '';
+}
+
+function touchSpeedtestClientKey(clientIp) {
+    const key = normalizeSpeedtestClientKey(clientIp);
+    if (!key) return '';
+    SPEEDTEST_IP_TOUCH_TS.set(key, Date.now());
+    return key;
+}
+
+function cleanupSpeedtestAdaptiveState() {
+    const now = Date.now();
+
+    for (const [clientKey, touchedAt] of SPEEDTEST_IP_TOUCH_TS.entries()) {
+        if ((now - touchedAt) <= SPEEDTEST_IP_STATE_TTL_MS) continue;
+        SPEEDTEST_IP_TOUCH_TS.delete(clientKey);
+        SPEEDTEST_LAST_GOOD_BY_IP.delete(clientKey);
+        SPEEDTEST_FALLBACK_CURSOR_BY_IP.delete(clientKey);
+    }
+
+    for (const [endpoint, state] of SPEEDTEST_ENDPOINT_STATS.entries()) {
+        const lastSeen = Number.parseInt(String(state?.lastSeen || 0), 10);
+        if (Number.isFinite(lastSeen) && (now - lastSeen) <= SPEEDTEST_ENDPOINT_STATS_TTL_MS) continue;
+        SPEEDTEST_ENDPOINT_STATS.delete(endpoint);
+    }
+
+    if (SPEEDTEST_IP_TOUCH_TS.size > SPEEDTEST_MAX_TRACKED_CLIENTS) {
+        const overflow = SPEEDTEST_IP_TOUCH_TS.size - SPEEDTEST_MAX_TRACKED_CLIENTS;
+        const oldest = Array.from(SPEEDTEST_IP_TOUCH_TS.entries())
+            .sort((a, b) => a[1] - b[1])
+            .slice(0, overflow)
+            .map(([clientKey]) => clientKey);
+        for (const clientKey of oldest) {
+            SPEEDTEST_IP_TOUCH_TS.delete(clientKey);
+            SPEEDTEST_LAST_GOOD_BY_IP.delete(clientKey);
+            SPEEDTEST_FALLBACK_CURSOR_BY_IP.delete(clientKey);
+        }
+    }
+
+    if (SPEEDTEST_ENDPOINT_STATS.size > SPEEDTEST_MAX_ENDPOINT_STATS) {
+        const overflow = SPEEDTEST_ENDPOINT_STATS.size - SPEEDTEST_MAX_ENDPOINT_STATS;
+        const oldestLeastPopular = Array.from(SPEEDTEST_ENDPOINT_STATS.entries())
+            .sort((a, b) => {
+                const hitsDiff = (a[1]?.hits || 0) - (b[1]?.hits || 0);
+                if (hitsDiff !== 0) return hitsDiff;
+                return (a[1]?.lastSeen || 0) - (b[1]?.lastSeen || 0);
+            })
+            .slice(0, overflow)
+            .map(([endpoint]) => endpoint);
+        for (const endpoint of oldestLeastPopular) {
+            SPEEDTEST_ENDPOINT_STATS.delete(endpoint);
+        }
+    }
 }
 
 function normalizeEndpointForStats(endpoint) {
@@ -1515,8 +1577,9 @@ function normalizeEndpointForStats(endpoint) {
 function recordSpeedtestEndpointStat(clientIp, endpoint) {
     const normalized = normalizeEndpointForStats(endpoint);
     if (!normalized) return;
-    if (typeof clientIp === 'string' && clientIp.trim()) {
-        SPEEDTEST_LAST_GOOD_BY_IP.set(clientIp.trim(), normalized);
+    const clientKey = touchSpeedtestClientKey(clientIp);
+    if (clientKey) {
+        SPEEDTEST_LAST_GOOD_BY_IP.set(clientKey, normalized);
     }
     const current = SPEEDTEST_ENDPOINT_STATS.get(normalized) || { hits: 0, lastSeen: 0 };
     current.hits += 1;
@@ -1528,7 +1591,7 @@ function getRotatedDefaultFallbackEndpoints(clientIp) {
     const defaults = SPEEDTEST_DEFAULT_FALLBACK_ENDPOINTS.filter((endpoint) => !!normalizeEndpointForStats(endpoint));
     if (!defaults.length) return [];
 
-    const key = typeof clientIp === 'string' ? clientIp.trim() : '';
+    const key = touchSpeedtestClientKey(clientIp);
     if (!key) return defaults;
 
     const cursor = Number.parseInt(String(SPEEDTEST_FALLBACK_CURSOR_BY_IP.get(key) || 0), 10);
@@ -1540,7 +1603,7 @@ function getRotatedDefaultFallbackEndpoints(clientIp) {
 
 function getAdaptiveSpeedtestFallbackEndpoints(clientIp) {
     const out = new Set();
-    const key = typeof clientIp === 'string' ? clientIp.trim() : '';
+    const key = touchSpeedtestClientKey(clientIp);
     if (key && SPEEDTEST_LAST_GOOD_BY_IP.has(key)) {
         out.add(SPEEDTEST_LAST_GOOD_BY_IP.get(key));
     }
@@ -1598,6 +1661,111 @@ if (Test-Path $workDir) { Remove-Item -Recurse -Force $workDir }
 New-Item -ItemType Directory -Path $workDir | Out-Null
 Set-Location $workDir
 
+function Get-FileSha256Hex {
+  param([string]$Path)
+  try {
+    return (Get-FileHash -Path $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLower()
+  } catch {
+    return $null
+  }
+}
+
+function Try-DownloadChecksumsAsset {
+  param(
+    [object]$Release,
+    [string]$TargetDir,
+    [string]$Label
+  )
+  try {
+    $checksumAsset = $Release.assets | Where-Object {
+      $_.name -match '(?i)(sha256|checksums?)' -and $_.name -match '(?i)\\.(txt|sha256|sha256sum)$'
+    } | Select-Object -First 1
+    if (-not $checksumAsset) {
+      Write-Host ('[Verify] ' + $Label + ': no checksum asset in release.')
+      return $null
+    }
+    $checksumsPath = Join-Path $TargetDir ('checksums-' + $Label + '-' + $checksumAsset.name)
+    Invoke-WebRequest -Uri $checksumAsset.browser_download_url -OutFile $checksumsPath -ErrorAction Stop
+    return $checksumsPath
+  } catch {
+    Write-Host ('[Verify] ' + $Label + ': failed to download checksums: ' + $_.Exception.Message)
+    return $null
+  }
+}
+
+function Try-VerifyByChecksums {
+  param(
+    [string]$FilePath,
+    [string]$FileName,
+    [string]$ChecksumsPath,
+    [string]$Label
+  )
+  if (-not $ChecksumsPath -or -not (Test-Path $ChecksumsPath)) { return $false }
+  try {
+    $expectedHash = $null
+    $lines = Get-Content -Path $ChecksumsPath -ErrorAction Stop
+    foreach ($line in $lines) {
+      $trimmed = ($line | Out-String).Trim()
+      if (-not $trimmed -or $trimmed.Length -lt 65) { continue }
+      $hashCandidate = $trimmed.Substring(0, 64).ToLower()
+      if ($hashCandidate -notmatch '^[a-f0-9]{64}$') { continue }
+      $nameCandidate = $trimmed.Substring(64).Trim().TrimStart('*').Trim()
+      if ($nameCandidate -ieq $FileName) {
+        $expectedHash = $hashCandidate
+        break
+      }
+    }
+    if (-not $expectedHash) {
+      Write-Host ('[Verify] ' + $Label + ': checksum entry not found for ' + $FileName)
+      return $false
+    }
+    $actualHash = Get-FileSha256Hex -Path $FilePath
+    if (-not $actualHash) {
+      throw 'Failed to compute local SHA256 hash'
+    }
+    if ($actualHash -ne $expectedHash) {
+      throw ('SHA256 mismatch. Expected=' + $expectedHash + ' Actual=' + $actualHash)
+    }
+    Write-Host ('[Verify] ' + $Label + ': SHA256 verified for ' + $FileName)
+    return $true
+  } catch {
+    Write-Host ('[Verify] ' + $Label + ': checksum verification failed: ' + $_.Exception.Message)
+    return $false
+  }
+}
+
+function Report-AuthenticodeStatus {
+  param([string]$FilePath, [string]$Label)
+  try {
+    $sig = Get-AuthenticodeSignature -FilePath $FilePath -ErrorAction Stop
+    if ($sig.Status -eq 'Valid') {
+      $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { 'unknown signer' }
+      Write-Host ('[Verify] ' + $Label + ': Authenticode VALID (' + $subject + ')')
+      return $true
+    }
+    Write-Host ('[Verify] ' + $Label + ': Authenticode status=' + $sig.Status)
+    return $false
+  } catch {
+    Write-Host ('[Verify] ' + $Label + ': Authenticode check unavailable: ' + $_.Exception.Message)
+    return $false
+  }
+}
+
+function Normalize-EndpointForReport {
+  param(
+    [string]$Endpoint,
+    [array]$EngageIpList
+  )
+  if (-not $Endpoint) { return $Endpoint }
+  $parts = $Endpoint -split ':'
+  if ($parts.Count -lt 2) { return $Endpoint }
+  $host = $parts[0].Trim()
+  $port = $parts[1].Trim()
+  if (-not $host -or -not $port) { return $Endpoint }
+  if ($EngageIpList -contains $host) { return ('engage.cloudflareclient.com:' + $port) }
+  return $Endpoint
+}
+
 $cpu = [Math]::Max(1, [Environment]::ProcessorCount)
 $workerP = [Math]::Max(8, [Math]::Min(32, $cpu * 2))
 $primaryC = [Math]::Max(800, [Math]::Min(6000, $cpu * 350))
@@ -1614,10 +1782,16 @@ $asset = $release.assets | Where-Object { $_.name -like ('*windows-' + $arch + '
 if (-not $asset) { throw 'Windows build not found in latest release' }
 $zipPath = Join-Path $workDir $asset.name
 Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+$speedtestChecksums = Try-DownloadChecksumsAsset -Release $release -TargetDir $workDir -Label 'CloudflareWarpSpeedTest'
+$speedtestHashOk = Try-VerifyByChecksums -FilePath $zipPath -FileName $asset.name -ChecksumsPath $speedtestChecksums -Label 'CloudflareWarpSpeedTest'
+if (-not $speedtestHashOk) {
+  Write-Host '[Verify] CloudflareWarpSpeedTest: checksum verification skipped or unavailable.'
+}
 Expand-Archive -Path $zipPath -DestinationPath $workDir -Force
 
 $exe = Get-ChildItem -Path $workDir -Recurse -Filter '*.exe' | Where-Object { $_.Name -like 'CloudflareWarpSpeedTest*.exe' } | Select-Object -First 1
 if (-not $exe) { throw 'CloudflareWarpSpeedTest executable not found after extraction' }
+Report-AuthenticodeStatus -FilePath $exe.FullName -Label 'CloudflareWarpSpeedTest' | Out-Null
 
 Write-Host '[2/5] Building local IP list...'
 $staticIps = @(${psIpArray})
@@ -1821,6 +1995,11 @@ if (-not $bestEndpoint) {
         $z2Zip = Join-Path $workDir ('zapret2-' + $z2Asset.name)
         Write-Host ('[DPI] Скачиваем ' + $z2Asset.name + '...')
         Invoke-WebRequest -Uri $z2Asset.browser_download_url -OutFile $z2Zip -ErrorAction Stop
+        $z2Checksums = Try-DownloadChecksumsAsset -Release $z2Release -TargetDir $workDir -Label 'zapret2'
+        $z2HashOk = Try-VerifyByChecksums -FilePath $z2Zip -FileName $z2Asset.name -ChecksumsPath $z2Checksums -Label 'zapret2'
+        if (-not $z2HashOk) {
+          Write-Host '[Verify] zapret2: checksum verification skipped or unavailable.'
+        }
         New-Item -ItemType Directory -Path $zapretDir -Force | Out-Null
         Expand-Archive -Path $z2Zip -DestinationPath $zapretDir -Force
         $winwsExe = Get-ChildItem -Path $zapretDir -Recurse -Filter 'winws2.exe' | Select-Object -First 1
@@ -1843,6 +2022,11 @@ if (-not $bestEndpoint) {
           $z1Zip = Join-Path $workDir ('zapret-' + $z1Asset.name)
           Write-Host ('[DPI] Скачиваем ' + $z1Asset.name + '...')
           Invoke-WebRequest -Uri $z1Asset.browser_download_url -OutFile $z1Zip -ErrorAction Stop
+          $z1Checksums = Try-DownloadChecksumsAsset -Release $z1Release -TargetDir $workDir -Label 'zapret'
+          $z1HashOk = Try-VerifyByChecksums -FilePath $z1Zip -FileName $z1Asset.name -ChecksumsPath $z1Checksums -Label 'zapret'
+          if (-not $z1HashOk) {
+            Write-Host '[Verify] zapret: checksum verification skipped or unavailable.'
+          }
           if (-not (Test-Path $zapretDir)) { New-Item -ItemType Directory -Path $zapretDir -Force | Out-Null }
           Expand-Archive -Path $z1Zip -DestinationPath $zapretDir -Force
           $winwsExe = Get-ChildItem -Path $zapretDir -Recurse -Filter 'winws.exe' | Select-Object -First 1
@@ -1856,6 +2040,7 @@ if (-not $bestEndpoint) {
     # --- Шаг 3: запустить winws и повторить скан ---
     if ($winwsExe) {
       try {
+        Report-AuthenticodeStatus -FilePath $winwsExe.FullName -Label 'winws' | Out-Null
         $warpPorts = '${warpPortsStr}'
         $winwsArgs = "--wf-udp=$warpPorts --udp-fake-count=6 --wf-l3=ipv4"
         Write-Host ('[DPI] Запускаем winws: ' + $winwsExe.FullName)
@@ -1905,6 +2090,10 @@ if (-not $bestEndpoint) {
       Write-Host '[DPI] winws не найден. DPI-bypass недоступен.'
     }
   }
+}
+
+if ($bestEndpoint) {
+  $bestEndpoint = Normalize-EndpointForReport -Endpoint $bestEndpoint -EngageIpList $engageIps
 }
 
 if (-not $bestEndpoint) {
@@ -2136,6 +2325,7 @@ function cleanupClashProfiles() {
 }
 
 setInterval(cleanupSpeedtestSessions, 5 * 60 * 1000).unref();
+setInterval(cleanupSpeedtestAdaptiveState, 30 * 60 * 1000).unref();
 setInterval(cleanupClashProfiles, 10 * 60 * 1000).unref();
 
 app.get('/api/endpoints', (req, res) => {
