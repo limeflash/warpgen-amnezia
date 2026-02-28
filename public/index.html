@@ -463,6 +463,53 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
 
+    .faq-block {
+      margin: 14px auto 0;
+      max-width: 700px;
+      text-align: left;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 10px 12px;
+    }
+
+    .faq-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      color: #9fb2ce;
+      margin-bottom: 8px;
+    }
+
+    .faq-item {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 8px 0;
+    }
+
+    .faq-item:first-of-type {
+      border-top: 0;
+      padding-top: 2px;
+    }
+
+    .faq-item summary {
+      cursor: pointer;
+      font-size: 13px;
+      color: #d8e4f8;
+      list-style: none;
+      user-select: none;
+    }
+
+    .faq-item summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .faq-text {
+      margin-top: 6px;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+
     .secret-note {
       margin-top: 10px;
       font-size: 12px;
@@ -806,8 +853,6 @@
   </div>
 
   <footer>
-    Импортируйте <code>.conf</code> в <a href="https://github.com/amnezia-vpn/amneziawg-windows"
-      target="_blank">AmneziaWG</a> или <a href="https://amnezia.org" target="_blank">AmneziaVPN</a>
     <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; justify-content:center;">
       <button type="button" class="split-tool-btn" onclick="downloadClientApp('wireguard')">Скачать WireGuard</button>
       <button type="button" class="split-tool-btn" onclick="downloadClientApp('amnezia')">Скачать Amnezia</button>
@@ -816,6 +861,37 @@
     </div>
     <div class="split-note" id="downloadHint" style="text-align:center; margin-top:8px;">
       Платформа определяется автоматически. Скачивание идет через proxy вашего сервера.
+    </div>
+    <div class="faq-block">
+      <div class="faq-title">FAQ / Инструкции</div>
+      <details class="faq-item">
+        <summary>Какой тип конфига выбрать?</summary>
+        <div class="faq-text">
+          <strong>Amnezia</strong> — для AmneziaVPN/AmneziaWG с обфускацией. <strong>WireGuard</strong> — ванильный клиент.
+          <strong>WireSock</strong> — если нужен blacklist/direct и Protocol masking.
+        </div>
+      </details>
+      <details class="faq-item">
+        <summary>Как работает локальный speedtest?</summary>
+        <div class="faq-text">
+          Нажмите кнопку локального подбора, скачайте helper и запустите его на своей машине.
+          После теста лучший endpoint и порт подставятся автоматически в форму.
+        </div>
+      </details>
+      <details class="faq-item">
+        <summary>Почему split tunnel может работать не на все сервисы?</summary>
+        <div class="faq-text">
+          Маршрутизация строится по IP/CIDR. У сервисов (особенно игровых и CDN) IP часто меняются, поэтому иногда нужно
+          пересоздать конфиг или выбрать дополнительные сервисы в списке.
+        </div>
+      </details>
+      <details class="faq-item">
+        <summary>Что делать, если клиент не скачивается?</summary>
+        <div class="faq-text">
+          Кнопки сначала используют proxy, а при недоступности бинарника откроют официальную страницу загрузки.
+          Для WireSock на macOS/Linux/iOS/Android всегда открывается официальный download page.
+        </div>
+      </details>
     </div>
     <div class="version-line">Версия: <span id="siteVersion">loading...</span></div>
   </footer>
