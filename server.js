@@ -550,6 +550,11 @@ function isAllowedWarpResultIp(ip) {
     return false;
 }
 
+function isAllowedWarpResultHost(host) {
+    if (typeof host !== 'string') return false;
+    return host.trim().toLowerCase() === 'engage.cloudflareclient.com';
+}
+
 function parseEndpointHostPort(rawValue) {
     if (typeof rawValue !== 'string') return null;
     const clean = rawValue.trim();
@@ -619,7 +624,13 @@ if (-not $exe) { throw 'CloudflareWarpSpeedTest executable not found after extra
 
 Write-Host '[2/5] Building local IP list...'
 $staticIps = @(${psIpArray})
-$allIps = $staticIps | Sort-Object -Unique
+$engageIps = @()
+try {
+  $engageIps = Resolve-DnsName -Name 'engage.cloudflareclient.com' -Type A -ErrorAction Stop | Select-Object -ExpandProperty IPAddress -Unique
+} catch {
+  Write-Host 'engage.cloudflareclient.com DNS resolve failed, continuing with static ranges.'
+}
+$allIps = ($staticIps + $engageIps) | Sort-Object -Unique
 if (-not $allIps -or $allIps.Count -eq 0) { throw 'No IPs to test' }
 $ipFile = Join-Path $workDir 'ip.txt'
 $allIps | Set-Content -Path $ipFile -Encoding ascii
@@ -641,11 +652,15 @@ $normalized = foreach ($r in $rows) {
 }
 $best = $normalized | Sort-Object loss, latencyMs | Select-Object -First 1
 if (-not $best) { throw 'Cannot determine best endpoint' }
+$bestEndpoint = $best.endpoint
+if ($engageIps -contains ($best.endpoint -split ':')[0]) {
+  $bestEndpoint = 'engage.cloudflareclient.com:' + (($best.endpoint -split ':')[1])
+}
 
 Write-Host '[5/5] Reporting to site...'
 $payload = @{
   sessionId = $sessionId
-  bestEndpoint = $best.endpoint
+  bestEndpoint = $bestEndpoint
   topResults = @($normalized | Sort-Object loss, latencyMs | Select-Object -First 5)
   source = 'windows-local-helper'
 } | ConvertTo-Json -Depth 8
@@ -653,7 +668,7 @@ Invoke-RestMethod -Uri $reportUrl -Method POST -ContentType 'application/json' -
 
 try { Set-Clipboard -Value $best.endpoint } catch {}
 Write-Host ''
-Write-Host ('Best endpoint: ' + $best.endpoint)
+Write-Host ('Best endpoint: ' + $bestEndpoint)
 Write-Host 'Done. You can return to the site, endpoint will be filled automatically.'
 `;
 }
@@ -770,7 +785,11 @@ app.post('/api/speedtest/report', (req, res) => {
     if (!session) return res.status(404).json({ error: 'Session not found or expired.' });
 
     const parsed = parseEndpointHostPort(bestEndpoint);
-    if (!parsed || !isAllowedWarpPort(parsed.port) || !isAllowedWarpResultIp(parsed.host)) {
+    if (!parsed || !isAllowedWarpPort(parsed.port)) {
+        return res.status(400).json({ error: 'Best endpoint port is outside allowed port list.' });
+    }
+    const hostAllowed = isAllowedWarpResultIp(parsed.host) || isAllowedWarpResultHost(parsed.host);
+    if (!hostAllowed) {
         return res.status(400).json({ error: 'Best endpoint is outside allowed endpoint/port list.' });
     }
 
