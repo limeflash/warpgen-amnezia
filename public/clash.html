@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WarpGen Clash Configurator</title>
+  <style>
+    :root {
+      --bg: #0a1221;
+      --card: rgba(12, 22, 40, 0.86);
+      --text: #e8edf8;
+      --muted: #97a9c7;
+      --accent: #1f7a8c;
+      --accent2: #6aa84f;
+      --danger: #c94f4f;
+      --border: rgba(180, 200, 230, 0.18);
+      --chip: rgba(31, 122, 140, 0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", sans-serif;
+      background: radial-gradient(1200px 700px at 10% -10%, #17315c 0%, transparent 60%),
+                  radial-gradient(800px 500px at 100% 0%, #1a3a2b 0%, transparent 55%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 26px 18px 36px; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .title { margin: 0; font-size: 30px; letter-spacing: .2px; }
+    .subtitle { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+    .btn-link {
+      color: #d6f4ff; text-decoration: none; border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04); padding: 10px 13px; border-radius: 10px; font-size: 13px;
+    }
+    .grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+    .card h2 { margin: 0 0 12px; font-size: 20px; }
+    .help { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+    input, select, textarea {
+      width: 100%; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text);
+      border-radius: 9px; padding: 10px 11px; font-size: 14px;
+    }
+    textarea { min-height: 96px; resize: vertical; }
+    .row { display: grid; grid-template-columns: repeat(12, 1fr); gap: 10px; }
+    .col-3 { grid-column: span 3; }
+    .col-4 { grid-column: span 4; }
+    .col-6 { grid-column: span 6; }
+    .col-8 { grid-column: span 8; }
+    .col-12 { grid-column: span 12; }
+    .server-row {
+      border: 1px solid var(--border); border-radius: 12px; padding: 10px; margin-bottom: 10px;
+      background: rgba(255,255,255,0.03);
+    }
+    .server-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .badge { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--chip); }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    button {
+      border: 1px solid var(--border); border-radius: 10px; color: var(--text); cursor: pointer;
+      background: rgba(255,255,255,0.05); padding: 10px 13px; font-size: 13px;
+    }
+    button.primary { background: linear-gradient(135deg, #1f7a8c, #2f9ca8); border-color: transparent; }
+    button.good { background: linear-gradient(135deg, #3f7f2b, #5aa043); border-color: transparent; }
+    button.danger { background: rgba(201,79,79,0.2); border-color: rgba(201,79,79,0.5); }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      padding: 8px 11px; border-radius: 999px; border: 1px solid var(--border); cursor: pointer;
+      background: rgba(255,255,255,0.04); font-size: 13px;
+    }
+    .chip.active { background: var(--chip); border-color: rgba(75, 180, 205, .6); }
+    .status { margin-top: 10px; font-size: 13px; color: var(--muted); }
+    .result {
+      margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 10px;
+      background: rgba(0,0,0,0.2);
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; }
+    .warn { color: #ffcf75; font-size: 12px; margin-top: 8px; }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+      .row { grid-template-columns: repeat(6, 1fr); }
+      .col-8, .col-6, .col-4, .col-3, .col-12 { grid-column: span 6; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <h1 class="title">Clash Configurator</h1>
+        <p class="subtitle">Генератор profile URL для Clash Verge: WARP / AmneziaWG / WireGuard (WG-совместимый вывод)</p>
+      </div>
+      <a class="btn-link" href="/">← Вернуться в основной генератор</a>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Серверы и Туннели</h2>
+        <p class="help">Добавляйте несколько узлов. Для Clash итоговый формат: WireGuard-proxy.</p>
+
+        <div class="row">
+          <div class="col-8">
+            <label>Имя профиля</label>
+            <input id="profileName" value="WarpGen Clash" />
+          </div>
+          <div class="col-4">
+            <label>Amnezia версия (метка)</label>
+            <select id="amneziaVersion">
+              <option value="1.0">1.0</option>
+              <option value="1.5" selected>1.5</option>
+              <option value="2.0">2.0</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="servers"></div>
+
+        <div class="btn-row">
+          <button onclick="addServer()">+ Добавить сервер</button>
+          <button onclick="addWarpTemplate()">+ WARP шаблон</button>
+          <button class="danger" onclick="clearServers()">Очистить серверы</button>
+        </div>
+
+        <div class="warn">Примечание: поля Amnezia (Jc/Jmin/Jmax/H*/I1) Clash не использует, поэтому в Clash-конфиге они не применяются.</div>
+      </div>
+
+      <div class="card">
+        <h2>DNS, CDN, Routing</h2>
+        <p class="help">Гибкая настройка DNS и маршрутизации для Clash Verge.</p>
+
+        <div class="row">
+          <div class="col-6">
+            <label>DNS режим</label>
+            <select id="dnsMode">
+              <option value="fake-ip" selected>fake-ip</option>
+              <option value="redir-host">redir-host</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label>Шаблоны DNS</label>
+            <div class="btn-row" style="margin-top: 0;">
+              <button onclick="fillDnsPreset('doh')">DoH</button>
+              <button onclick="fillDnsPreset('dot')">DoT</button>
+              <button onclick="fillDnsPreset('mixed')">Mixed</button>
+            </div>
+          </div>
+
+          <div class="col-12">
+            <label>Nameserver (по одному на строку)</label>
+            <textarea id="dnsNameservers"></textarea>
+          </div>
+          <div class="col-12">
+            <label>Fallback (по одному на строку)</label>
+            <textarea id="dnsFallback"></textarea>
+          </div>
+        </div>
+
+        <label style="margin-top: 6px;">CDN-провайдеры (IP-CIDR через VPN)</label>
+        <div class="chips" id="cdnChips"></div>
+
+        <div class="row" style="margin-top: 10px;">
+          <div class="col-12">
+            <label>Домены через VPN (по одному на строку)</label>
+            <textarea id="proxyDomains"></textarea>
+          </div>
+          <div class="col-12">
+            <label>Домены напрямую DIRECT (по одному на строку)</label>
+            <textarea id="directDomains"></textarea>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button onclick="applyDomainPreset('blocked')">Заблокированные сайты → VPN</button>
+          <button onclick="applyDomainPreset('ru')">RU трафик → DIRECT</button>
+          <button onclick="applyDomainPreset('clear')">Очистить домены</button>
+        </div>
+
+        <div class="btn-row" style="margin-top: 14px;">
+          <button class="primary" id="genBtn" onclick="generateProfileUrl()">Сгенерировать Profile URL</button>
+          <button class="good" onclick="copyProfileUrl()">Копировать URL</button>
+        </div>
+
+        <div class="status" id="status">Готово к генерации.</div>
+        <div class="result" id="result" style="display:none;">
+          <div>Profile URL:</div>
+          <div class="mono" id="resultUrl"></div>
+          <div class="status" id="resultMeta"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const serverRows = [];
+    let clashOptions = null;
+
+    function lineSplit(text) {
+      return String(text || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    }
+
+    function createServerRow(initial = {}) {
+      const idx = serverRows.length + 1;
+      const wrap = document.createElement('div');
+      wrap.className = 'server-row';
+      wrap.innerHTML = `
+        <div class="server-head">
+          <div class="badge">Node #${idx}</div>
+          <button class="danger" type="button">Удалить</button>
+        </div>
+        <div class="row">
+          <div class="col-4"><label>Имя</label><input data-k="name" value="${initial.name || 'warp-node-' + idx}"></div>
+          <div class="col-4"><label>Тип</label>
+            <select data-k="type">
+              <option value="warp" ${initial.type === 'warp' ? 'selected' : ''}>WARP</option>
+              <option value="amnezia" ${initial.type === 'amnezia' ? 'selected' : ''}>AmneziaWG</option>
+              <option value="wireguard" ${initial.type === 'wireguard' ? 'selected' : ''}>WireGuard</option>
+            </select>
+          </div>
+          <div class="col-4"><label>Port</label><input data-k="port" value="${initial.port || '2408'}"></div>
+          <div class="col-6"><label>Server</label><input data-k="server" value="${initial.server || 'engage.cloudflareclient.com'}"></div>
+          <div class="col-6"><label>Address (WG ip/cidr)</label><input data-k="address" value="${initial.address || '172.16.0.2/32'}"></div>
+          <div class="col-6"><label>Private key</label><input data-k="privateKey" value="${initial.privateKey || ''}"></div>
+          <div class="col-6"><label>Public key</label><input data-k="publicKey" value="${initial.publicKey || 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo='}"></div>
+        </div>
+      `;
+      wrap.querySelector('button').addEventListener('click', () => {
+        wrap.remove();
+        const i = serverRows.indexOf(wrap);
+        if (i >= 0) serverRows.splice(i, 1);
+        refreshNodeLabels();
+      });
+      return wrap;
+    }
+
+    function refreshNodeLabels() {
+      serverRows.forEach((row, i) => {
+        const badge = row.querySelector('.badge');
+        if (badge) badge.textContent = `Node #${i + 1}`;
+      });
+    }
+
+    function addServer(initial = {}) {
+      const node = createServerRow(initial);
+      serverRows.push(node);
+      document.getElementById('servers').appendChild(node);
+      refreshNodeLabels();
+    }
+
+    function addWarpTemplate() {
+      addServer({ type: 'warp', server: 'engage.cloudflareclient.com', port: '2408', address: '172.16.0.2/32' });
+    }
+
+    function clearServers() {
+      document.getElementById('servers').innerHTML = '';
+      serverRows.length = 0;
+    }
+
+    function collectServers() {
+      return serverRows.map((row) => {
+        const get = (k) => row.querySelector(`[data-k="${k}"]`)?.value || '';
+        return {
+          name: get('name').trim(),
+          type: get('type').trim(),
+          server: get('server').trim(),
+          port: Number.parseInt(get('port').trim(), 10),
+          address: get('address').trim(),
+          privateKey: get('privateKey').trim(),
+          publicKey: get('publicKey').trim(),
+          amneziaVersion: document.getElementById('amneziaVersion').value,
+        };
+      });
+    }
+
+    function fillDnsPreset(kind) {
+      const ns = document.getElementById('dnsNameservers');
+      const fb = document.getElementById('dnsFallback');
+      if (kind === 'dot') {
+        ns.value = ['tls://dns.malw.link', 'tls://1.1.1.1', 'tls://8.8.8.8'].join('\n');
+        fb.value = ['tls://9.9.9.9', 'tls://1.0.0.1'].join('\n');
+        return;
+      }
+      if (kind === 'doh') {
+        ns.value = ['https://dns.malw.link/dns-query', 'https://1.1.1.1/dns-query', 'https://dns.google/dns-query'].join('\n');
+        fb.value = ['https://9.9.9.9/dns-query', 'https://1.0.0.1/dns-query'].join('\n');
+        return;
+      }
+      ns.value = ['https://dns.malw.link/dns-query', 'tls://1.1.1.1', '8.8.8.8'].join('\n');
+      fb.value = ['https://1.0.0.1/dns-query', 'tls://9.9.9.9'].join('\n');
+    }
+
+    function selectedCdnProviders() {
+      return Array.from(document.querySelectorAll('#cdnChips .chip.active')).map((el) => el.dataset.key);
+    }
+
+    function applyDomainPreset(kind) {
+      if (!clashOptions) return;
+      const proxy = document.getElementById('proxyDomains');
+      const direct = document.getElementById('directDomains');
+      if (kind === 'clear') {
+        proxy.value = '';
+        direct.value = '';
+        return;
+      }
+      if (kind === 'blocked') {
+        proxy.value = (clashOptions.domainPresets?.blocked_sites || []).join('\n');
+        return;
+      }
+      if (kind === 'ru') {
+        direct.value = (clashOptions.domainPresets?.ru_direct || []).join('\n');
+      }
+    }
+
+    async function loadClashOptions() {
+      const resp = await fetch('/api/clash/options', { cache: 'no-store' });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'clash options unavailable');
+      clashOptions = data;
+
+      const chips = document.getElementById('cdnChips');
+      chips.innerHTML = '';
+      (data.cdnProviders || []).forEach((p) => {
+        const el = document.createElement('div');
+        el.className = 'chip';
+        el.dataset.key = p.key;
+        el.textContent = `${p.label} (${p.cidrCount})`;
+        el.addEventListener('click', () => el.classList.toggle('active'));
+        chips.appendChild(el);
+      });
+      fillDnsPreset('mixed');
+    }
+
+    async function generateProfileUrl() {
+      const btn = document.getElementById('genBtn');
+      const status = document.getElementById('status');
+      const result = document.getElementById('result');
+      const resultUrl = document.getElementById('resultUrl');
+      const resultMeta = document.getElementById('resultMeta');
+      result.style.display = 'none';
+
+      const payload = {
+        name: document.getElementById('profileName').value.trim(),
+        nodes: collectServers(),
+        dns: {
+          mode: document.getElementById('dnsMode').value,
+          nameservers: lineSplit(document.getElementById('dnsNameservers').value),
+          fallback: lineSplit(document.getElementById('dnsFallback').value),
+        },
+        routing: {
+          cdnProviders: selectedCdnProviders(),
+          proxyDomains: lineSplit(document.getElementById('proxyDomains').value),
+          ruDirectDomains: lineSplit(document.getElementById('directDomains').value),
+        },
+      };
+
+      btn.disabled = true;
+      status.textContent = 'Генерируем profile URL...';
+      try {
+        const resp = await fetch('/api/clash/profile-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) throw new Error(data.error || 'Ошибка генерации');
+
+        result.style.display = 'block';
+        resultUrl.textContent = data.profileUrl;
+        resultMeta.textContent = `Профиль: ${data.name} · TTL: ${Math.floor((data.expiresInSec || 0) / 3600)}h · Узлов: ${payload.nodes.length}`;
+        status.textContent = 'Готово. Этот URL можно добавить в Clash Verge как profile/subscription.';
+      } catch (err) {
+        status.textContent = `Ошибка: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function copyProfileUrl() {
+      const text = document.getElementById('resultUrl').textContent.trim();
+      const status = document.getElementById('status');
+      if (!text) {
+        status.textContent = 'Сначала сгенерируйте profile URL.';
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      status.textContent = 'Profile URL скопирован.';
+    }
+
+    addWarpTemplate();
+    loadClashOptions().catch((err) => {
+      document.getElementById('status').textContent = `Ошибка загрузки опций: ${err.message}`;
+    });
+  </script>
+</body>
+</html>

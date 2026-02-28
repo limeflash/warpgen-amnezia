@@ -10,6 +10,9 @@ const { execSync } = require('child_process');
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/clash', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'clash.html'));
+});
 
 function safeExec(cmd) {
     try {
@@ -321,6 +324,40 @@ const WARP_ENDPOINTS = WARP_ENDPOINT_GROUPS.reduce((acc, group) => {
 
 const SPEEDTEST_SESSION_TTL_MS = 20 * 60 * 1000;
 const SPEEDTEST_SESSIONS = new Map();
+const CLASH_PROFILE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CLASH_PROFILES = new Map();
+const WARP_WIREGUARD_PUBLIC_KEY = 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=';
+
+const CDN_CIDRS = {
+    cloudflare: ['104.16.0.0/13', '172.64.0.0/13', '188.114.96.0/20', '162.159.0.0/16', '2606:4700::/32', '2a06:98c0::/29'],
+    akamai: ['23.0.0.0/12', '23.32.0.0/11', '23.64.0.0/14', '2600:1400::/24'],
+    aws: ['3.0.0.0/8', '13.0.0.0/8', '15.0.0.0/7', '18.0.0.0/8', '35.71.0.0/16'],
+    cdn77: ['37.19.192.0/19', '45.64.64.0/22', '2a02:26f0::/32'],
+    cogent: ['38.0.0.0/8', '154.54.0.0/16', '2001:550::/32'],
+    contabo: ['62.171.0.0/16', '185.217.0.0/16'],
+    datacamp: ['89.38.96.0/19', '80.82.64.0/20'],
+    digitalocean: ['104.131.0.0/16', '159.65.0.0/16', '167.99.0.0/16', '2a03:b0c0::/32'],
+    fastly: ['23.235.32.0/20', '43.249.72.0/22', '2a04:4e42::/32'],
+    hetzner: ['49.12.0.0/16', '88.198.0.0/16', '2a01:4f8::/32'],
+    oracle: ['129.146.0.0/16', '132.145.0.0/16', '2603:c020::/32'],
+    ovh: ['51.68.0.0/16', '54.36.0.0/15', '2001:41d0::/32'],
+    roblox: ['128.116.0.0/16', '128.116.64.0/18'],
+    scaleway: ['51.15.0.0/16', '62.210.0.0/16', '2001:bc8::/32'],
+    vercel: ['76.76.21.0/24', '76.76.22.0/24'],
+};
+
+const CLASH_DOMAIN_PRESETS = {
+    blocked_sites: [
+        'discord.com', 'discord.gg', 'discordapp.net', 'youtube.com', 'googlevideo.com', 'x.com',
+        'twitter.com', 't.co', 'instagram.com', 'twitch.tv', 'telegram.org', 't.me',
+        'steamcommunity.com', 'steampowered.com', 'steam-chat.com', 'faceit.com', 'open.faceit.com',
+        'apexlegends.com', 'ea.com', 'origin.com', 'battle.net', 'blizzard.com',
+        'playhearthstone.com', 'pubg.com', 'playbattlegrounds.com', 'krafton.com',
+        'whatsapp.com', 'whatsapp.net', 'viber.com', 'tiktok.com', 'tiktokv.com',
+        'jetbrains.com', 'download.jetbrains.com', 'plugins.jetbrains.com',
+    ],
+    ru_direct: ['yandex.ru', 'vk.com', 'rutube.ru', 'gosuslugi.ru', 'sberbank.ru'],
+};
 
 const SPLIT_TUNNEL_TARGETS = {
     discord: {
@@ -692,7 +729,173 @@ pause
 `;
 }
 
+function sanitizeProfileName(value, fallback) {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (!raw) return fallback;
+    return raw.replace(/\s+/g, ' ').slice(0, 64);
+}
+
+function normalizeClashNodeType(value) {
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (raw === 'warp' || raw === 'amnezia' || raw === 'wireguard') return raw;
+    return 'wireguard';
+}
+
+function validateClashNode(node, idx) {
+    const name = sanitizeProfileName(node?.name, `node-${idx + 1}`);
+    const type = normalizeClashNodeType(node?.type);
+    const server = typeof node?.server === 'string' ? node.server.trim() : '';
+    const port = Number.parseInt(String(node?.port || ''), 10);
+    const privateKey = typeof node?.privateKey === 'string' ? node.privateKey.trim() : '';
+    const publicKey = typeof node?.publicKey === 'string' && node.publicKey.trim()
+        ? node.publicKey.trim()
+        : WARP_WIREGUARD_PUBLIC_KEY;
+    const address = typeof node?.address === 'string' && node.address.trim()
+        ? node.address.trim()
+        : '172.16.0.2/32';
+
+    if (!server) throw new Error(`Узел #${idx + 1}: server обязателен.`);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Узел #${idx + 1}: некорректный port.`);
+    if (!privateKey) throw new Error(`Узел #${idx + 1}: privateKey обязателен.`);
+
+    return {
+        name,
+        type,
+        server,
+        port,
+        privateKey,
+        publicKey,
+        address,
+        reserved: Array.isArray(node?.reserved) ? node.reserved.slice(0, 3).map((n) => Number.parseInt(n, 10) || 0) : null,
+    };
+}
+
+function toYamlValue(value) {
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (value === null || value === undefined) return '""';
+    const str = String(value);
+    if (/^[a-zA-Z0-9._:@/+-]+$/.test(str)) return str;
+    return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function renderYamlObject(obj, indent = 0) {
+    const pad = ' '.repeat(indent);
+    const lines = [];
+    for (const [key, value] of Object.entries(obj)) {
+        if (Array.isArray(value)) {
+            if (!value.length) {
+                lines.push(`${pad}${key}: []`);
+                continue;
+            }
+            lines.push(`${pad}${key}:`);
+            for (const item of value) {
+                if (item && typeof item === 'object' && !Array.isArray(item)) {
+                    const entries = Object.entries(item);
+                    if (!entries.length) {
+                        lines.push(`${pad}  - {}`);
+                        continue;
+                    }
+                    const [firstKey, firstValue] = entries[0];
+                    lines.push(`${pad}  - ${firstKey}: ${toYamlValue(firstValue)}`);
+                    for (let i = 1; i < entries.length; i += 1) {
+                        const [nestedKey, nestedValue] = entries[i];
+                        lines.push(`${pad}    ${nestedKey}: ${toYamlValue(nestedValue)}`);
+                    }
+                } else {
+                    lines.push(`${pad}  - ${toYamlValue(item)}`);
+                }
+            }
+            continue;
+        }
+        if (value && typeof value === 'object') {
+            lines.push(`${pad}${key}:`);
+            lines.push(renderYamlObject(value, indent + 2));
+            continue;
+        }
+        lines.push(`${pad}${key}: ${toYamlValue(value)}`);
+    }
+    return lines.filter(Boolean).join('\n');
+}
+
+function buildClashYaml(profile) {
+    const proxyNames = profile.nodes.map((node) => node.name);
+    const dnsNameservers = Array.isArray(profile.dns.nameservers) && profile.dns.nameservers.length
+        ? profile.dns.nameservers
+        : ['https://dns.malw.link/dns-query'];
+    const dnsFallback = Array.isArray(profile.dns.fallback) && profile.dns.fallback.length
+        ? profile.dns.fallback
+        : ['https://1.1.1.1/dns-query', 'tls://1.1.1.1'];
+    const rules = [];
+    for (const domain of profile.routing.ruDirectDomains) rules.push(`DOMAIN-SUFFIX,${domain},DIRECT`);
+    for (const domain of profile.routing.proxyDomains) rules.push(`DOMAIN-SUFFIX,${domain},WARP Auto`);
+    for (const cidr of profile.routing.cdnCidrs) rules.push(`IP-CIDR,${cidr},WARP Auto,no-resolve`);
+    rules.push('MATCH,DIRECT');
+    const lines = [
+        'mixed_port: 7890',
+        'allow_lan: true',
+        'mode: rule',
+        'log-level: info',
+        'ipv6: true',
+        'proxies:',
+    ];
+
+    for (const node of profile.nodes) {
+        lines.push(`  - name: ${toYamlValue(node.name)}`);
+        lines.push('    type: wireguard');
+        lines.push(`    server: ${toYamlValue(node.server)}`);
+        lines.push(`    port: ${node.port}`);
+        lines.push(`    ip: ${toYamlValue(node.address)}`);
+        lines.push(`    private-key: ${toYamlValue(node.privateKey)}`);
+        lines.push(`    public-key: ${toYamlValue(node.publicKey)}`);
+        lines.push('    udp: true');
+        lines.push('    remote-dns-resolve: true');
+        lines.push('    mtu: 1280');
+        if (Array.isArray(node.reserved) && node.reserved.length === 3) {
+            lines.push(`    reserved: [${node.reserved.map((n) => Number.parseInt(n, 10) || 0).join(', ')}]`);
+        }
+        if (node.type === 'amnezia') {
+            lines.push('    x-note: amnezia-metadata-only');
+        }
+    }
+
+    lines.push('proxy-groups:');
+    lines.push('  - name: "WARP Auto"');
+    lines.push('    type: url-test');
+    lines.push('    proxies:');
+    for (const name of proxyNames) lines.push(`      - ${toYamlValue(name)}`);
+    lines.push('    url: http://www.gstatic.com/generate_204');
+    lines.push('    interval: 300');
+    lines.push('    tolerance: 80');
+    lines.push('  - name: "WARP Manual"');
+    lines.push('    type: select');
+    lines.push('    proxies:');
+    for (const name of [...proxyNames, 'WARP Auto', 'DIRECT']) lines.push(`      - ${toYamlValue(name)}`);
+
+    lines.push('dns:');
+    lines.push('  enable: true');
+    lines.push('  listen: 0.0.0.0:1053');
+    lines.push('  ipv6: true');
+    lines.push(`  enhanced-mode: ${profile.dns.mode === 'redir-host' ? 'redir-host' : 'fake-ip'}`);
+    lines.push('  fake-ip-range: 198.18.0.1/16');
+    lines.push('  nameserver:');
+    for (const value of dnsNameservers) lines.push(`    - ${toYamlValue(value)}`);
+    lines.push('  fallback:');
+    for (const value of dnsFallback) lines.push(`    - ${toYamlValue(value)}`);
+
+    lines.push('rules:');
+    for (const rule of rules) lines.push(`  - ${toYamlValue(rule)}`);
+    return `${lines.join('\n')}\n`;
+}
+
+function cleanupClashProfiles() {
+    const now = Date.now();
+    for (const [id, profile] of CLASH_PROFILES.entries()) {
+        if (now - profile.createdAt > CLASH_PROFILE_TTL_MS) CLASH_PROFILES.delete(id);
+    }
+}
+
 setInterval(cleanupSpeedtestSessions, 5 * 60 * 1000).unref();
+setInterval(cleanupClashProfiles, 10 * 60 * 1000).unref();
 
 app.get('/api/endpoints', (req, res) => {
     res.json(WARP_ENDPOINTS);
@@ -808,6 +1011,102 @@ app.get('/api/version', (req, res) => {
         display: VERSION_DISPLAY,
         commitDate: GIT_DATE,
     });
+});
+
+app.get('/api/clash/options', (req, res) => {
+    const cdnProviders = Object.keys(CDN_CIDRS).map((key) => ({
+        key,
+        label: key.toUpperCase(),
+        cidrCount: CDN_CIDRS[key].length,
+    }));
+    res.json({
+        types: ['warp', 'amnezia', 'wireguard'],
+        amneziaVersions: ['1.0', '1.5', '2.0'],
+        dnsModes: ['fake-ip', 'redir-host'],
+        cdnProviders,
+        domainPresets: CLASH_DOMAIN_PRESETS,
+        ttlSec: Math.floor(CLASH_PROFILE_TTL_MS / 1000),
+    });
+});
+
+app.post('/api/clash/profile-url', (req, res) => {
+    try {
+        cleanupClashProfiles();
+        const profileName = sanitizeProfileName(req.body?.name, 'WarpGen Clash');
+        const rawNodes = Array.isArray(req.body?.nodes) ? req.body.nodes : [];
+        if (!rawNodes.length) {
+            return res.status(400).json({ error: 'Добавьте хотя бы один сервер.' });
+        }
+        if (rawNodes.length > 20) {
+            return res.status(400).json({ error: 'Максимум 20 серверов в одном профиле.' });
+        }
+
+        const nodes = rawNodes.map((node, idx) => validateClashNode(node, idx));
+        const dnsMode = req.body?.dns?.mode === 'redir-host' ? 'redir-host' : 'fake-ip';
+        const dnsNameservers = Array.isArray(req.body?.dns?.nameservers)
+            ? req.body.dns.nameservers
+                .map((x) => (typeof x === 'string' ? x.trim() : ''))
+                .filter(Boolean)
+                .slice(0, 10)
+            : [];
+        const dnsFallback = Array.isArray(req.body?.dns?.fallback)
+            ? req.body.dns.fallback
+                .map((x) => (typeof x === 'string' ? x.trim() : ''))
+                .filter(Boolean)
+                .slice(0, 10)
+            : [];
+
+        const selectedCdn = Array.isArray(req.body?.routing?.cdnProviders)
+            ? req.body.routing.cdnProviders
+                .map((x) => (typeof x === 'string' ? x.trim().toLowerCase() : ''))
+                .filter((x) => !!CDN_CIDRS[x])
+            : [];
+        const cdnCidrs = Array.from(new Set(selectedCdn.flatMap((key) => CDN_CIDRS[key])));
+
+        const proxyDomains = Array.isArray(req.body?.routing?.proxyDomains)
+            ? req.body.routing.proxyDomains
+                .map((x) => (typeof x === 'string' ? x.trim().toLowerCase() : ''))
+                .filter(Boolean)
+                .slice(0, 500)
+            : [];
+        const ruDirectDomains = Array.isArray(req.body?.routing?.ruDirectDomains)
+            ? req.body.routing.ruDirectDomains
+                .map((x) => (typeof x === 'string' ? x.trim().toLowerCase() : ''))
+                .filter(Boolean)
+                .slice(0, 500)
+            : [];
+
+        const token = crypto.randomBytes(16).toString('hex');
+        CLASH_PROFILES.set(token, {
+            createdAt: Date.now(),
+            name: profileName,
+            nodes,
+            dns: { mode: dnsMode, nameservers: dnsNameservers, fallback: dnsFallback },
+            routing: { proxyDomains, ruDirectDomains, cdnCidrs },
+        });
+
+        const profileUrl = `${getRequestBaseUrl(req)}/api/clash/profile/${token}`;
+        res.json({
+            ok: true,
+            name: profileName,
+            token,
+            profileUrl,
+            expiresInSec: Math.floor(CLASH_PROFILE_TTL_MS / 1000),
+            note: 'URL можно вставить в Clash Verge как подписку (profile URL).',
+        });
+    } catch (err) {
+        res.status(400).json({ error: err.message || 'Не удалось собрать профиль.' });
+    }
+});
+
+app.get('/api/clash/profile/:token', (req, res) => {
+    cleanupClashProfiles();
+    const token = typeof req.params?.token === 'string' ? req.params.token.trim() : '';
+    const profile = CLASH_PROFILES.get(token);
+    if (!profile) return res.status(404).json({ error: 'Profile not found or expired.' });
+    const yaml = buildClashYaml(profile);
+    res.setHeader('Content-Type', 'text/yaml; charset=utf-8');
+    res.send(yaml);
 });
 
 app.post('/api/check-license', async (req, res) => {
