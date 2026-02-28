@@ -196,16 +196,24 @@ test('Windows speedtest PS1 script contains DPI bypass via zapret block', async 
   assert.match(scriptText, /openwrt\|embedded/);
   assert.match(scriptText, /selected portable zip asset/);
   assert.match(scriptText, /udp-fake-count=6/);
+  assert.match(scriptText, /filter-l7=wireguard/);
+  assert.match(scriptText, /dpi-desync=fake/);
+  assert.match(scriptText, /dpi-desync-repeats=2/);
   assert.match(scriptText, /wf-udp-in=/);
   assert.match(scriptText, /wf-udp-out=/);
   assert.match(scriptText, /wf-udp=/);
+  assert.match(scriptText, /raw-wireguard-fake/);
+  assert.match(scriptText, /windivert_part\.wireguard\.txt/);
   assert.match(scriptText, /directional filters/);
   assert.match(scriptText, /wf-l3=ipv4/);
   assert.match(scriptText, /-WorkingDirectory\s+\$winwsExe\.DirectoryName/);
   assert.match(scriptText, /windows-local-helper-dpi-bypass/);
   assert.match(scriptText, /result-dpi-bypass-/);
+  assert.match(scriptText, /result-dpi-quality-/);
   assert.match(scriptText, /winws directional filters/);
   assert.match(scriptText, /Профилей обхода/);
+  assert.match(scriptText, /Strategy mode:/);
+  assert.match(scriptText, /\$extendedStrategy = \$true/);
 
   // WARP ports are embedded
   assert.match(scriptText, /500,854/);
@@ -232,6 +240,22 @@ test('Windows speedtest session propagates dpiFirst flag into helper script', as
   const scriptText = await scriptResp.text();
   assert.match(scriptText, /\$dpiFirst = \$true/);
   assert.match(scriptText, /DPI-first mode: skipping direct speedtest/);
+});
+
+test('Windows speedtest session propagates extendedStrategy flag into helper script', async () => {
+  const sessionResp = await fetch(`${BASE}/api/speedtest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ extendedStrategy: false }),
+  });
+  assert.equal(sessionResp.status, 200);
+  const { downloadPath } = await sessionResp.json();
+  assert.ok(downloadPath);
+
+  const scriptResp = await fetch(`${BASE}${downloadPath}`);
+  assert.equal(scriptResp.status, 200);
+  const scriptText = await scriptResp.text();
+  assert.match(scriptText, /\$extendedStrategy = \$false/);
 });
 
 test('Windows .bat script contains admin check and DPI info', async () => {

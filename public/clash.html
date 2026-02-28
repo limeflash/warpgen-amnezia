@@ -916,7 +916,7 @@
         const sessionResp = await fetch('/api/speedtest/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ extendedStrategy: true }),
         });
         const sessionData = await sessionResp.json();
         const useBat = typeof sessionData.downloadBatPath === 'string' && sessionData.downloadBatPath.trim();

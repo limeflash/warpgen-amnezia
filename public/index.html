@@ -743,6 +743,12 @@
             <strong>У меня DPI-блокировка</strong> — пропустить прямой тест, сразу запустить обход через zapret
           </span>
         </label>
+        <label class="speedtest-dpi-toggle">
+          <input type="checkbox" id="speedtestExtendedMode" checked>
+          <span class="speedtest-dpi-label">
+            <strong>Extended strategy mode</strong> — больше профилей winws + ранжирование по подсетям (дольше, но надежнее)
+          </span>
+        </label>
 
         <button type="button" id="localSpeedtestBtn" class="speedtest-btn" onclick="startLocalSpeedtest()">
           ⚡ Подобрать endpoint локально
@@ -1476,6 +1482,7 @@
     async function startLocalSpeedtest() {
       const btn = document.getElementById('localSpeedtestBtn');
       const dpiFirst = document.getElementById('dpiFirstMode')?.checked || false;
+      const extendedStrategy = document.getElementById('speedtestExtendedMode')?.checked !== false;
       btn.disabled = true;
       btn.textContent = dpiFirst ? '⏳ Подготовка (DPI-режим)...' : '⏳ Подготовка...';
       try {
@@ -1485,7 +1492,7 @@
         const sessionResp = await fetch('/api/speedtest/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dpiFirst }),
+          body: JSON.stringify({ dpiFirst, extendedStrategy }),
         });
         const sessionData = await sessionResp.json();
         const useBat = typeof sessionData.downloadBatPath === 'string' && sessionData.downloadBatPath.trim();
@@ -1510,8 +1517,8 @@
         URL.revokeObjectURL(url);
 
         setLocalSpeedtestHint(dpiFirst
-          ? '✅ Файл скачан (DPI-режим). Запустите .bat от имени администратора — сразу запустится zapret и подберёт endpoint.'
-          : '✅ Файл скачан. Запустите .bat двойным кликом — endpoint подставится автоматически.');
+          ? `✅ Файл скачан (DPI-режим${extendedStrategy ? ', extended' : ''}). Запустите .bat от имени администратора — сразу запустится zapret и подберёт endpoint.`
+          : `✅ Файл скачан${extendedStrategy ? ' (extended strategy)' : ''}. Запустите .bat двойным кликом — endpoint подставится автоматически.`);
         await pollSpeedtestSession(sessionData.pollPath);
       } catch (err) {
         setLocalSpeedtestHint(`❌ Ошибка: ${err.message}`);

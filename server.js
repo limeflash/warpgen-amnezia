@@ -1472,7 +1472,13 @@ function getAdaptiveSpeedtestFallbackEndpoints(clientIp) {
     return Array.from(out).filter((endpoint) => !!normalizeEndpointForStats(endpoint));
 }
 
-function buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates = [], dpiFirst = false }) {
+function buildWindowsSpeedtestScript({
+    sessionId,
+    reportUrl,
+    fallbackCandidates = [],
+    dpiFirst = false,
+    extendedStrategy = true,
+}) {
     const staticIps = [
         ...Array.from({ length: 20 }, (_, idx) => `162.159.192.${idx + 1}`),
         ...Array.from({ length: 10 }, (_, idx) => `162.159.195.${idx + 1}`),
@@ -1490,6 +1496,7 @@ function buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates 
     );
     const warpPortsStr = ALLOWED_WARP_PORTS.join(',');
     const dpiFirstPs = dpiFirst ? '$true' : '$false';
+    const extendedStrategyPs = extendedStrategy ? '$true' : '$false';
     return `\uFEFF# Cloudflare WARP local endpoint speedtest helper
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [Console]::OutputEncoding
@@ -1497,6 +1504,7 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $dpiFirst = ${dpiFirstPs}
+$extendedStrategy = ${extendedStrategyPs}
 $sessionId = '${sessionId}'
 $reportUrl = '${reportUrl}'
 $fallbackEndpoints = ConvertFrom-Json @'
@@ -1817,6 +1825,7 @@ $qualityC = [Math]::Max(1200, [Math]::Min(7000, [int]($primaryC * 1.25)))
 $candidateP = [Math]::Max(4, [Math]::Min(16, [int]($workerP / 2)))
 $candidateC = [Math]::Max(400, [Math]::Min(2200, [int]($rescueC / 2)))
 Write-Host ('Adaptive engine: CPU=' + $cpu + ', p=' + $workerP + ', c=' + $primaryC + '/' + $rescueC + '/' + $qualityC)
+Write-Host ('Strategy mode: ' + ($(if ($extendedStrategy) { 'extended' } else { 'basic' })))
 
 Write-Host '[1/5] Downloading CloudflareWarpSpeedTest...'
 $arch = if ([Environment]::Is64BitOperatingSystem) { 'amd64' } else { '386' }
@@ -2127,10 +2136,26 @@ if (-not $bestEndpoint) {
         Write-Host ('[DPI] winws directional filters: ' + ($(if ($supportsDirectionalWf) { 'supported' } else { 'not detected' })))
 
         $winwsProfiles = @()
+        $wgRawPart = Find-FileByName -SearchRoot $zapretDir -Name 'windivert_part.wireguard.txt'
+        if ($extendedStrategy -and $wgRawPart) {
+          $wgRawPartArg = "--wf-raw-part=@'$($wgRawPart.FullName)'"
+          $winwsProfiles += [PSCustomObject]@{
+            name = 'raw-wireguard-fake'
+            args = @(
+              $wgRawPartArg,
+              '--wf-l3=ipv4',
+              '--filter-l7=wireguard',
+              '--dpi-desync=fake',
+              '--dpi-desync-repeats=2'
+            )
+          }
+          Write-Host '[DPI] Добавлен профиль raw-wireguard-fake (windivert_part.wireguard.txt).'
+        }
+
         if ($supportsDirectionalWf) {
           $luaLib = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-lib.lua'
           $luaAntidpi = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-antidpi.lua'
-          if ($luaLib -and $luaAntidpi) {
+          if ($extendedStrategy -and $luaLib -and $luaAntidpi) {
             $winwsProfiles += [PSCustomObject]@{
               name = 'z2-wireguard-lua'
               args = @(
@@ -2145,26 +2170,61 @@ if (-not $bestEndpoint) {
               )
             }
             Write-Host '[DPI] Добавлен профиль z2-wireguard-lua (lua-файлы найдены).'
-          } else {
+          } elseif ($extendedStrategy) {
             Write-Host '[DPI] Lua-файлы для wireguard-профиля не найдены, пропускаем z2-wireguard-lua.'
           }
 
-          $winwsProfiles += [PSCustomObject]@{
-            name = 'z2-inout-default'
-            args = @(
-              "--wf-udp-in=$warpPorts",
-              "--wf-udp-out=$warpPorts",
-              "--udp-fake-count=6",
-              "--wf-l3=ipv4"
-            )
+          if ($extendedStrategy) {
+            $winwsProfiles += [PSCustomObject]@{
+              name = 'z2-inout-wireguard-fake'
+              args = @(
+                "--wf-udp-in=$warpPorts",
+                "--wf-udp-out=$warpPorts",
+                "--wf-l3=ipv4",
+                "--filter-l7=wireguard",
+                "--dpi-desync=fake",
+                "--dpi-desync-repeats=2"
+              )
+            }
+            $winwsProfiles += [PSCustomObject]@{
+              name = 'z2-inout-default'
+              args = @(
+                "--wf-udp-in=$warpPorts",
+                "--wf-udp-out=$warpPorts",
+                "--udp-fake-count=6",
+                "--wf-l3=ipv4"
+              )
+            }
+            $winwsProfiles += [PSCustomObject]@{
+              name = 'z2-inout-light'
+              args = @(
+                "--wf-udp-in=$warpPorts",
+                "--wf-udp-out=$warpPorts",
+                "--udp-fake-count=4",
+                "--wf-l3=ipv4"
+              )
+            }
+          } else {
+            $winwsProfiles += [PSCustomObject]@{
+              name = 'z2-inout-default'
+              args = @(
+                "--wf-udp-in=$warpPorts",
+                "--wf-udp-out=$warpPorts",
+                "--udp-fake-count=6",
+                "--wf-l3=ipv4"
+              )
+            }
           }
+        }
+        if ($extendedStrategy) {
           $winwsProfiles += [PSCustomObject]@{
-            name = 'z2-inout-light'
+            name = 'compat-legacy-wireguard-fake'
             args = @(
-              "--wf-udp-in=$warpPorts",
-              "--wf-udp-out=$warpPorts",
-              "--udp-fake-count=4",
-              "--wf-l3=ipv4"
+              "--wf-udp=$warpPorts",
+              "--wf-l3=ipv4",
+              "--filter-l7=wireguard",
+              "--dpi-desync=fake",
+              "--dpi-desync-repeats=2"
             )
           }
         }
@@ -2175,6 +2235,16 @@ if (-not $bestEndpoint) {
             "--udp-fake-count=6",
             "--wf-l3=ipv4"
           )
+        }
+        if ($extendedStrategy) {
+          $winwsProfiles += [PSCustomObject]@{
+            name = 'compat-legacy-wf-udp-light'
+            args = @(
+              "--wf-udp=$warpPorts",
+              "--udp-fake-count=4",
+              "--wf-l3=ipv4"
+            )
+          }
         }
         Write-Host ('[DPI] Профилей обхода: ' + $winwsProfiles.Count)
 
@@ -2223,6 +2293,76 @@ if (-not $bestEndpoint) {
                     endpoint  = $r.'IP:Port'
                     loss      = [double](($r.Loss -replace '%','').Trim())
                     latencyMs = [double](($r.Latency).Trim())
+                  }
+                }
+                if ($extendedStrategy -and $dpiNorm -and $dpiNorm.Count -gt 0) {
+                  $topForRank = @($dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 160)
+                  $hostStats = @{}
+                  $subnetStats = @{}
+                  foreach ($item in $topForRank) {
+                    if (-not $item.endpoint) { continue }
+                    $parts = $item.endpoint -split ':'
+                    if ($parts.Count -lt 1) { continue }
+                    $endpointHost = $parts[0].Trim()
+                    if (-not $endpointHost) { continue }
+                    $subnet = $endpointHost
+                    if ($endpointHost -match '^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$') {
+                      $subnet = $Matches[1] + '.0/24'
+                    }
+                    if (-not $hostStats.ContainsKey($endpointHost)) {
+                      $hostStats[$endpointHost] = @{
+                        score = 0
+                        best = 999999.0
+                      }
+                    }
+                    $hostState = $hostStats[$endpointHost]
+                    $hostState.score = [int]$hostState.score + 1
+                    if ($item.latencyMs -lt [double]$hostState.best) { $hostState.best = [double]$item.latencyMs }
+                    $hostStats[$endpointHost] = $hostState
+
+                    if (-not $subnetStats.ContainsKey($subnet)) { $subnetStats[$subnet] = 0 }
+                    $subnetStats[$subnet] = [int]$subnetStats[$subnet] + 1
+                  }
+
+                  $rankedHosts = @(
+                    $hostStats.GetEnumerator() |
+                      Sort-Object @{ Expression = { $_.Value.score }; Descending = $true }, @{ Expression = { $_.Value.best }; Descending = $false } |
+                      Select-Object -First 12 |
+                      ForEach-Object { $_.Key }
+                  )
+                  if ($rankedHosts.Count -gt 0) {
+                    $rankedSubnets = @(
+                      $subnetStats.GetEnumerator() |
+                        Sort-Object @{ Expression = { $_.Value }; Descending = $true }, @{ Expression = { $_.Key }; Descending = $false } |
+                        Select-Object -First 6 |
+                        ForEach-Object { $_.Key + ' x' + $_.Value }
+                    )
+                    if ($rankedSubnets.Count -gt 0) {
+                      Write-Host ('[DPI] Extended ranking subnets: ' + ($rankedSubnets -join ', '))
+                    }
+                    Write-Host ('[DPI] Extended ranking hosts: ' + (($rankedHosts | Select-Object -First 8) -join ', '))
+
+                    $dpiQualityIpFile = Join-Path $workDir ('ip-dpi-quality-' + $safeProfileName + '.txt')
+                    $rankedHosts | Set-Content -Path $dpiQualityIpFile -Encoding ascii
+                    $dpiQualityCsv = Join-Path $workDir ('result-dpi-quality-' + $safeProfileName + '.csv')
+                    & $exe.FullName -all -n 90 -t 6 -c $qualityC -tl 350 -tll 0 -tlr 0.25 -p $workerP -f $dpiQualityIpFile -o $dpiQualityCsv
+                    if (Test-Path $dpiQualityCsv) {
+                      try {
+                        $dpiQualityRows = Import-Csv -Path $dpiQualityCsv | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
+                        if ($dpiQualityRows -and $dpiQualityRows.Count -gt 0) {
+                          $dpiNorm = foreach ($r in $dpiQualityRows) {
+                            [PSCustomObject]@{
+                              endpoint  = $r.'IP:Port'
+                              loss      = [double](($r.Loss -replace '%','').Trim())
+                              latencyMs = [double](($r.Latency).Trim())
+                            }
+                          }
+                          Write-Host ('[DPI] Extended quality pass rows: ' + $dpiNorm.Count)
+                        }
+                      } catch {
+                        Write-Host ('[DPI] Ошибка quality-pass (' + $profile.name + '): ' + $_.Exception.Message)
+                      }
+                    }
                   }
                 }
                 $dpiBest = $dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 1
@@ -2400,6 +2540,8 @@ app.get('/api/warp-options', (req, res) => {
 app.post('/api/speedtest/session', (req, res) => {
     cleanupSpeedtestSessions();
     const sessionId = crypto.randomBytes(12).toString('hex');
+    const extendedStrategyRaw = req.body?.extendedStrategy;
+    const extendedStrategy = extendedStrategyRaw === undefined ? true : Boolean(extendedStrategyRaw);
     const session = {
         id: sessionId,
         createdAt: Date.now(),
@@ -2407,6 +2549,7 @@ app.post('/api/speedtest/session', (req, res) => {
         clientIp: getClientIp(req),
         result: null,
         dpiFirst: Boolean(req.body?.dpiFirst),
+        extendedStrategy,
     };
     SPEEDTEST_SESSIONS.set(sessionId, session);
 
@@ -2428,7 +2571,13 @@ app.get('/api/speedtest/windows-script/:sessionId', (req, res) => {
     const baseUrl = normalizePublicScriptBaseUrl(getRequestBaseUrl(req));
     const reportUrl = `${baseUrl}/api/speedtest/report`;
     const fallbackCandidates = getAdaptiveSpeedtestFallbackEndpoints(session.clientIp);
-    const script = buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates, dpiFirst: session.dpiFirst });
+    const script = buildWindowsSpeedtestScript({
+        sessionId,
+        reportUrl,
+        fallbackCandidates,
+        dpiFirst: session.dpiFirst,
+        extendedStrategy: session.extendedStrategy !== false,
+    });
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="warp-speedtest-${sessionId}.ps1"`);
     res.send(script);
