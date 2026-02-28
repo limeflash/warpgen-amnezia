@@ -9,7 +9,36 @@ const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
 
+function getEnvInt(name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
+    const raw = process.env[name];
+    const parsed = Number.parseInt(String(raw ?? ''), 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    if (parsed < min) return min;
+    if (parsed > max) return max;
+    return parsed;
+}
+
+function getEnvBool(name, fallback = false) {
+    const raw = String(process.env[name] ?? '').trim().toLowerCase();
+    if (!raw) return fallback;
+    if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
+    if (['0', 'false', 'no', 'off'].includes(raw)) return false;
+    return fallback;
+}
+
+const OUTBOUND_REQUEST_TIMEOUT_MS = getEnvInt('OUTBOUND_REQUEST_TIMEOUT_MS', 12000, { min: 1000, max: 120000 });
+const OUTBOUND_REQUEST_RETRIES = getEnvInt('OUTBOUND_REQUEST_RETRIES', 2, { min: 0, max: 5 });
+const OUTBOUND_REQUEST_RETRY_BASE_MS = getEnvInt('OUTBOUND_REQUEST_RETRY_BASE_MS', 350, { min: 100, max: 5000 });
+const DOWNLOAD_PROXY_TIMEOUT_MS = getEnvInt('DOWNLOAD_PROXY_TIMEOUT_MS', 30000, { min: 1000, max: 300000 });
+const DOWNLOAD_PROXY_MAX_BYTES = getEnvInt('DOWNLOAD_PROXY_MAX_BYTES', 1_500_000_000, { min: 1_000_000, max: 5_000_000_000 });
+const DNS_CACHE_TTL_MS = getEnvInt('DNS_CACHE_TTL_MS', 10 * 60 * 1000, { min: 10_000, max: 24 * 60 * 60 * 1000 });
+const DNS_NEGATIVE_CACHE_TTL_MS = getEnvInt('DNS_NEGATIVE_CACHE_TTL_MS', 90 * 1000, { min: 10_000, max: 60 * 60 * 1000 });
+const DNS_MAX_CACHE_ENTRIES = getEnvInt('DNS_MAX_CACHE_ENTRIES', 20_000, { min: 1000, max: 200_000 });
+const DNS_RESOLVE_CONCURRENCY = getEnvInt('DNS_RESOLVE_CONCURRENCY', 24, { min: 1, max: 256 });
+const TRUST_PROXY_ENABLED = getEnvBool('TRUST_PROXY', false);
+
 const app = express();
+app.set('trust proxy', TRUST_PROXY_ENABLED ? 1 : false);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/clash', (req, res) => {
@@ -49,11 +78,30 @@ function isWarpLicenseFormat(licenseKey) {
     return /^[A-Za-z0-9]{8}-[A-Za-z0-9]{8}-[A-Za-z0-9]{8}$/.test(licenseKey.trim());
 }
 
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableStatus(statusCode) {
+    return [408, 429, 500, 502, 503, 504].includes(Number(statusCode) || 0);
+}
+
+function isRetryableNetworkError(err) {
+    const code = String(err?.code || '').toUpperCase();
+    return ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE'].includes(code);
+}
+
 // ─────────────── WireGuard key generation ───────────────
-function generateWireGuardKeys() {
-    const { privateKey, publicKey } = crypto.generateKeyPairSync('x25519');
-    const privBytes = privateKey.export({ type: 'pkcs8', format: 'der' });
-    const pubBytes = publicKey.export({ type: 'spki', format: 'der' });
+async function generateWireGuardKeys() {
+    const pair = await new Promise((resolve, reject) => {
+        crypto.generateKeyPair('x25519', (err, publicKey, privateKey) => {
+            if (err) reject(err);
+            else resolve({ privateKey, publicKey });
+        });
+    });
+
+    const privBytes = pair.privateKey.export({ type: 'pkcs8', format: 'der' });
+    const pubBytes = pair.publicKey.export({ type: 'spki', format: 'der' });
     return {
         priv: Buffer.from(privBytes).slice(-32).toString('base64'),
         pub: Buffer.from(pubBytes).slice(-32).toString('base64'),
@@ -786,6 +834,105 @@ const STATIC_DOMAIN_FALLBACK_CIDRS = {
 // Runtime cache keeps last known IPs for domains that resolved successfully.
 // If DNS later fails, these cached CIDRs are used as fallback.
 const SPLIT_DOMAIN_RUNTIME_CACHE = new Map();
+const DNS_RESOLVE_CACHE = new Map();
+const DNS_RESOLVE_INFLIGHT = new Map();
+
+function cleanupDnsResolveCache() {
+    const now = Date.now();
+    for (const [key, entry] of DNS_RESOLVE_CACHE.entries()) {
+        if (!entry || (entry.expiresAt || 0) <= now) DNS_RESOLVE_CACHE.delete(key);
+    }
+    if (DNS_RESOLVE_CACHE.size <= DNS_MAX_CACHE_ENTRIES) return;
+    const overflow = DNS_RESOLVE_CACHE.size - DNS_MAX_CACHE_ENTRIES;
+    const oldest = Array.from(DNS_RESOLVE_CACHE.entries())
+        .sort((a, b) => (a[1]?.storedAt || 0) - (b[1]?.storedAt || 0))
+        .slice(0, overflow)
+        .map(([key]) => key);
+    for (const key of oldest) DNS_RESOLVE_CACHE.delete(key);
+}
+
+function mapLimit(items, limit, iterator) {
+    return new Promise((resolve, reject) => {
+        const arr = Array.isArray(items) ? items : [];
+        const max = Math.max(1, Number.parseInt(String(limit || 1), 10) || 1);
+        if (!arr.length) {
+            resolve([]);
+            return;
+        }
+        const results = new Array(arr.length);
+        let inFlight = 0;
+        let nextIndex = 0;
+        let done = 0;
+        let aborted = false;
+
+        const pump = () => {
+            if (aborted) return;
+            while (inFlight < max && nextIndex < arr.length) {
+                const idx = nextIndex++;
+                inFlight += 1;
+                Promise.resolve(iterator(arr[idx], idx))
+                    .then((value) => {
+                        results[idx] = value;
+                        inFlight -= 1;
+                        done += 1;
+                        if (done >= arr.length) resolve(results);
+                        else pump();
+                    })
+                    .catch((err) => {
+                        aborted = true;
+                        reject(err);
+                    });
+            }
+        };
+
+        pump();
+    });
+}
+
+async function resolveDomainRecordsCached(hostname) {
+    const host = String(hostname || '').trim().toLowerCase();
+    if (!host || !isDnsHostname(host)) return { v4: [], v6: [] };
+
+    const now = Date.now();
+    const cached = DNS_RESOLVE_CACHE.get(host);
+    if (cached && cached.expiresAt > now) {
+        return {
+            v4: Array.isArray(cached.v4) ? cached.v4.slice() : [],
+            v6: Array.isArray(cached.v6) ? cached.v6.slice() : [],
+        };
+    }
+
+    const inFlight = DNS_RESOLVE_INFLIGHT.get(host);
+    if (inFlight) return inFlight;
+
+    const task = (async () => {
+        const [a4, a6] = await Promise.allSettled([dns.resolve4(host), dns.resolve6(host)]);
+        const v4 = a4.status === 'fulfilled'
+            ? a4.value.filter((ip) => net.isIP(ip) === 4)
+            : [];
+        const v6 = a6.status === 'fulfilled'
+            ? a6.value.filter((ip) => net.isIP(ip) === 6)
+            : [];
+
+        const positive = v4.length > 0 || v6.length > 0;
+        const ttl = positive ? DNS_CACHE_TTL_MS : DNS_NEGATIVE_CACHE_TTL_MS;
+        DNS_RESOLVE_CACHE.set(host, {
+            v4,
+            v6,
+            storedAt: Date.now(),
+            expiresAt: Date.now() + ttl,
+        });
+        cleanupDnsResolveCache();
+        return { v4: v4.slice(), v6: v6.slice() };
+    })();
+
+    DNS_RESOLVE_INFLIGHT.set(host, task);
+    try {
+        return await task;
+    } finally {
+        DNS_RESOLVE_INFLIGHT.delete(host);
+    }
+}
 
 function cacheDomainCidrs(domain, cidrList) {
     if (!domain || !Array.isArray(cidrList) || !cidrList.length) return;
@@ -812,13 +959,14 @@ function getDomainFallbackCidrs(domain) {
 }
 
 function cfRequest(method, urlPath, token, body) {
-    return new Promise((resolve, reject) => {
+    const requestOnce = () => new Promise((resolve, reject) => {
         const data = body ? JSON.stringify(body) : null;
         const options = {
             hostname: 'api.cloudflareclient.com',
             port: 443,
             path: `/v0i1909051800/${urlPath}`,
             method,
+            timeout: OUTBOUND_REQUEST_TIMEOUT_MS,
             headers: {
                 'User-Agent': 'okhttp/3.12.1',
                 'Content-Type': 'application/json',
@@ -831,20 +979,42 @@ function cfRequest(method, urlPath, token, body) {
             res.on('data', (chunk) => { raw += chunk; });
             res.on('end', () => {
                 try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
-                catch (e) { resolve({ status: res.statusCode, body: { _raw: raw } }); }
+                catch { resolve({ status: res.statusCode, body: { _raw: raw } }); }
             });
+        });
+        req.on('timeout', () => {
+            req.destroy(Object.assign(new Error('Cloudflare request timeout'), { code: 'ETIMEDOUT' }));
         });
         req.on('error', reject);
         if (data) req.write(data);
         req.end();
     });
+
+    return (async () => {
+        let attempt = 0;
+        while (true) {
+            try {
+                const result = await requestOnce();
+                if (isRetryableStatus(result.status) && attempt < OUTBOUND_REQUEST_RETRIES) {
+                    attempt += 1;
+                    await sleep(OUTBOUND_REQUEST_RETRY_BASE_MS * attempt);
+                    continue;
+                }
+                return result;
+            } catch (err) {
+                if (attempt >= OUTBOUND_REQUEST_RETRIES || !isRetryableNetworkError(err)) throw err;
+                attempt += 1;
+                await sleep(OUTBOUND_REQUEST_RETRY_BASE_MS * attempt);
+            }
+        }
+    })();
 }
 
 async function resolveHost(host) {
     if (!host || net.isIP(host)) return host || '162.159.192.1';
     try {
-        const addrs = await dns.resolve4(host);
-        return addrs[0] || '162.159.192.1';
+        const { v4 } = await resolveDomainRecordsCached(host);
+        return v4[0] || '162.159.192.1';
     } catch { return '162.159.192.1'; }
 }
 
@@ -882,30 +1052,21 @@ function isDnsHostname(value) {
 async function resolveDnsHostToIps(hostname) {
     const host = String(hostname || '').trim();
     if (!isDnsHostname(host)) return [];
-    const resolved = [];
-    try {
-        const v4 = await dns.resolve4(host);
-        for (const ip of v4) {
-            if (net.isIP(ip) === 4) resolved.push(ip);
-        }
-    } catch {
-        // ignore
-    }
-    try {
-        const v6 = await dns.resolve6(host);
-        for (const ip of v6) {
-            if (net.isIP(ip) === 6) resolved.push(ip);
-        }
-    } catch {
-        // ignore
-    }
-    return Array.from(new Set(resolved));
+    const { v4, v6 } = await resolveDomainRecordsCached(host);
+    return Array.from(new Set([...(v4 || []), ...(v6 || [])]));
 }
 
 async function normalizeDnsLineForConfig(dnsLine) {
     if (typeof dnsLine !== 'string' || !dnsLine.trim()) return DNS_SERVERS.malw_link;
     const tokens = splitDnsLineToList(dnsLine);
     const expanded = [];
+    const uniqueHosts = Array.from(new Set(tokens.filter((token) => isDnsHostname(token))));
+    const resolvedHosts = new Map();
+
+    await mapLimit(uniqueHosts, Math.min(DNS_RESOLVE_CONCURRENCY, 12), async (host) => {
+        const ips = await resolveDnsHostToIps(host);
+        resolvedHosts.set(host, ips);
+    });
 
     for (const token of tokens) {
         const value = token.trim();
@@ -916,7 +1077,7 @@ async function normalizeDnsLineForConfig(dnsLine) {
             continue;
         }
         if (isDnsHostname(value)) {
-            const ips = await resolveDnsHostToIps(value);
+            const ips = resolvedHosts.get(value) || [];
             if (ips.length) {
                 expanded.push(...ips.slice(0, 4));
                 continue;
@@ -969,7 +1130,7 @@ async function resolveSplitAllowedIPs(targetKeys) {
     const unresolvedDomains = [];
     const fallbackDomains = [];
 
-    await Promise.all(Array.from(domains).map(async (domain) => {
+    await mapLimit(Array.from(domains), DNS_RESOLVE_CONCURRENCY, async (domain) => {
         const ipType = net.isIP(domain);
         if (ipType === 4) {
             cidrs.add(`${domain}/32`);
@@ -980,17 +1141,17 @@ async function resolveSplitAllowedIPs(targetKeys) {
             return;
         }
 
-        const [a4, a6] = await Promise.allSettled([dns.resolve4(domain), dns.resolve6(domain)]);
+        const { v4, v6 } = await resolveDomainRecordsCached(domain);
         let resolved = false;
 
-        if (a4.status === 'fulfilled') {
-            const resolved4 = a4.value.map(ip => `${ip}/32`);
+        if (v4.length) {
+            const resolved4 = v4.map(ip => `${ip}/32`);
             for (const cidr of resolved4) cidrs.add(cidr);
             cacheDomainCidrs(domain, resolved4);
             resolved = true;
         }
-        if (a6.status === 'fulfilled') {
-            const resolved6 = a6.value.map(ip => `${ip}/128`);
+        if (v6.length) {
+            const resolved6 = v6.map(ip => `${ip}/128`);
             for (const cidr of resolved6) cidrs.add(cidr);
             cacheDomainCidrs(domain, resolved6);
             resolved = true;
@@ -1004,7 +1165,7 @@ async function resolveSplitAllowedIPs(targetKeys) {
                 unresolvedDomains.push(domain);
             }
         }
-    }));
+    });
 
     return {
         allowedIps: Array.from(cidrs).sort((a, b) => a.localeCompare(b)),
@@ -1072,12 +1233,25 @@ function getRequestBaseUrl(req) {
     return `${proto || 'http'}://${host}`;
 }
 
+function normalizeIpCandidate(rawValue) {
+    const value = String(rawValue || '').trim();
+    if (!value) return '';
+    if (net.isIP(value)) return value;
+    const mapped = value.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+    if (mapped && net.isIP(mapped[1]) === 4) return mapped[1];
+    return '';
+}
+
 function getClientIp(req) {
-    const xff = req.headers['x-forwarded-for'];
-    if (typeof xff === 'string' && xff.trim()) {
-        return xff.split(',')[0].trim();
+    if (TRUST_PROXY_ENABLED) {
+        const xff = req.headers['x-forwarded-for'];
+        if (typeof xff === 'string' && xff.trim()) {
+            const firstHop = normalizeIpCandidate(xff.split(',')[0].trim());
+            if (firstHop) return firstHop;
+        }
     }
-    return req.ip || req.socket?.remoteAddress || '';
+    const direct = normalizeIpCandidate(req.ip) || normalizeIpCandidate(req.socket?.remoteAddress);
+    return direct || '';
 }
 
 function splitCsvValue(rawValue) {
@@ -1290,16 +1464,19 @@ function isPublicRoutableIp(ip) {
     return !isPrivateOrSpecialIpv6(ip);
 }
 
-async function assertSafeImportUrl(rawUrl) {
+async function assertSafeOutboundUrl(rawUrl, { allowHttp = true, allowHttps = true, context = 'URL' } = {}) {
     let parsed;
     try {
         parsed = new URL(String(rawUrl || '').trim());
     } catch {
-        throw new Error('Некорректный URL для импорта.');
+        throw new Error(`Некорректный ${context}.`);
     }
 
-    if (!['https:', 'http:'].includes(parsed.protocol)) {
-        throw new Error('Разрешены только http/https ссылки.');
+    const protocolAllowed = (parsed.protocol === 'http:' && allowHttp) || (parsed.protocol === 'https:' && allowHttps);
+    if (!protocolAllowed) {
+        throw new Error(allowHttp && allowHttps
+            ? 'Разрешены только http/https ссылки.'
+            : 'Разрешены только https ссылки.');
     }
     if (parsed.username || parsed.password) {
         throw new Error('Ссылки с логином/паролем не поддерживаются.');
@@ -1309,13 +1486,13 @@ async function assertSafeImportUrl(rawUrl) {
     const hostLower = host.toLowerCase();
     if (!host) throw new Error('URL не содержит хост.');
     if (hostLower === 'localhost' || hostLower.endsWith('.local') || hostLower.endsWith('.internal')) {
-        throw new Error('Локальные хосты для импорта запрещены.');
+        throw new Error(`${context} указывает на локальный хост, запрос запрещен.`);
     }
 
     const ipFamily = net.isIP(host);
     if (ipFamily) {
         if (!isPublicRoutableIp(host)) {
-            throw new Error('URL указывает на приватный/локальный IP, импорт запрещен.');
+            throw new Error(`${context} указывает на приватный/локальный IP, запрос запрещен.`);
         }
         return parsed.toString();
     }
@@ -1324,15 +1501,23 @@ async function assertSafeImportUrl(rawUrl) {
     try {
         resolved = await dns.lookup(host, { all: true, verbatim: true });
     } catch {
-        throw new Error('Не удалось резолвить домен в URL.');
+        throw new Error(`Не удалось резолвить домен для ${context}.`);
     }
     if (!Array.isArray(resolved) || !resolved.length) {
-        throw new Error('Не удалось получить IP для указанного URL.');
+        throw new Error(`Не удалось получить IP для ${context}.`);
     }
     if (resolved.some((item) => !isPublicRoutableIp(item.address))) {
-        throw new Error('URL резолвится в приватный/локальный IP, импорт запрещен.');
+        throw new Error(`${context} резолвится в приватный/локальный IP, запрос запрещен.`);
     }
     return parsed.toString();
+}
+
+async function assertSafeImportUrl(rawUrl) {
+    return assertSafeOutboundUrl(rawUrl, { allowHttp: true, allowHttps: true, context: 'URL для импорта' });
+}
+
+async function assertSafeDownloadUrl(rawUrl) {
+    return assertSafeOutboundUrl(rawUrl, { allowHttp: false, allowHttps: true, context: 'URL загрузки' });
 }
 
 function fetchRemoteText(remoteUrl, depth = 0, maxBytes = 512 * 1024) {
@@ -1359,19 +1544,28 @@ function fetchRemoteText(remoteUrl, depth = 0, maxBytes = 512 * 1024) {
                 'User-Agent': 'WarpGen-Config-Importer/1.0',
                 'Accept': 'text/plain,application/octet-stream,*/*',
             },
-            timeout: 12000,
+            timeout: OUTBOUND_REQUEST_TIMEOUT_MS,
         }, (remoteRes) => {
             const statusCode = remoteRes.statusCode || 500;
             const location = remoteRes.headers.location;
             if (statusCode >= 300 && statusCode < 400 && location) {
                 remoteRes.resume();
                 const nextUrl = new URL(location, remoteUrl).toString();
-                fetchRemoteText(nextUrl, depth + 1, maxBytes).then(resolve).catch(reject);
+                assertSafeImportUrl(nextUrl)
+                    .then((safeNextUrl) => fetchRemoteText(safeNextUrl, depth + 1, maxBytes))
+                    .then(resolve)
+                    .catch(reject);
                 return;
             }
             if (statusCode >= 400) {
                 remoteRes.resume();
                 reject(new Error(`Сервер вернул HTTP ${statusCode}.`));
+                return;
+            }
+            const contentLength = Number.parseInt(String(remoteRes.headers['content-length'] || ''), 10);
+            if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+                remoteRes.resume();
+                reject(new Error('Файл слишком большой для импорта.'));
                 return;
             }
 
@@ -1414,18 +1608,38 @@ function proxyRemoteDownload(remoteUrl, res, depth = 0) {
         res.status(400).json({ error: 'Only https downloads are supported.' });
         return;
     }
+    let finished = false;
+    const fail = (statusCode, message) => {
+        if (finished) return;
+        finished = true;
+        if (!res.headersSent) {
+            res.status(statusCode).json({ error: message });
+        } else {
+            res.destroy(new Error(message));
+        }
+    };
+
     const req = client.request({
         method: 'GET',
         hostname: parsed.hostname,
         path: `${parsed.pathname}${parsed.search}`,
         headers: { 'User-Agent': 'WarpGen-Download-Proxy/1.0' },
+        timeout: DOWNLOAD_PROXY_TIMEOUT_MS,
     }, (remoteRes) => {
         const code = remoteRes.statusCode || 500;
         const location = remoteRes.headers.location;
         if (code >= 300 && code < 400 && location) {
             remoteRes.resume();
             const nextUrl = new URL(location, remoteUrl).toString();
-            proxyRemoteDownload(nextUrl, res, depth + 1);
+            assertSafeDownloadUrl(nextUrl)
+                .then((safeNextUrl) => proxyRemoteDownload(safeNextUrl, res, depth + 1))
+                .catch((err) => fail(502, `Download redirect blocked: ${err.message}`));
+            return;
+        }
+        const contentLength = Number.parseInt(String(remoteRes.headers['content-length'] || ''), 10);
+        if (Number.isFinite(contentLength) && contentLength > DOWNLOAD_PROXY_MAX_BYTES) {
+            remoteRes.resume();
+            fail(413, 'Remote file is too large.');
             return;
         }
         res.status(code);
@@ -1434,21 +1648,34 @@ function proxyRemoteDownload(remoteUrl, res, depth = 0) {
             const val = remoteRes.headers[header];
             if (val) res.setHeader(header, val);
         }
+        let streamedBytes = 0;
+        remoteRes.on('data', (chunk) => {
+            streamedBytes += chunk.length;
+            if (streamedBytes > DOWNLOAD_PROXY_MAX_BYTES) {
+                remoteRes.destroy(new Error('Remote file exceeds max allowed size.'));
+            }
+        });
+        remoteRes.on('error', (err) => {
+            fail(502, `Download proxy failed: ${err.message}`);
+        });
         remoteRes.pipe(res);
     });
+    req.on('timeout', () => {
+        req.destroy(Object.assign(new Error('Upstream download timeout.'), { code: 'ETIMEDOUT' }));
+    });
     req.on('error', (err) => {
-        if (!res.headersSent) res.status(502).json({ error: `Download proxy failed: ${err.message}` });
-        else res.end();
+        fail(502, `Download proxy failed: ${err.message}`);
     });
     req.end();
 }
 
 function githubApiJson(pathname) {
-    return new Promise((resolve, reject) => {
+    const requestOnce = () => new Promise((resolve, reject) => {
         const req = https.request({
             method: 'GET',
             hostname: 'api.github.com',
             path: pathname,
+            timeout: OUTBOUND_REQUEST_TIMEOUT_MS,
             headers: {
                 'User-Agent': 'WarpGen-Download-Proxy/1.0',
                 'Accept': 'application/vnd.github+json',
@@ -1458,16 +1685,36 @@ function githubApiJson(pathname) {
             apiRes.on('data', (chunk) => { raw += chunk; });
             apiRes.on('end', () => {
                 if ((apiRes.statusCode || 500) >= 400) {
-                    reject(new Error(`GitHub API ${apiRes.statusCode}`));
+                    reject(Object.assign(new Error(`GitHub API ${apiRes.statusCode}`), {
+                        statusCode: apiRes.statusCode || 500,
+                    }));
                     return;
                 }
                 try { resolve(JSON.parse(raw)); }
                 catch { reject(new Error('Invalid GitHub JSON')); }
             });
         });
+        req.on('timeout', () => {
+            req.destroy(Object.assign(new Error('GitHub API timeout'), { code: 'ETIMEDOUT' }));
+        });
         req.on('error', reject);
         req.end();
     });
+
+    return (async () => {
+        let attempt = 0;
+        while (true) {
+            try {
+                return await requestOnce();
+            } catch (err) {
+                const statusCode = Number.parseInt(String(err?.statusCode || 0), 10);
+                const retryable = isRetryableNetworkError(err) || isRetryableStatus(statusCode);
+                if (attempt >= OUTBOUND_REQUEST_RETRIES || !retryable) throw err;
+                attempt += 1;
+                await sleep(OUTBOUND_REQUEST_RETRY_BASE_MS * attempt);
+            }
+        }
+    })();
 }
 
 async function resolveGithubLatestAsset(appKey, appMeta, platform) {
@@ -2417,6 +2664,7 @@ function cleanupClashProfiles() {
 
 setInterval(cleanupSpeedtestSessions, 5 * 60 * 1000).unref();
 setInterval(cleanupSpeedtestAdaptiveState, 30 * 60 * 1000).unref();
+setInterval(cleanupDnsResolveCache, 10 * 60 * 1000).unref();
 setInterval(cleanupClashProfiles, 10 * 60 * 1000).unref();
 
 app.get('/api/endpoints', (req, res) => {
@@ -2576,7 +2824,8 @@ app.get('/api/client-download/:app', async (req, res) => {
         const platform = normalizeClientPlatform(req.query?.platform);
         const url = await resolveClientDownloadUrl(appKey, platform);
         if (!url) return res.status(404).json({ error: 'No download URL for platform.' });
-        proxyRemoteDownload(url, res);
+        const safeUrl = await assertSafeDownloadUrl(url);
+        proxyRemoteDownload(safeUrl, res);
     } catch (err) {
         res.status(502).json({ error: `Failed to resolve download: ${err.message}` });
     }
@@ -2718,7 +2967,7 @@ app.post('/api/check-license', async (req, res) => {
     let userId = '';
     let token = '';
     try {
-        const { pub } = generateWireGuardKeys();
+        const { pub } = await generateWireGuardKeys();
         const regResult = await cfRequest('POST', 'reg', null, {
             install_id: '',
             tos: new Date().toISOString(),
@@ -2776,7 +3025,7 @@ app.post('/api/check-license', async (req, res) => {
 
 app.post('/api/generate-test-license', async (req, res) => {
     try {
-        const { pub } = generateWireGuardKeys();
+        const { pub } = await generateWireGuardKeys();
         const regResult = await cfRequest('POST', 'reg', null, {
             install_id: '',
             tos: new Date().toISOString(),
@@ -2908,7 +3157,7 @@ app.post('/api/generate', async (req, res) => {
             }
         }
 
-        const { priv, pub } = generateWireGuardKeys();
+        const { priv, pub } = await generateWireGuardKeys();
 
         const regResult = await cfRequest('POST', 'reg', null, {
             install_id: '', tos: new Date().toISOString(),
