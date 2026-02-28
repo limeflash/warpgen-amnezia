@@ -632,7 +632,7 @@ $allIps | Set-Content -Path $ipFile -Encoding ascii
 
 Write-Host '[3/5] Running speed test...'
 $csvPath = Join-Path $workDir 'result.csv'
-& $exe.FullName -n 50 -t 5 -c 40 -tl 300 -tll 0 -tlr 0.2 -p 10 -f $ipFile -o $csvPath
+& $exe.FullName -all -n 50 -t 5 -c 5000 -tl 300 -tll 0 -tlr 0.2 -p 10 -f $ipFile -o $csvPath
 
 Write-Host '[4/5] Selecting best endpoint...'
 $rows = Import-Csv -Path $csvPath | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
