@@ -961,21 +961,53 @@
       const platform = detectClientPlatform();
       const directOpenLinks = {
         wireguard: {
+          windows: 'https://download.wireguard.com/windows-client/wireguard-installer.exe',
           macos: 'https://apps.apple.com/us/app/wireguard/id1451685025',
           ios: 'https://apps.apple.com/us/app/wireguard/id1451685025',
           android: 'https://play.google.com/store/apps/details?id=com.wireguard.android',
         },
         wiresock: {
+          windows: 'https://www.wiresock.net/wiresock-secure-connect/download',
           macos: 'https://www.wiresock.net/downloads/',
           linux: 'https://www.wiresock.net/downloads/',
           android: 'https://www.wiresock.net/downloads/',
           ios: 'https://www.wiresock.net/downloads/',
         },
       };
+      const defaultFileNames = {
+        wireguard: {
+          windows: 'wireguard-installer.exe',
+          macos: 'wireguard-macos.dmg',
+          linux: 'wireguard-linux',
+          android: 'wireguard-android.apk',
+          ios: 'wireguard-ios',
+        },
+        amnezia: {
+          windows: 'amnezia-windows.exe',
+          macos: 'amnezia-macos.pkg',
+          linux: 'amnezia-linux.tar',
+          android: 'amnezia-android.apk',
+          ios: 'amnezia-ios',
+        },
+        clash_verge: {
+          windows: 'clash-verge-windows.exe',
+          macos: 'clash-verge-macos.dmg',
+          linux: 'clash-verge-linux.deb',
+          android: 'clash-verge-android.apk',
+          ios: 'clash-verge-ios',
+        },
+        wiresock: {
+          windows: 'wiresock-windows.msi',
+          macos: 'wiresock-macos',
+          linux: 'wiresock-linux',
+          android: 'wiresock-android',
+          ios: 'wiresock-ios',
+        },
+      };
       const directUrl = directOpenLinks[app]?.[platform];
       if (directUrl) {
         window.open(directUrl, '_blank', 'noopener,noreferrer');
-        if (app === 'wiresock' && platform !== 'windows') {
+        if (app === 'wiresock') {
           setDownloadHint('WireSock в первую очередь под Windows. Открыта официальная страница загрузок.');
         } else {
           setDownloadHint(`Открыта официальная страница ${app} для ${platform}.`);
@@ -988,11 +1020,20 @@
       try {
         const resp = await fetch(url, { method: 'GET' });
         if (!resp.ok) throw new Error(`Download error ${resp.status}`);
+        const contentType = String(resp.headers.get('content-type') || '').toLowerCase();
+        if (contentType.includes('text/html')) {
+          const fallback = directOpenLinks[app]?.[platform];
+          if (fallback) {
+            window.open(fallback, '_blank', 'noopener,noreferrer');
+            setDownloadHint(`Proxy вернул HTML вместо файла. Открыта официальная страница ${app}.`);
+            return;
+          }
+        }
         const blob = await resp.blob();
         const objectUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = objectUrl;
-        const defaultName = `${app}-${platform}`;
+        const defaultName = defaultFileNames[app]?.[platform] || `${app}-${platform}`;
         const cd = resp.headers.get('content-disposition') || '';
         const fileMatch = cd.match(/filename=\"?([^\";]+)\"?/i);
         a.download = fileMatch?.[1] || defaultName;

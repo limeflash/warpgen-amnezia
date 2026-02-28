@@ -630,7 +630,7 @@ const CLIENT_DOWNLOADS = {
     wiresock: {
         title: 'WireSock',
         links: {
-            windows: 'https://www.wiresock.net/downloads/wiresock-secure-connect-win64-1.4.11.msi',
+            windows: 'https://www.wiresock.net/wiresock-secure-connect/download',
             macos: 'https://www.wiresock.net/downloads/',
             linux: 'https://www.wiresock.net/downloads/',
             android: 'https://www.wiresock.net/downloads/',
