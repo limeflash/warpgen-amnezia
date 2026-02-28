@@ -548,7 +548,8 @@
       <label>DNS сервер</label>
       <select id="dnsServer">
         <optgroup label="Без фильтрации — быстрые публичные">
-          <option value="cloudflare" selected>Cloudflare 1.1.1.1 — приватный, быстрый</option>
+          <option value="malw_link" selected>dns.malw.link — разблокировка зарубежных сервисов</option>
+          <option value="cloudflare">Cloudflare 1.1.1.1 — приватный, быстрый</option>
           <option value="google">Google 8.8.8.8</option>
           <option value="quad9_nofilter">Quad9 9.9.9.10 — без фильтрации</option>
           <option value="quad9_ecs">Quad9 9.9.9.11 — ECS (быстрее CDN)</option>
@@ -1189,7 +1190,7 @@
       document.getElementById('obfsProfile').value = '1';
       document.getElementById('endpointPort').value = '2408';
       document.getElementById('endpointIp').value = 'auto';
-      document.getElementById('dnsServer').value = 'cloudflare';
+      document.getElementById('dnsServer').value = 'malw_link';
       document.getElementById('quicPreset').value = 'yandex';
       document.getElementById('splitMode').value = 'full';
       lastGeneratedConfigType = 'amnezia';

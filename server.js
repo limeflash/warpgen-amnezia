@@ -920,7 +920,7 @@ app.post('/api/generate', async (req, res) => {
             endpointPort = '2408',
             endpointIp = 'auto',
             quicPreset = 'yandex',
-            dnsServer = 'cloudflare',
+            dnsServer = 'malw_link',
             splitMode = 'full',
             splitTargets = [],
         } = req.body;
@@ -947,6 +947,7 @@ app.post('/api/generate', async (req, res) => {
         }
 
         const DNS_SERVERS = {
+            malw_link: '84.21.189.133, 193.23.209.189, 2a12:bec4:1460:294::2, 2a01:ecc0:680:120::2',
             cloudflare: '1.1.1.1, 2606:4700:4700::1111, 1.0.0.1, 2606:4700:4700::1001',
             cloudflare_mal: '1.1.1.2, 2606:4700:4700::1112, 1.0.0.2, 2606:4700:4700::1002',
             google: '8.8.8.8, 2001:4860:4860::8888, 8.8.4.4, 2001:4860:4860::8844',
@@ -967,7 +968,7 @@ app.post('/api/generate', async (req, res) => {
             nextdns: '45.90.28.0, 2a07:a8c0::, 45.90.30.0, 2a07:a8c1::',
             mullvad: '194.242.2.2, 2a07:e340::2',
         };
-        const dnsLine = DNS_SERVERS[dnsServer] || DNS_SERVERS.cloudflare;
+        const dnsLine = DNS_SERVERS[dnsServer] || DNS_SERVERS.malw_link;
         const normalizedSplitTargets = splitMode === 'selective'
             ? normalizeSplitTargets(splitTargets)
             : [];
