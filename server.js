@@ -1751,6 +1751,73 @@ function Report-AuthenticodeStatus {
   }
 }
 
+function Select-WindowsArchiveAsset {
+  param(
+    [array]$Assets,
+    [string]$Label
+  )
+  if (-not $Assets) { return $null }
+  $preferred = $Assets | Where-Object {
+    $_.name -match '(?i)win' -and
+    $_.name -match '(?i)(amd64|x64|64|win64)' -and
+    $_.name -match '(?i)\\.(zip|7z|tar\\.gz|tgz|tar)$'
+  } | Select-Object -First 1
+  if ($preferred) {
+    Write-Host ('[DPI] ' + $Label + ': selected preferred asset ' + $preferred.name)
+    return $preferred
+  }
+  $anyWinArchive = $Assets | Where-Object {
+    $_.name -match '(?i)win' -and $_.name -match '(?i)\\.(zip|7z|tar\\.gz|tgz|tar)$'
+  } | Select-Object -First 1
+  if ($anyWinArchive) {
+    Write-Host ('[DPI] ' + $Label + ': selected fallback asset ' + $anyWinArchive.name)
+  } else {
+    Write-Host ('[DPI] ' + $Label + ': windows archive asset not found in release.')
+  }
+  return $anyWinArchive
+}
+
+function Expand-ArchiveAny {
+  param(
+    [string]$ArchivePath,
+    [string]$DestinationPath,
+    [string]$Label
+  )
+  if (-not (Test-Path $DestinationPath)) { New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null }
+  try {
+    Expand-Archive -Path $ArchivePath -DestinationPath $DestinationPath -Force -ErrorAction Stop
+    Write-Host ('[DPI] ' + $Label + ': archive extracted via Expand-Archive.')
+    return $true
+  } catch {
+    Write-Host ('[DPI] ' + $Label + ': Expand-Archive failed: ' + $_.Exception.Message)
+  }
+  try {
+    $tarCmd = Get-Command tar -ErrorAction SilentlyContinue
+    if ($tarCmd) {
+      & $tarCmd.Source -xf $ArchivePath -C $DestinationPath
+      if ($LASTEXITCODE -eq 0) {
+        Write-Host ('[DPI] ' + $Label + ': archive extracted via tar.')
+        return $true
+      }
+      Write-Host ('[DPI] ' + $Label + ': tar extract failed with code ' + $LASTEXITCODE)
+    } else {
+      Write-Host ('[DPI] ' + $Label + ': tar command not found.')
+    }
+  } catch {
+    Write-Host ('[DPI] ' + $Label + ': tar extract failed: ' + $_.Exception.Message)
+  }
+  return $false
+}
+
+function Find-WinwsExecutable {
+  param([string]$SearchRoot)
+  $winwsExe = Get-ChildItem -Path $SearchRoot -Recurse -File -Filter 'winws2.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($winwsExe) { return $winwsExe }
+  $winwsExe = Get-ChildItem -Path $SearchRoot -Recurse -File -Filter 'winws.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($winwsExe) { return $winwsExe }
+  return Get-ChildItem -Path $SearchRoot -Recurse -File -Filter 'winws*.exe' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -First 1
+}
+
 function Normalize-EndpointForReport {
   param(
     [string]$Endpoint,
@@ -1990,7 +2057,7 @@ if (-not $bestEndpoint) {
     try {
       Write-Host '[DPI] Получаем информацию о релизе zapret2...'
       $z2Release = Invoke-RestMethod -Uri 'https://api.github.com/repos/bol-van/zapret2/releases/latest' -ErrorAction Stop
-      $z2Asset = $z2Release.assets | Where-Object { $_.name -match 'win' -and $_.name -like '*.zip' } | Select-Object -First 1
+      $z2Asset = Select-WindowsArchiveAsset -Assets $z2Release.assets -Label 'zapret2'
       if ($z2Asset) {
         $z2Zip = Join-Path $workDir ('zapret2-' + $z2Asset.name)
         Write-Host ('[DPI] Скачиваем ' + $z2Asset.name + '...')
@@ -2000,13 +2067,14 @@ if (-not $bestEndpoint) {
         if (-not $z2HashOk) {
           Write-Host '[Verify] zapret2: checksum verification skipped or unavailable.'
         }
-        New-Item -ItemType Directory -Path $zapretDir -Force | Out-Null
-        Expand-Archive -Path $z2Zip -DestinationPath $zapretDir -Force
-        $winwsExe = Get-ChildItem -Path $zapretDir -Recurse -Filter 'winws2.exe' | Select-Object -First 1
-        if (-not $winwsExe) {
-          $winwsExe = Get-ChildItem -Path $zapretDir -Recurse -Filter 'winws.exe' | Select-Object -First 1
+        if (Expand-ArchiveAny -ArchivePath $z2Zip -DestinationPath $zapretDir -Label 'zapret2') {
+          $winwsExe = Find-WinwsExecutable -SearchRoot $zapretDir
+          if ($winwsExe) {
+            Write-Host ('[DPI] Найден: ' + $winwsExe.FullName)
+          } else {
+            Write-Host '[DPI] zapret2 архив распакован, но winws не найден.'
+          }
         }
-        if ($winwsExe) { Write-Host ('[DPI] Найден: ' + $winwsExe.FullName) }
       }
     } catch {
       Write-Host ('[DPI] zapret2 недоступен: ' + $_.Exception.Message)
@@ -2017,7 +2085,7 @@ if (-not $bestEndpoint) {
       try {
         Write-Host '[DPI] Пробуем оригинальный zapret (bol-van/zapret)...'
         $z1Release = Invoke-RestMethod -Uri 'https://api.github.com/repos/bol-van/zapret/releases/latest' -ErrorAction Stop
-        $z1Asset = $z1Release.assets | Where-Object { $_.name -match 'win' -and $_.name -like '*.zip' } | Select-Object -First 1
+        $z1Asset = Select-WindowsArchiveAsset -Assets $z1Release.assets -Label 'zapret'
         if ($z1Asset) {
           $z1Zip = Join-Path $workDir ('zapret-' + $z1Asset.name)
           Write-Host ('[DPI] Скачиваем ' + $z1Asset.name + '...')
@@ -2027,13 +2095,36 @@ if (-not $bestEndpoint) {
           if (-not $z1HashOk) {
             Write-Host '[Verify] zapret: checksum verification skipped or unavailable.'
           }
-          if (-not (Test-Path $zapretDir)) { New-Item -ItemType Directory -Path $zapretDir -Force | Out-Null }
-          Expand-Archive -Path $z1Zip -DestinationPath $zapretDir -Force
-          $winwsExe = Get-ChildItem -Path $zapretDir -Recurse -Filter 'winws.exe' | Select-Object -First 1
-          if ($winwsExe) { Write-Host ('[DPI] Найден: ' + $winwsExe.FullName) }
+          if (Expand-ArchiveAny -ArchivePath $z1Zip -DestinationPath $zapretDir -Label 'zapret') {
+            $winwsExe = Find-WinwsExecutable -SearchRoot $zapretDir
+            if ($winwsExe) {
+              Write-Host ('[DPI] Найден: ' + $winwsExe.FullName)
+            } else {
+              Write-Host '[DPI] zapret архив распакован, но winws не найден.'
+            }
+          }
         }
       } catch {
         Write-Host ('[DPI] zapret недоступен: ' + $_.Exception.Message)
+      }
+    }
+
+    # --- Шаг 2.5: fallback — bol-van/zapret-win-bundle (zipball) ---
+    if (-not $winwsExe) {
+      try {
+        Write-Host '[DPI] Пробуем fallback: bol-van/zapret-win-bundle...'
+        $bundleZip = Join-Path $workDir 'zapret-win-bundle.zip'
+        Invoke-WebRequest -Uri 'https://api.github.com/repos/bol-van/zapret-win-bundle/zipball' -OutFile $bundleZip -ErrorAction Stop
+        if (Expand-ArchiveAny -ArchivePath $bundleZip -DestinationPath $zapretDir -Label 'zapret-win-bundle') {
+          $winwsExe = Find-WinwsExecutable -SearchRoot $zapretDir
+          if ($winwsExe) {
+            Write-Host ('[DPI] Найден (bundle): ' + $winwsExe.FullName)
+          } else {
+            Write-Host '[DPI] zapret-win-bundle распакован, но winws не найден.'
+          }
+        }
+      } catch {
+        Write-Host ('[DPI] zapret-win-bundle недоступен: ' + $_.Exception.Message)
       }
     }
 

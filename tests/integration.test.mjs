@@ -183,6 +183,10 @@ test('Windows speedtest PS1 script contains DPI bypass via zapret block', async 
   assert.match(scriptText, /\[DPI BYPASS\] zapret\/winws/);
   assert.match(scriptText, /bol-van\/zapret2\/releases\/latest/);
   assert.match(scriptText, /bol-van\/zapret\/releases\/latest/);
+  assert.match(scriptText, /bol-van\/zapret-win-bundle\/zipball/);
+  assert.match(scriptText, /Select-WindowsArchiveAsset/);
+  assert.match(scriptText, /Expand-ArchiveAny/);
+  assert.match(scriptText, /Find-WinwsExecutable/);
   assert.match(scriptText, /winws2\.exe/);
   assert.match(scriptText, /winws\.exe/);
   assert.match(scriptText, /udp-fake-count=6/);
