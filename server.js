@@ -1,5 +1,7 @@
 const express = require('express');
 const https = require('https');
+const http = require('http');
+const zlib = require('zlib');
 const dns = require('dns').promises;
 const crypto = require('crypto');
 const net = require('net');
@@ -10,6 +12,9 @@ const { execSync } = require('child_process');
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/clash', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'clash.html'));
+});
 
 function safeExec(cmd) {
     try {
@@ -321,6 +326,320 @@ const WARP_ENDPOINTS = WARP_ENDPOINT_GROUPS.reduce((acc, group) => {
 
 const SPEEDTEST_SESSION_TTL_MS = 20 * 60 * 1000;
 const SPEEDTEST_SESSIONS = new Map();
+const CLASH_PROFILE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CLASH_PROFILES = new Map();
+const WARP_WIREGUARD_PUBLIC_KEY = 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=';
+
+const DNS_SERVERS = {
+    malw_link: '84.21.189.133, 193.23.209.189, 2a12:bec4:1460:294::2, 2a01:ecc0:680:120::2',
+    cloudflare: '1.1.1.1, 2606:4700:4700::1111, 1.0.0.1, 2606:4700:4700::1001',
+    cloudflare_mal: '1.1.1.2, 2606:4700:4700::1112, 1.0.0.2, 2606:4700:4700::1002',
+    google: '8.8.8.8, 2001:4860:4860::8888, 8.8.4.4, 2001:4860:4860::8844',
+    adguard: '94.140.14.14, 2a10:50c0::ad1:ff, 94.140.15.15, 2a10:50c0::ad2:ff',
+    adguard_family: '94.140.14.15, 2a10:50c0::bad1:ff, 94.140.15.16, 2a10:50c0::bad2:ff',
+    adguard_nofilter: '94.140.14.140, 2a10:50c0::1:ff, 94.140.14.141, 2a10:50c0::2:ff',
+    yandex: '77.88.8.8, 2a02:6b8::feed:0ff, 77.88.8.1, 2a02:6b8:0:1::feed:0ff',
+    yandex_safe: '77.88.8.88, 2a02:6b8::feed:bad, 77.88.8.2, 2a02:6b8:0:1::feed:bad',
+    yandex_family: '77.88.8.7, 2a02:6b8::feed:a11, 77.88.8.3, 2a02:6b8:0:1::feed:a11',
+    quad9: '9.9.9.9, 2620:fe::fe, 149.112.112.112, 2620:fe::9',
+    quad9_ecs: '9.9.9.11, 2620:fe::11, 149.112.112.11, 2620:fe::fe:11',
+    quad9_nofilter: '9.9.9.10, 2620:fe::10, 149.112.112.10, 2620:fe::fe:10',
+    opendns: '208.67.222.222, 2620:119:35::35, 208.67.220.220, 2620:119:53::53',
+    opendns_family: '208.67.222.123, 2620:119:35::123, 208.67.220.123, 2620:119:53::123',
+    gcore: '95.85.95.85, 2a03:90c0:999d::1, 2.56.220.2, 2a03:90c0:9992::1',
+    dnssb: '185.222.222.222, 2a09::, 45.11.45.11, 2a11::',
+    dns0eu: '193.110.81.0, 2a0f:fc80::, 185.253.5.0, 2a0f:fc81::',
+    nextdns: '45.90.28.0, 2a07:a8c0::, 45.90.30.0, 2a07:a8c1::',
+    mullvad: '194.242.2.2, 2a07:e340::2',
+    xbox_dns_ru: 'xbox-dns.ru',
+    dns_geohide_ru: 'dns.geohide.ru',
+    dns_comss_one: 'dns.comss.one',
+};
+
+function splitDnsLineToList(line) {
+    return String(line || '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+}
+
+function createClashDnsProvider({ key, label, group, doh = [], dot = [], doq = [] }) {
+    return {
+        key,
+        label,
+        group,
+        plain: splitDnsLineToList(DNS_SERVERS[key] || ''),
+        doh,
+        dot,
+        doq,
+    };
+}
+
+const CLASH_DNS_PROVIDERS = [
+    createClashDnsProvider({
+        key: 'malw_link',
+        label: 'dns.malw.link — разблокировка',
+        group: 'Разблокировка внешних сервисов',
+        doh: ['https://dns.malw.link/dns-query'],
+        dot: ['tls://dns.malw.link'],
+    }),
+    createClashDnsProvider({
+        key: 'xbox_dns_ru',
+        label: 'xbox-dns.ru — разблокировка зарубежных сервисов',
+        group: 'Разблокировка внешних сервисов',
+        doh: ['https://xbox-dns.ru/dns-query'],
+        dot: ['tls://xbox-dns.ru'],
+    }),
+    createClashDnsProvider({
+        key: 'dns_geohide_ru',
+        label: 'dns.geohide.ru — разблокировка зарубежных сервисов',
+        group: 'Разблокировка внешних сервисов',
+        doh: ['https://dns.geohide.ru/dns-query'],
+        dot: ['tls://dns.geohide.ru'],
+    }),
+    createClashDnsProvider({
+        key: 'dns_comss_one',
+        label: 'dns.comss.one — разблокировка зарубежных сервисов',
+        group: 'Разблокировка внешних сервисов',
+        doh: ['https://dns.comss.one/dns-query'],
+        dot: ['tls://dns.comss.one'],
+    }),
+    createClashDnsProvider({
+        key: 'cloudflare',
+        label: 'Cloudflare',
+        group: 'Без фильтрации — быстрые публичные',
+        doh: ['https://1.1.1.1/dns-query', 'https://1.0.0.1/dns-query'],
+        dot: ['tls://1.1.1.1', 'tls://1.0.0.1'],
+        doq: ['quic://1.1.1.1', 'quic://1.0.0.1'],
+    }),
+    createClashDnsProvider({
+        key: 'google',
+        label: 'Google Public DNS',
+        group: 'Без фильтрации — быстрые публичные',
+        doh: ['https://dns.google/dns-query'],
+        dot: ['tls://dns.google'],
+    }),
+    createClashDnsProvider({
+        key: 'quad9_nofilter',
+        label: 'Quad9 No Filter',
+        group: 'Без фильтрации — быстрые публичные',
+        doh: ['https://dns10.quad9.net/dns-query'],
+        dot: ['tls://dns10.quad9.net'],
+    }),
+    createClashDnsProvider({
+        key: 'quad9_ecs',
+        label: 'Quad9 ECS',
+        group: 'Без фильтрации — быстрые публичные',
+        doh: ['https://dns11.quad9.net/dns-query'],
+        dot: ['tls://dns11.quad9.net'],
+    }),
+    createClashDnsProvider({
+        key: 'opendns',
+        label: 'OpenDNS',
+        group: 'Без фильтрации — быстрые публичные',
+        doh: ['https://doh.opendns.com/dns-query'],
+        dot: ['tls://doh.opendns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'gcore',
+        label: 'G-Core DNS',
+        group: 'Без фильтрации — быстрые публичные',
+    }),
+    createClashDnsProvider({
+        key: 'yandex',
+        label: 'Яндекс DNS',
+        group: 'Без фильтрации — быстрые публичные',
+        dot: ['tls://common.dot.dns.yandex.net'],
+    }),
+    createClashDnsProvider({
+        key: 'adguard',
+        label: 'AdGuard (ads+trackers)',
+        group: 'Блокировка рекламы и трекеров',
+        doh: ['https://dns.adguard-dns.com/dns-query'],
+        dot: ['tls://dns.adguard-dns.com'],
+        doq: ['quic://dns.adguard-dns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'adguard_nofilter',
+        label: 'AdGuard (без фильтрации)',
+        group: 'Блокировка рекламы и трекеров',
+        doh: ['https://unfiltered.adguard-dns.com/dns-query'],
+        dot: ['tls://unfiltered.adguard-dns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'nextdns',
+        label: 'NextDNS',
+        group: 'Блокировка рекламы и трекеров',
+        doh: ['https://dns.nextdns.io'],
+        dot: ['tls://dns.nextdns.io'],
+        doq: ['quic://dns.nextdns.io'],
+    }),
+    createClashDnsProvider({
+        key: 'cloudflare_mal',
+        label: 'Cloudflare Security',
+        group: 'Блокировка рекламы и трекеров',
+        doh: ['https://security.cloudflare-dns.com/dns-query'],
+        dot: ['tls://security.cloudflare-dns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'quad9',
+        label: 'Quad9 Security',
+        group: 'Блокировка рекламы и трекеров',
+        doh: ['https://dns.quad9.net/dns-query'],
+        dot: ['tls://dns.quad9.net'],
+        doq: ['quic://dns.quad9.net'],
+    }),
+    createClashDnsProvider({
+        key: 'adguard_family',
+        label: 'AdGuard Family',
+        group: 'Семейный',
+        doh: ['https://family.adguard-dns.com/dns-query'],
+        dot: ['tls://family.adguard-dns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'yandex_safe',
+        label: 'Яндекс Safe',
+        group: 'Семейный',
+    }),
+    createClashDnsProvider({
+        key: 'yandex_family',
+        label: 'Яндекс Family',
+        group: 'Семейный',
+    }),
+    createClashDnsProvider({
+        key: 'opendns_family',
+        label: 'OpenDNS Family',
+        group: 'Семейный',
+        doh: ['https://doh.familyshield.opendns.com/dns-query'],
+        dot: ['tls://doh.familyshield.opendns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'mullvad',
+        label: 'Mullvad DNS',
+        group: 'Privacy / независимые',
+        doh: ['https://dns.mullvad.net/dns-query'],
+        dot: ['tls://dns.mullvad.net'],
+    }),
+    createClashDnsProvider({
+        key: 'dnssb',
+        label: 'DNS.SB',
+        group: 'Privacy / независимые',
+        doh: ['https://doh.dns.sb/dns-query'],
+        dot: ['tls://dns.sb'],
+    }),
+    createClashDnsProvider({
+        key: 'dns0eu',
+        label: 'dns0.eu',
+        group: 'Privacy / независимые',
+        doh: ['https://zero.dns0.eu/dns-query'],
+        dot: ['tls://zero.dns0.eu'],
+    }),
+];
+
+const CLASH_DNS_TRANSPORTS = ['plain', 'doh', 'dot', 'doq', 'mixed'];
+const CLASH_DNS_FALLBACK_BY_TRANSPORT = {
+    plain: ['1.1.1.1', '9.9.9.9', '8.8.8.8'],
+    doh: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
+    dot: ['tls://1.1.1.1', 'tls://9.9.9.9'],
+    doq: ['quic://1.1.1.1', 'quic://dns.adguard-dns.com'],
+    mixed: ['https://1.1.1.1/dns-query', 'tls://9.9.9.9', '8.8.8.8'],
+};
+
+const PROTOCOL_MASK_IP_VALUES = new Set(['quic', 'tls', 'https', 'http2', 'dtls', 'stun', 'random']);
+const PROTOCOL_MASK_IB_VALUES = new Set(['firefox', 'chrome', 'edge', 'safari', 'android', 'ios', 'random']);
+
+const CDN_CIDRS = {
+    cloudflare: ['104.16.0.0/13', '172.64.0.0/13', '188.114.96.0/20', '162.159.0.0/16', '2606:4700::/32', '2a06:98c0::/29'],
+    akamai: ['23.0.0.0/12', '23.32.0.0/11', '23.64.0.0/14', '2600:1400::/24'],
+    aws: ['3.0.0.0/8', '13.0.0.0/8', '15.0.0.0/7', '18.0.0.0/8', '35.71.0.0/16'],
+    cdn77: ['37.19.192.0/19', '45.64.64.0/22', '2a02:26f0::/32'],
+    cogent: ['38.0.0.0/8', '154.54.0.0/16', '2001:550::/32'],
+    contabo: ['62.171.0.0/16', '185.217.0.0/16'],
+    datacamp: ['89.38.96.0/19', '80.82.64.0/20'],
+    digitalocean: ['104.131.0.0/16', '159.65.0.0/16', '167.99.0.0/16', '2a03:b0c0::/32'],
+    fastly: ['23.235.32.0/20', '43.249.72.0/22', '2a04:4e42::/32'],
+    hetzner: ['49.12.0.0/16', '88.198.0.0/16', '2a01:4f8::/32'],
+    oracle: ['129.146.0.0/16', '132.145.0.0/16', '2603:c020::/32'],
+    ovh: ['51.68.0.0/16', '54.36.0.0/15', '2001:41d0::/32'],
+    roblox: ['128.116.0.0/16', '128.116.64.0/18'],
+    scaleway: ['51.15.0.0/16', '62.210.0.0/16', '2001:bc8::/32'],
+    vercel: ['76.76.21.0/24', '76.76.22.0/24'],
+};
+
+const CLASH_DOMAIN_PRESETS = {
+    blocked_sites: [
+        'discord.com', 'discord.gg', 'discordapp.net', 'youtube.com', 'googlevideo.com', 'x.com',
+        'twitter.com', 't.co', 'instagram.com', 'twitch.tv', 'telegram.org', 't.me',
+        'steamcommunity.com', 'steampowered.com', 'steam-chat.com', 'faceit.com', 'open.faceit.com',
+        'apexlegends.com', 'ea.com', 'origin.com', 'battle.net', 'blizzard.com',
+        'playhearthstone.com', 'pubg.com', 'playbattlegrounds.com', 'krafton.com',
+        'whatsapp.com', 'whatsapp.net', 'viber.com', 'tiktok.com', 'tiktokv.com',
+        'jetbrains.com', 'download.jetbrains.com', 'plugins.jetbrains.com',
+    ],
+    ru_direct: ['yandex.ru', 'vk.com', 'rutube.ru', 'gosuslugi.ru', 'sberbank.ru'],
+};
+
+const CLIENT_DOWNLOADS = {
+    wireguard: {
+        title: 'WireGuard',
+        links: {
+            windows: 'https://download.wireguard.com/windows-client/wireguard-installer.exe',
+            macos: 'https://apps.apple.com/us/app/wireguard/id1451685025',
+            linux: 'https://www.wireguard.com/install/',
+            android: 'https://play.google.com/store/apps/details?id=com.wireguard.android',
+            ios: 'https://apps.apple.com/us/app/wireguard/id1451685025',
+        },
+    },
+    amnezia: {
+        title: 'AmneziaVPN',
+        github: {
+            repo: 'amnezia-vpn/amnezia-client',
+            platformAssetPatterns: {
+                windows: /_x64\.exe$/i,
+                macos: /_macos\.pkg$/i,
+                linux: /_linux_x64\.tar$/i,
+                android: /android9\+_arm64-v8a\.apk$/i,
+            },
+        },
+        links: {
+            windows: 'https://github.com/amnezia-vpn/amnezia-client/releases/latest',
+            macos: 'https://github.com/amnezia-vpn/amnezia-client/releases/latest',
+            linux: 'https://github.com/amnezia-vpn/amnezia-client/releases/latest',
+            android: 'https://github.com/amnezia-vpn/amnezia-client/releases/latest',
+            ios: 'https://apps.apple.com/us/app/amneziavpn/id1600529900',
+        },
+    },
+    clash_verge: {
+        title: 'Clash Verge',
+        github: {
+            repo: 'clash-verge-rev/clash-verge-rev',
+            platformAssetPatterns: {
+                windows: /_x64-setup\.exe$/i,
+                macos: /_x64\.dmg$/i,
+                linux: /_amd64\.deb$/i,
+            },
+        },
+        links: {
+            windows: 'https://github.com/clash-verge-rev/clash-verge-rev/releases/latest',
+            macos: 'https://github.com/clash-verge-rev/clash-verge-rev/releases/latest',
+            linux: 'https://github.com/clash-verge-rev/clash-verge-rev/releases/latest',
+            android: 'https://github.com/clash-verge-rev/clash-verge-rev/releases/latest',
+            ios: 'https://github.com/clash-verge-rev/clash-verge-rev/releases/latest',
+        },
+    },
+    wiresock: {
+        title: 'WireSock',
+        links: {
+            windows: 'https://www.wiresock.net/downloads/wiresock-secure-connect-win64-1.4.11.msi',
+            macos: 'https://www.wiresock.net/downloads/',
+            linux: 'https://www.wiresock.net/downloads/',
+            android: 'https://www.wiresock.net/downloads/',
+            ios: 'https://www.wiresock.net/downloads/',
+        },
+    },
+};
+const CLIENT_DOWNLOAD_CACHE_TTL_MS = 30 * 60 * 1000;
+const CLIENT_DOWNLOAD_CACHE = new Map();
 
 const SPLIT_TUNNEL_TARGETS = {
     discord: {
@@ -343,6 +662,16 @@ const SPLIT_TUNNEL_TARGETS = {
     speedtest: { label: 'Speedtest', domains: ['speedtest.com', 'speedtest.net', 'www.speedtest.net', 'ookla.com'] },
     fast_com: { label: 'Fast.com', domains: ['fast.com', 'api.fast.com', 'netflix.com', 'www.netflix.com', 'nflxvideo.net', 'assets.nflxext.com'] },
     whoer: { label: 'Whoer', domains: ['whoer.net', 'www.whoer.net'] },
+    geosite_ru: {
+        label: 'geosite:ru (core)',
+        domains: [
+            'yandex.ru', 'ya.ru', 'vk.com', 'mail.ru', 'ok.ru', 'dzen.ru', 'rutube.ru', 'avito.ru', 'gosuslugi.ru',
+            'sberbank.ru', 'alfabank.ru', 'tbank.ru', 'vtb.ru', 'ozon.ru', 'wildberries.ru', 'cdek.ru', 'pochta.ru',
+            'rbc.ru', 'lenta.ru', 'gazeta.ru', 'ria.ru', 'tass.ru', 'kommersant.ru', 'championat.com', 'sports.ru',
+            'kinopoisk.ru', 'ivi.ru', 'okko.tv', 'yoomoney.ru', 'qiwi.com', 'consultant.ru', 'garant.ru',
+            'nalog.gov.ru', 'mos.ru', 'moex.com', 'hh.ru', '2gis.ru', 'pikabu.ru', 'habr.com', 'yaplakal.com',
+        ],
+    },
     apex_legends: { label: 'Apex Legends', domains: ['apexlegends.com', 'www.playapex.com', 'respawn.com', 'ea.com', 'www.ea.com', 'origin.com', 'accounts.ea.com', 'gateway.ea.com', 'api1.origin.com', 'download.dm.origin.com', 'origin-a.akamaihd.net'] },
     ea_app: { label: 'EA App', domains: ['ea.com', 'www.ea.com', 'origin.com', 'accounts.ea.com', 'gateway.ea.com', 'api1.origin.com', 'download.dm.origin.com', 'origin-a.akamaihd.net', 'eaassets-a.akamaihd.net'] },
     battle_net: { label: 'Battle.net', domains: ['battle.net', 'www.battle.net', 'blizzard.com', 'www.blizzard.com', 'us.patch.battle.net', 'eu.patch.battle.net', 'blzddist1-a.akamaihd.net'] },
@@ -449,6 +778,71 @@ function dnsServersToCidrs(dnsLine) {
         if (ipType === 6) cidrs.add(`${host}/128`);
     }
     return Array.from(cidrs);
+}
+
+function isDnsHostname(value) {
+    const host = String(value || '').trim();
+    if (!host) return false;
+    if (net.isIP(host)) return false;
+    return /^[a-z0-9.-]+$/i.test(host) && host.includes('.');
+}
+
+async function resolveDnsHostToIps(hostname) {
+    const host = String(hostname || '').trim();
+    if (!isDnsHostname(host)) return [];
+    const resolved = [];
+    try {
+        const v4 = await dns.resolve4(host);
+        for (const ip of v4) {
+            if (net.isIP(ip) === 4) resolved.push(ip);
+        }
+    } catch {
+        // ignore
+    }
+    try {
+        const v6 = await dns.resolve6(host);
+        for (const ip of v6) {
+            if (net.isIP(ip) === 6) resolved.push(ip);
+        }
+    } catch {
+        // ignore
+    }
+    return Array.from(new Set(resolved));
+}
+
+async function normalizeDnsLineForConfig(dnsLine) {
+    if (typeof dnsLine !== 'string' || !dnsLine.trim()) return DNS_SERVERS.malw_link;
+    const tokens = splitDnsLineToList(dnsLine);
+    const expanded = [];
+
+    for (const token of tokens) {
+        const value = token.trim();
+        if (!value) continue;
+        const ipType = net.isIP(value);
+        if (ipType === 4 || ipType === 6) {
+            expanded.push(value);
+            continue;
+        }
+        if (isDnsHostname(value)) {
+            const ips = await resolveDnsHostToIps(value);
+            if (ips.length) {
+                expanded.push(...ips.slice(0, 4));
+                continue;
+            }
+        }
+    }
+
+    const unique = Array.from(new Set(expanded));
+    if (unique.length) return unique.join(', ');
+    return DNS_SERVERS.malw_link;
+}
+
+function normalizeProtocolMaskField(rawValue, { fallback = '', maxLength = 128, allowed = null } = {}) {
+    const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+    if (!value) return fallback;
+    const normalized = value.toLowerCase();
+    if (allowed instanceof Set && !allowed.has(normalized)) return fallback;
+    return normalized.slice(0, maxLength);
 }
 
 function normalizeSplitTargets(splitTargets) {
@@ -584,6 +978,425 @@ function getClientIp(req) {
     return req.ip || req.socket?.remoteAddress || '';
 }
 
+function splitCsvValue(rawValue) {
+    return String(rawValue || '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+}
+
+function parseWgEndpoint(rawValue) {
+    if (typeof rawValue !== 'string') return null;
+    const value = rawValue.trim();
+    if (!value) return null;
+    let match = value.match(/^\[([^\]]+)\]:(\d{1,5})$/);
+    if (!match) match = value.match(/^([^:]+):(\d{1,5})$/);
+    if (!match) return null;
+    const host = match[1].trim();
+    const port = Number.parseInt(match[2], 10);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+    return { host, port };
+}
+
+function parseIniWireGuardConfig(rawConfig) {
+    const lines = String(rawConfig || '').replace(/\u0000/g, '').split(/\r?\n/);
+    const cfg = { interface: {}, peer: {} };
+    let section = '';
+
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+
+        const sectionMatch = line.match(/^\[([^\]]+)\]$/);
+        if (sectionMatch) {
+            section = sectionMatch[1].trim().toLowerCase();
+            continue;
+        }
+
+        const eq = line.indexOf('=');
+        if (eq < 1) continue;
+        const key = line.slice(0, eq).trim().toLowerCase();
+        const value = line.slice(eq + 1).trim();
+        if (!key) continue;
+
+        if (section === 'interface') cfg.interface[key] = value;
+        if (section === 'peer') cfg.peer[key] = value;
+    }
+
+    return cfg;
+}
+
+function pickPrimaryAddress(addressValue) {
+    const addresses = splitCsvValue(addressValue);
+    if (!addresses.length) return '172.16.0.2/32';
+    const ipv4WithCidr = addresses.find((addr) => addr.includes('.') && addr.includes('/'));
+    if (ipv4WithCidr) return ipv4WithCidr;
+    const anyWithCidr = addresses.find((addr) => addr.includes('/'));
+    return anyWithCidr || addresses[0];
+}
+
+function detectImportedNodeType(server, publicKey, iface) {
+    const hasAmneziaFields = ['s1', 's2', 'jc', 'jmin', 'jmax', 'h1', 'h2', 'h3', 'h4', 'i1']
+        .some((key) => typeof iface?.[key] === 'string' && iface[key].trim());
+    if (hasAmneziaFields) return 'amnezia';
+
+    const host = String(server || '').trim().toLowerCase();
+    if (publicKey === WARP_WIREGUARD_PUBLIC_KEY) return 'warp';
+    if (host === 'engage.cloudflareclient.com') return 'warp';
+    if (isAllowedWarpResultIp(host)) return 'warp';
+    if (host.includes('cloudflareclient.com')) return 'warp';
+    return 'wireguard';
+}
+
+function parseClashImportConfig(rawConfig) {
+    const raw = String(rawConfig || '').trim();
+    if (!raw) throw new Error('Пустой конфиг.');
+    const parsed = parseIniWireGuardConfig(raw);
+    const iface = parsed.interface || {};
+    const peer = parsed.peer || {};
+
+    const privateKey = typeof iface.privatekey === 'string' ? iface.privatekey.trim() : '';
+    if (!privateKey) throw new Error('В конфиге не найден Interface.PrivateKey.');
+
+    const endpoint = parseWgEndpoint(peer.endpoint || '');
+    if (!endpoint) throw new Error('В конфиге не найден корректный Peer.Endpoint (host:port).');
+
+    const publicKey = typeof peer.publickey === 'string' && peer.publickey.trim()
+        ? peer.publickey.trim()
+        : WARP_WIREGUARD_PUBLIC_KEY;
+    const type = detectImportedNodeType(endpoint.host, publicKey, iface);
+    const safeHost = endpoint.host.replace(/[^a-zA-Z0-9.-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    const nodeName = `${type}-${safeHost || 'imported'}`.slice(0, 64);
+    const dnsNameservers = splitCsvValue(iface.dns);
+
+    return {
+        profileName: `Imported ${type.toUpperCase()}`,
+        node: {
+            name: nodeName,
+            type,
+            server: endpoint.host,
+            port: endpoint.port,
+            address: pickPrimaryAddress(iface.address),
+            privateKey,
+            publicKey,
+        },
+        dns: {
+            nameservers: dnsNameservers,
+        },
+        meta: {
+            endpoint: `${endpoint.host}:${endpoint.port}`,
+            detectedType: type,
+            hasAmneziaFields: type === 'amnezia',
+        },
+    };
+}
+
+function base64UrlToBuffer(value) {
+    const raw = String(value || '').trim();
+    if (!raw) throw new Error('Пустой payload vpn://.');
+    const normalized = raw.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    return Buffer.from(padded, 'base64');
+}
+
+function decodeAmneziaVpnLink(vpnLink) {
+    const raw = String(vpnLink || '').trim();
+    if (!raw.toLowerCase().startsWith('vpn://')) {
+        throw new Error('Некорректная vpn:// ссылка.');
+    }
+    const payload = raw.slice('vpn://'.length);
+    const compressed = base64UrlToBuffer(payload);
+    if (compressed.length <= 4) {
+        throw new Error('Поврежденный vpn:// payload.');
+    }
+
+    let decoded;
+    try {
+        decoded = zlib.inflateSync(compressed.subarray(4)).toString('utf8');
+    } catch {
+        throw new Error('Не удалось распаковать vpn:// payload.');
+    }
+
+    let root;
+    try {
+        root = JSON.parse(decoded);
+    } catch {
+        throw new Error('Некорректный JSON внутри vpn:// payload.');
+    }
+
+    const container = Array.isArray(root?.containers) ? root.containers[0] : null;
+    if (!container?.awg?.last_config) {
+        throw new Error('В vpn:// payload отсутствует awg.last_config.');
+    }
+
+    let nested;
+    try {
+        nested = JSON.parse(String(container.awg.last_config || '{}'));
+    } catch {
+        throw new Error('Некорректный формат awg.last_config.');
+    }
+
+    const configTextRaw = typeof nested?.config === 'string' ? nested.config : '';
+    if (!configTextRaw.trim()) {
+        throw new Error('В awg.last_config отсутствует поле config.');
+    }
+
+    const dns1 = typeof root?.dns1 === 'string' && root.dns1.trim() ? root.dns1.trim() : '1.1.1.1';
+    const dns2 = typeof root?.dns2 === 'string' && root.dns2.trim() ? root.dns2.trim() : '1.0.0.1';
+    return configTextRaw
+        .replace(/\$PRIMARY_DNS/g, dns1)
+        .replace(/\$SECONDARY_DNS/g, dns2);
+}
+
+function normalizeImportedConfigText(rawInput) {
+    const text = String(rawInput || '').trim();
+    if (!text) throw new Error('Пустой конфиг.');
+    if (text.toLowerCase().startsWith('vpn://')) {
+        return decodeAmneziaVpnLink(text);
+    }
+    return text;
+}
+
+function isPrivateOrSpecialIpv4(ip) {
+    const parts = ip.split('.').map((x) => Number.parseInt(x, 10));
+    if (parts.length !== 4 || parts.some((x) => Number.isNaN(x) || x < 0 || x > 255)) return true;
+    if (parts[0] === 0 || parts[0] === 10 || parts[0] === 127) return true;
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
+    if (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)) return true;
+    if (parts[0] >= 224) return true;
+    return false;
+}
+
+function isPrivateOrSpecialIpv6(ip) {
+    const normalized = String(ip || '').toLowerCase();
+    if (!normalized) return true;
+    if (normalized === '::' || normalized === '::1') return true;
+    if (normalized.startsWith('fe80:')) return true;
+    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
+    if (normalized.startsWith('ff')) return true;
+    return false;
+}
+
+function isPublicRoutableIp(ip) {
+    const family = net.isIP(ip);
+    if (!family) return false;
+    if (family === 4) return !isPrivateOrSpecialIpv4(ip);
+    return !isPrivateOrSpecialIpv6(ip);
+}
+
+async function assertSafeImportUrl(rawUrl) {
+    let parsed;
+    try {
+        parsed = new URL(String(rawUrl || '').trim());
+    } catch {
+        throw new Error('Некорректный URL для импорта.');
+    }
+
+    if (!['https:', 'http:'].includes(parsed.protocol)) {
+        throw new Error('Разрешены только http/https ссылки.');
+    }
+    if (parsed.username || parsed.password) {
+        throw new Error('Ссылки с логином/паролем не поддерживаются.');
+    }
+
+    const host = String(parsed.hostname || '').trim();
+    const hostLower = host.toLowerCase();
+    if (!host) throw new Error('URL не содержит хост.');
+    if (hostLower === 'localhost' || hostLower.endsWith('.local') || hostLower.endsWith('.internal')) {
+        throw new Error('Локальные хосты для импорта запрещены.');
+    }
+
+    const ipFamily = net.isIP(host);
+    if (ipFamily) {
+        if (!isPublicRoutableIp(host)) {
+            throw new Error('URL указывает на приватный/локальный IP, импорт запрещен.');
+        }
+        return parsed.toString();
+    }
+
+    let resolved = [];
+    try {
+        resolved = await dns.lookup(host, { all: true, verbatim: true });
+    } catch {
+        throw new Error('Не удалось резолвить домен в URL.');
+    }
+    if (!Array.isArray(resolved) || !resolved.length) {
+        throw new Error('Не удалось получить IP для указанного URL.');
+    }
+    if (resolved.some((item) => !isPublicRoutableIp(item.address))) {
+        throw new Error('URL резолвится в приватный/локальный IP, импорт запрещен.');
+    }
+    return parsed.toString();
+}
+
+function fetchRemoteText(remoteUrl, depth = 0, maxBytes = 512 * 1024) {
+    if (depth > 5) return Promise.reject(new Error('Слишком много редиректов при импорте.'));
+    return new Promise((resolve, reject) => {
+        let parsed;
+        try {
+            parsed = new URL(remoteUrl);
+        } catch {
+            reject(new Error('Некорректный URL для загрузки.'));
+            return;
+        }
+        const client = parsed.protocol === 'https:' ? https : (parsed.protocol === 'http:' ? http : null);
+        if (!client) {
+            reject(new Error('Поддерживаются только http/https ссылки.'));
+            return;
+        }
+
+        const req = client.request({
+            method: 'GET',
+            hostname: parsed.hostname,
+            path: `${parsed.pathname}${parsed.search}`,
+            headers: {
+                'User-Agent': 'WarpGen-Config-Importer/1.0',
+                'Accept': 'text/plain,application/octet-stream,*/*',
+            },
+            timeout: 12000,
+        }, (remoteRes) => {
+            const statusCode = remoteRes.statusCode || 500;
+            const location = remoteRes.headers.location;
+            if (statusCode >= 300 && statusCode < 400 && location) {
+                remoteRes.resume();
+                const nextUrl = new URL(location, remoteUrl).toString();
+                fetchRemoteText(nextUrl, depth + 1, maxBytes).then(resolve).catch(reject);
+                return;
+            }
+            if (statusCode >= 400) {
+                remoteRes.resume();
+                reject(new Error(`Сервер вернул HTTP ${statusCode}.`));
+                return;
+            }
+
+            const chunks = [];
+            let total = 0;
+            remoteRes.on('data', (chunk) => {
+                total += chunk.length;
+                if (total > maxBytes) {
+                    remoteRes.destroy(new Error('Файл слишком большой для импорта.'));
+                    return;
+                }
+                chunks.push(chunk);
+            });
+            remoteRes.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+            remoteRes.on('error', (err) => reject(err));
+        });
+
+        req.on('timeout', () => {
+            req.destroy(new Error('Таймаут загрузки конфига.'));
+        });
+        req.on('error', (err) => reject(err));
+        req.end();
+    });
+}
+
+function normalizeClientPlatform(value) {
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (['windows', 'macos', 'linux', 'android', 'ios'].includes(raw)) return raw;
+    return 'windows';
+}
+
+function proxyRemoteDownload(remoteUrl, res, depth = 0) {
+    if (depth > 5) {
+        res.status(502).json({ error: 'Too many redirects.' });
+        return;
+    }
+    const parsed = new URL(remoteUrl);
+    const client = parsed.protocol === 'https:' ? https : null;
+    if (!client) {
+        res.status(400).json({ error: 'Only https downloads are supported.' });
+        return;
+    }
+    const req = client.request({
+        method: 'GET',
+        hostname: parsed.hostname,
+        path: `${parsed.pathname}${parsed.search}`,
+        headers: { 'User-Agent': 'WarpGen-Download-Proxy/1.0' },
+    }, (remoteRes) => {
+        const code = remoteRes.statusCode || 500;
+        const location = remoteRes.headers.location;
+        if (code >= 300 && code < 400 && location) {
+            remoteRes.resume();
+            const nextUrl = new URL(location, remoteUrl).toString();
+            proxyRemoteDownload(nextUrl, res, depth + 1);
+            return;
+        }
+        res.status(code);
+        const passHeaders = ['content-type', 'content-length', 'content-disposition', 'last-modified', 'etag'];
+        for (const header of passHeaders) {
+            const val = remoteRes.headers[header];
+            if (val) res.setHeader(header, val);
+        }
+        remoteRes.pipe(res);
+    });
+    req.on('error', (err) => {
+        if (!res.headersSent) res.status(502).json({ error: `Download proxy failed: ${err.message}` });
+        else res.end();
+    });
+    req.end();
+}
+
+function githubApiJson(pathname) {
+    return new Promise((resolve, reject) => {
+        const req = https.request({
+            method: 'GET',
+            hostname: 'api.github.com',
+            path: pathname,
+            headers: {
+                'User-Agent': 'WarpGen-Download-Proxy/1.0',
+                'Accept': 'application/vnd.github+json',
+            },
+        }, (apiRes) => {
+            let raw = '';
+            apiRes.on('data', (chunk) => { raw += chunk; });
+            apiRes.on('end', () => {
+                if ((apiRes.statusCode || 500) >= 400) {
+                    reject(new Error(`GitHub API ${apiRes.statusCode}`));
+                    return;
+                }
+                try { resolve(JSON.parse(raw)); }
+                catch { reject(new Error('Invalid GitHub JSON')); }
+            });
+        });
+        req.on('error', reject);
+        req.end();
+    });
+}
+
+async function resolveGithubLatestAsset(appKey, appMeta, platform) {
+    const repo = appMeta?.github?.repo;
+    const pattern = appMeta?.github?.platformAssetPatterns?.[platform];
+    if (!repo || !pattern) return null;
+    const cacheKey = `${appKey}:${platform}`;
+    const cached = CLIENT_DOWNLOAD_CACHE.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < CLIENT_DOWNLOAD_CACHE_TTL_MS) return cached.url;
+
+    const release = await githubApiJson(`/repos/${repo}/releases/latest`);
+    const assets = Array.isArray(release?.assets) ? release.assets : [];
+    const asset = assets.find((x) => pattern.test(String(x?.name || '')));
+    const url = asset?.browser_download_url || null;
+    if (url) CLIENT_DOWNLOAD_CACHE.set(cacheKey, { ts: Date.now(), url });
+    return url;
+}
+
+async function resolveClientDownloadUrl(appKey, platform) {
+    const appMeta = CLIENT_DOWNLOADS[appKey];
+    if (!appMeta) return null;
+    let url = null;
+    try {
+        url = await resolveGithubLatestAsset(appKey, appMeta, platform);
+    } catch {
+        url = null;
+    }
+    if (url) return url;
+    return appMeta.links?.[platform] || appMeta.links?.windows || null;
+}
+
 function cleanupSpeedtestSessions() {
     const now = Date.now();
     for (const [id, session] of SPEEDTEST_SESSIONS.entries()) {
@@ -692,7 +1505,173 @@ pause
 `;
 }
 
+function sanitizeProfileName(value, fallback) {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (!raw) return fallback;
+    return raw.replace(/\s+/g, ' ').slice(0, 64);
+}
+
+function normalizeClashNodeType(value) {
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (raw === 'warp' || raw === 'amnezia' || raw === 'wireguard') return raw;
+    return 'wireguard';
+}
+
+function validateClashNode(node, idx) {
+    const name = sanitizeProfileName(node?.name, `node-${idx + 1}`);
+    const type = normalizeClashNodeType(node?.type);
+    const server = typeof node?.server === 'string' ? node.server.trim() : '';
+    const port = Number.parseInt(String(node?.port || ''), 10);
+    const privateKey = typeof node?.privateKey === 'string' ? node.privateKey.trim() : '';
+    const publicKey = typeof node?.publicKey === 'string' && node.publicKey.trim()
+        ? node.publicKey.trim()
+        : WARP_WIREGUARD_PUBLIC_KEY;
+    const address = typeof node?.address === 'string' && node.address.trim()
+        ? node.address.trim()
+        : '172.16.0.2/32';
+
+    if (!server) throw new Error(`Узел #${idx + 1}: server обязателен.`);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Узел #${idx + 1}: некорректный port.`);
+    if (!privateKey) throw new Error(`Узел #${idx + 1}: privateKey обязателен.`);
+
+    return {
+        name,
+        type,
+        server,
+        port,
+        privateKey,
+        publicKey,
+        address,
+        reserved: Array.isArray(node?.reserved) ? node.reserved.slice(0, 3).map((n) => Number.parseInt(n, 10) || 0) : null,
+    };
+}
+
+function toYamlValue(value) {
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (value === null || value === undefined) return '""';
+    const str = String(value);
+    if (/^[a-zA-Z0-9._:@/+-]+$/.test(str)) return str;
+    return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function renderYamlObject(obj, indent = 0) {
+    const pad = ' '.repeat(indent);
+    const lines = [];
+    for (const [key, value] of Object.entries(obj)) {
+        if (Array.isArray(value)) {
+            if (!value.length) {
+                lines.push(`${pad}${key}: []`);
+                continue;
+            }
+            lines.push(`${pad}${key}:`);
+            for (const item of value) {
+                if (item && typeof item === 'object' && !Array.isArray(item)) {
+                    const entries = Object.entries(item);
+                    if (!entries.length) {
+                        lines.push(`${pad}  - {}`);
+                        continue;
+                    }
+                    const [firstKey, firstValue] = entries[0];
+                    lines.push(`${pad}  - ${firstKey}: ${toYamlValue(firstValue)}`);
+                    for (let i = 1; i < entries.length; i += 1) {
+                        const [nestedKey, nestedValue] = entries[i];
+                        lines.push(`${pad}    ${nestedKey}: ${toYamlValue(nestedValue)}`);
+                    }
+                } else {
+                    lines.push(`${pad}  - ${toYamlValue(item)}`);
+                }
+            }
+            continue;
+        }
+        if (value && typeof value === 'object') {
+            lines.push(`${pad}${key}:`);
+            lines.push(renderYamlObject(value, indent + 2));
+            continue;
+        }
+        lines.push(`${pad}${key}: ${toYamlValue(value)}`);
+    }
+    return lines.filter(Boolean).join('\n');
+}
+
+function buildClashYaml(profile) {
+    const proxyNames = profile.nodes.map((node) => node.name);
+    const dnsNameservers = Array.isArray(profile.dns.nameservers) && profile.dns.nameservers.length
+        ? profile.dns.nameservers
+        : ['https://dns.malw.link/dns-query'];
+    const dnsFallback = Array.isArray(profile.dns.fallback) && profile.dns.fallback.length
+        ? profile.dns.fallback
+        : ['https://1.1.1.1/dns-query', 'tls://1.1.1.1'];
+    const rules = [];
+    for (const domain of profile.routing.ruDirectDomains) rules.push(`DOMAIN-SUFFIX,${domain},DIRECT`);
+    for (const domain of profile.routing.proxyDomains) rules.push(`DOMAIN-SUFFIX,${domain},WARP Auto`);
+    for (const cidr of profile.routing.cdnCidrs) rules.push(`IP-CIDR,${cidr},WARP Auto,no-resolve`);
+    rules.push('MATCH,DIRECT');
+    const lines = [
+        'mixed_port: 7890',
+        'allow_lan: true',
+        'mode: rule',
+        'log-level: info',
+        'ipv6: true',
+        'proxies:',
+    ];
+
+    for (const node of profile.nodes) {
+        lines.push(`  - name: ${toYamlValue(node.name)}`);
+        lines.push('    type: wireguard');
+        lines.push(`    server: ${toYamlValue(node.server)}`);
+        lines.push(`    port: ${node.port}`);
+        lines.push(`    ip: ${toYamlValue(node.address)}`);
+        lines.push(`    private-key: ${toYamlValue(node.privateKey)}`);
+        lines.push(`    public-key: ${toYamlValue(node.publicKey)}`);
+        lines.push('    udp: true');
+        lines.push('    remote-dns-resolve: true');
+        lines.push('    mtu: 1280');
+        if (Array.isArray(node.reserved) && node.reserved.length === 3) {
+            lines.push(`    reserved: [${node.reserved.map((n) => Number.parseInt(n, 10) || 0).join(', ')}]`);
+        }
+        if (node.type === 'amnezia') {
+            lines.push('    x-note: amnezia-metadata-only');
+        }
+    }
+
+    lines.push('proxy-groups:');
+    lines.push('  - name: "WARP Auto"');
+    lines.push('    type: url-test');
+    lines.push('    proxies:');
+    for (const name of proxyNames) lines.push(`      - ${toYamlValue(name)}`);
+    lines.push('    url: http://www.gstatic.com/generate_204');
+    lines.push('    interval: 300');
+    lines.push('    tolerance: 80');
+    lines.push('  - name: "WARP Manual"');
+    lines.push('    type: select');
+    lines.push('    proxies:');
+    for (const name of [...proxyNames, 'WARP Auto', 'DIRECT']) lines.push(`      - ${toYamlValue(name)}`);
+
+    lines.push('dns:');
+    lines.push('  enable: true');
+    lines.push('  listen: 0.0.0.0:1053');
+    lines.push('  ipv6: true');
+    lines.push(`  enhanced-mode: ${profile.dns.mode === 'redir-host' ? 'redir-host' : 'fake-ip'}`);
+    lines.push('  fake-ip-range: 198.18.0.1/16');
+    lines.push('  nameserver:');
+    for (const value of dnsNameservers) lines.push(`    - ${toYamlValue(value)}`);
+    lines.push('  fallback:');
+    for (const value of dnsFallback) lines.push(`    - ${toYamlValue(value)}`);
+
+    lines.push('rules:');
+    for (const rule of rules) lines.push(`  - ${toYamlValue(rule)}`);
+    return `${lines.join('\n')}\n`;
+}
+
+function cleanupClashProfiles() {
+    const now = Date.now();
+    for (const [id, profile] of CLASH_PROFILES.entries()) {
+        if (now - profile.createdAt > CLASH_PROFILE_TTL_MS) CLASH_PROFILES.delete(id);
+    }
+}
+
 setInterval(cleanupSpeedtestSessions, 5 * 60 * 1000).unref();
+setInterval(cleanupClashProfiles, 10 * 60 * 1000).unref();
 
 app.get('/api/endpoints', (req, res) => {
     res.json(WARP_ENDPOINTS);
@@ -808,6 +1787,155 @@ app.get('/api/version', (req, res) => {
         display: VERSION_DISPLAY,
         commitDate: GIT_DATE,
     });
+});
+
+app.get('/api/client-downloads', (req, res) => {
+    const apps = Object.entries(CLIENT_DOWNLOADS).map(([key, meta]) => ({
+        key,
+        title: meta.title,
+        platforms: Object.keys(meta.links || {}),
+    }));
+    res.json({
+        apps,
+        platforms: ['windows', 'macos', 'linux', 'android', 'ios'],
+    });
+});
+
+app.get('/api/client-download/:app', async (req, res) => {
+    try {
+        const appKey = typeof req.params?.app === 'string' ? req.params.app.trim().toLowerCase() : '';
+        if (!CLIENT_DOWNLOADS[appKey]) {
+            return res.status(404).json({ error: 'Unknown app.' });
+        }
+        const platform = normalizeClientPlatform(req.query?.platform);
+        const url = await resolveClientDownloadUrl(appKey, platform);
+        if (!url) return res.status(404).json({ error: 'No download URL for platform.' });
+        proxyRemoteDownload(url, res);
+    } catch (err) {
+        res.status(502).json({ error: `Failed to resolve download: ${err.message}` });
+    }
+});
+
+app.get('/api/clash/options', (req, res) => {
+    const cdnProviders = Object.keys(CDN_CIDRS).map((key) => ({
+        key,
+        label: key.toUpperCase(),
+        cidrCount: CDN_CIDRS[key].length,
+    }));
+    res.json({
+        types: ['warp', 'amnezia', 'wireguard'],
+        amneziaVersions: ['1.0', '1.5', '2.0'],
+        dnsModes: ['fake-ip', 'redir-host'],
+        dnsTransports: CLASH_DNS_TRANSPORTS,
+        dnsProviders: CLASH_DNS_PROVIDERS,
+        dnsFallbackByTransport: CLASH_DNS_FALLBACK_BY_TRANSPORT,
+        cdnProviders,
+        domainPresets: CLASH_DOMAIN_PRESETS,
+        ttlSec: Math.floor(CLASH_PROFILE_TTL_MS / 1000),
+    });
+});
+
+app.post('/api/clash/import', async (req, res) => {
+    try {
+        const rawConfig = typeof req.body?.rawConfig === 'string' ? req.body.rawConfig : '';
+        const remoteUrl = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+
+        let sourceText = rawConfig.trim();
+        if (!sourceText) {
+            if (!remoteUrl) {
+                return res.status(400).json({ error: 'Передайте rawConfig или url для импорта.' });
+            }
+            const safeUrl = await assertSafeImportUrl(remoteUrl);
+            sourceText = await fetchRemoteText(safeUrl);
+        }
+        sourceText = normalizeImportedConfigText(sourceText);
+
+        const imported = parseClashImportConfig(sourceText);
+        res.json({ ok: true, imported });
+    } catch (err) {
+        const message = err?.message || 'Не удалось импортировать конфиг.';
+        res.status(400).json({ error: message });
+    }
+});
+
+app.post('/api/clash/profile-url', (req, res) => {
+    try {
+        cleanupClashProfiles();
+        const profileName = sanitizeProfileName(req.body?.name, 'WarpGen Clash');
+        const rawNodes = Array.isArray(req.body?.nodes) ? req.body.nodes : [];
+        if (!rawNodes.length) {
+            return res.status(400).json({ error: 'Добавьте хотя бы один сервер.' });
+        }
+        if (rawNodes.length > 20) {
+            return res.status(400).json({ error: 'Максимум 20 серверов в одном профиле.' });
+        }
+
+        const nodes = rawNodes.map((node, idx) => validateClashNode(node, idx));
+        const dnsMode = req.body?.dns?.mode === 'redir-host' ? 'redir-host' : 'fake-ip';
+        const dnsNameservers = Array.isArray(req.body?.dns?.nameservers)
+            ? req.body.dns.nameservers
+                .map((x) => (typeof x === 'string' ? x.trim() : ''))
+                .filter(Boolean)
+                .slice(0, 10)
+            : [];
+        const dnsFallback = Array.isArray(req.body?.dns?.fallback)
+            ? req.body.dns.fallback
+                .map((x) => (typeof x === 'string' ? x.trim() : ''))
+                .filter(Boolean)
+                .slice(0, 10)
+            : [];
+
+        const selectedCdn = Array.isArray(req.body?.routing?.cdnProviders)
+            ? req.body.routing.cdnProviders
+                .map((x) => (typeof x === 'string' ? x.trim().toLowerCase() : ''))
+                .filter((x) => !!CDN_CIDRS[x])
+            : [];
+        const cdnCidrs = Array.from(new Set(selectedCdn.flatMap((key) => CDN_CIDRS[key])));
+
+        const proxyDomains = Array.isArray(req.body?.routing?.proxyDomains)
+            ? req.body.routing.proxyDomains
+                .map((x) => (typeof x === 'string' ? x.trim().toLowerCase() : ''))
+                .filter(Boolean)
+                .slice(0, 500)
+            : [];
+        const ruDirectDomains = Array.isArray(req.body?.routing?.ruDirectDomains)
+            ? req.body.routing.ruDirectDomains
+                .map((x) => (typeof x === 'string' ? x.trim().toLowerCase() : ''))
+                .filter(Boolean)
+                .slice(0, 500)
+            : [];
+
+        const token = crypto.randomBytes(16).toString('hex');
+        CLASH_PROFILES.set(token, {
+            createdAt: Date.now(),
+            name: profileName,
+            nodes,
+            dns: { mode: dnsMode, nameservers: dnsNameservers, fallback: dnsFallback },
+            routing: { proxyDomains, ruDirectDomains, cdnCidrs },
+        });
+
+        const profileUrl = `${getRequestBaseUrl(req)}/api/clash/profile/${token}`;
+        res.json({
+            ok: true,
+            name: profileName,
+            token,
+            profileUrl,
+            expiresInSec: Math.floor(CLASH_PROFILE_TTL_MS / 1000),
+            note: 'URL можно вставить в Clash Verge как подписку (profile URL).',
+        });
+    } catch (err) {
+        res.status(400).json({ error: err.message || 'Не удалось собрать профиль.' });
+    }
+});
+
+app.get('/api/clash/profile/:token', (req, res) => {
+    cleanupClashProfiles();
+    const token = typeof req.params?.token === 'string' ? req.params.token.trim() : '';
+    const profile = CLASH_PROFILES.get(token);
+    if (!profile) return res.status(404).json({ error: 'Profile not found or expired.' });
+    const yaml = buildClashYaml(profile);
+    res.setHeader('Content-Type', 'text/yaml; charset=utf-8');
+    res.send(yaml);
 });
 
 app.post('/api/check-license', async (req, res) => {
@@ -933,16 +2061,21 @@ app.post('/api/generate', async (req, res) => {
             dnsServer = 'malw_link',
             splitMode = 'full',
             splitTargets = [],
+            protocolMaskingEnabled = false,
+            protocolMaskId = '',
+            protocolMaskIp = 'quic',
+            protocolMaskIb = 'firefox',
         } = req.body;
         const normalizedConfigType = typeof configType === 'string'
             ? configType.trim().toLowerCase()
             : 'amnezia';
-        if (!['amnezia', 'wireguard'].includes(normalizedConfigType)) {
+        if (!['amnezia', 'wireguard', 'wiresock'].includes(normalizedConfigType)) {
             return res.status(400).json({
-                error: 'Неверный тип конфига. Поддерживается: amnezia, wireguard.',
+                error: 'Неверный тип конфига. Поддерживается: amnezia, wireguard, wiresock.',
             });
         }
         const isAmneziaConfig = normalizedConfigType === 'amnezia';
+        const isWireSockConfig = normalizedConfigType === 'wiresock';
         const normalizedEndpointIp = normalizeEndpointInput(endpointIp) || 'auto';
         const normalizedEndpointPort = normalizePortInput(endpointPort);
         if (!isAllowedWarpEndpoint(normalizedEndpointIp)) {
@@ -956,35 +2089,18 @@ app.post('/api/generate', async (req, res) => {
             });
         }
 
-        const DNS_SERVERS = {
-            malw_link: '84.21.189.133, 193.23.209.189, 2a12:bec4:1460:294::2, 2a01:ecc0:680:120::2',
-            cloudflare: '1.1.1.1, 2606:4700:4700::1111, 1.0.0.1, 2606:4700:4700::1001',
-            cloudflare_mal: '1.1.1.2, 2606:4700:4700::1112, 1.0.0.2, 2606:4700:4700::1002',
-            google: '8.8.8.8, 2001:4860:4860::8888, 8.8.4.4, 2001:4860:4860::8844',
-            adguard: '94.140.14.14, 2a10:50c0::ad1:ff, 94.140.15.15, 2a10:50c0::ad2:ff',
-            adguard_family: '94.140.14.15, 2a10:50c0::bad1:ff, 94.140.15.16, 2a10:50c0::bad2:ff',
-            adguard_nofilter: '94.140.14.140, 2a10:50c0::1:ff, 94.140.14.141, 2a10:50c0::2:ff',
-            yandex: '77.88.8.8, 2a02:6b8::feed:0ff, 77.88.8.1, 2a02:6b8:0:1::feed:0ff',
-            yandex_safe: '77.88.8.88, 2a02:6b8::feed:bad, 77.88.8.2, 2a02:6b8:0:1::feed:bad',
-            yandex_family: '77.88.8.7, 2a02:6b8::feed:a11, 77.88.8.3, 2a02:6b8:0:1::feed:a11',
-            quad9: '9.9.9.9, 2620:fe::fe, 149.112.112.112, 2620:fe::9',
-            quad9_ecs: '9.9.9.11, 2620:fe::11, 149.112.112.11, 2620:fe::fe:11',
-            quad9_nofilter: '9.9.9.10, 2620:fe::10, 149.112.112.10, 2620:fe::fe:10',
-            opendns: '208.67.222.222, 2620:119:35::35, 208.67.220.220, 2620:119:53::53',
-            opendns_family: '208.67.222.123, 2620:119:35::123, 208.67.220.123, 2620:119:53::123',
-            gcore: '95.85.95.85, 2a03:90c0:999d::1, 2.56.220.2, 2a03:90c0:9992::1',
-            dnssb: '185.222.222.222, 2a09::, 45.11.45.11, 2a11::',
-            dns0eu: '193.110.81.0, 2a0f:fc80::, 185.253.5.0, 2a0f:fc81::',
-            nextdns: '45.90.28.0, 2a07:a8c0::, 45.90.30.0, 2a07:a8c1::',
-            mullvad: '194.242.2.2, 2a07:e340::2',
-        };
-        const dnsLine = DNS_SERVERS[dnsServer] || DNS_SERVERS.malw_link;
-        const normalizedSplitTargets = splitMode === 'selective'
+        const dnsLine = await normalizeDnsLineForConfig(DNS_SERVERS[dnsServer] || DNS_SERVERS.malw_link);
+        const normalizedSplitTargets = (splitMode === 'selective' || splitMode === 'blacklist')
             ? normalizeSplitTargets(splitTargets)
             : [];
-        if (splitMode === 'selective' && !normalizedSplitTargets.length) {
+        if ((splitMode === 'selective' || splitMode === 'blacklist') && !normalizedSplitTargets.length) {
             return res.status(400).json({
-                error: 'Включен split tunneling, но не выбраны сервисы.',
+                error: 'Включен split tunneling, но не выбраны сервисы/исключения.',
+            });
+        }
+        if (splitMode === 'blacklist' && !isWireSockConfig) {
+            return res.status(400).json({
+                error: 'Режим blacklist/direct поддерживается только для WireSock-конфига.',
             });
         }
 
@@ -1102,6 +2218,7 @@ app.post('/api/generate', async (req, res) => {
             });
         }
         let allowedIpsLine = '0.0.0.0/0, ::/0';
+        let disallowedIpsLine = '';
         const splitTunnel = {
             mode: 'full',
             selectedTargets: [],
@@ -1136,6 +2253,40 @@ app.post('/api/generate', async (req, res) => {
             splitTunnel.unresolvedDomains = splitResolved.unresolvedDomains;
             splitTunnel.sourceDomains = splitResolved.sourceDomains;
         }
+        if (splitMode === 'blacklist') {
+            const splitResolved = await resolveSplitAllowedIPs(normalizedSplitTargets);
+            if (!splitResolved.allowedIps.length) {
+                return res.status(400).json({
+                    error: 'Не удалось получить IP для direct-исключений.',
+                });
+            }
+            if (splitResolved.allowedIps.length > 512) {
+                return res.status(400).json({
+                    error: `Слишком много direct-исключений (${splitResolved.allowedIps.length}). Уменьшите количество выбранных сервисов.`,
+                });
+            }
+            disallowedIpsLine = splitResolved.allowedIps.join(', ');
+            splitTunnel.mode = 'blacklist';
+            splitTunnel.selectedTargets = normalizedSplitTargets;
+            splitTunnel.resolvedAllowedIps = splitResolved.allowedIps.length;
+            splitTunnel.unresolvedDomains = splitResolved.unresolvedDomains;
+            splitTunnel.sourceDomains = splitResolved.sourceDomains;
+            splitTunnel.disallowedIps = splitResolved.allowedIps.length;
+        }
+
+        const maskEnabled = Boolean(protocolMaskingEnabled) && isWireSockConfig;
+        const maskIdRaw = typeof protocolMaskId === 'string' ? protocolMaskId.trim() : '';
+        const maskId = (maskIdRaw || 'lenta.ru').slice(0, 160);
+        const maskIp = normalizeProtocolMaskField(protocolMaskIp, {
+            fallback: 'quic',
+            maxLength: 32,
+            allowed: PROTOCOL_MASK_IP_VALUES,
+        });
+        const maskIb = normalizeProtocolMaskField(protocolMaskIb, {
+            fallback: 'firefox',
+            maxLength: 32,
+            allowed: PROTOCOL_MASK_IB_VALUES,
+        });
 
         const interfaceLines = [
             '[Interface]',
@@ -1160,12 +2311,26 @@ app.post('/api/generate', async (req, res) => {
         ];
         const config = [
             ...interfaceLines,
+            ...(maskEnabled ? [
+                '',
+                '# Protocol masking',
+                `Id = ${maskId}`,
+                `Ip = ${maskIp}`,
+                `Ib = ${maskIb}`,
+            ] : []),
             '',
             '[Peer]',
             `PublicKey = ${peerPub}`,
             `AllowedIPs = ${allowedIpsLine}`,
             `Endpoint = ${ep}`,
             'PersistentKeepalive = 25',
+            ...(isWireSockConfig && splitMode === 'blacklist'
+                ? [
+                    '',
+                    '[WireSock]',
+                    `DisallowedIPs = ${disallowedIpsLine}`,
+                ]
+                : []),
         ].join('\n');
 
         res.json({ config, accountType, endpoint: ep, licenseError, splitTunnel, configType: normalizedConfigType });

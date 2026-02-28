@@ -494,6 +494,11 @@
       <span>Warp<span class="logo-accent">Gen</span></span>
     </div>
     <p>Генератор конфигов Cloudflare WARP для <strong>AmneziaWG 2.0</strong> и <strong>WireGuard</strong></p>
+    <div style="margin-top:10px;">
+      <a href="/clash" style="display:inline-block; padding:9px 13px; border:1px solid var(--border); border-radius:10px; text-decoration:none; color:var(--text); background:rgba(255,255,255,0.06); font-size:13px;">
+        Открыть Clash Configurator (Profile URL)
+      </a>
+    </div>
   </header>
 
   <div class="card">
@@ -509,9 +514,10 @@
       <select id="configType">
         <option value="amnezia" selected>AmneziaWG / AmneziaVPN (S/J/H/I1)</option>
         <option value="wireguard">WireGuard (vanilla)</option>
+        <option value="wiresock">WireSock (WG + DisallowedIPs)</option>
       </select>
       <div class="split-note">
-        Если на macOS нестабильно работает Amnezia-формат, попробуйте WireGuard (vanilla).
+        Для режима blacklist/direct используйте WireSock.
       </div>
     </div>
 
@@ -549,6 +555,9 @@
       <select id="dnsServer">
         <optgroup label="🌐 Разблокировать внешние сервисы">
           <option value="malw_link" selected>dns.malw.link — разблокировка заблокированных сайтов ✓</option>
+          <option value="xbox_dns_ru">xbox-dns.ru — разблокировка зарубежных сервисов</option>
+          <option value="dns_geohide_ru">dns.geohide.ru — разблокировка зарубежных сервисов</option>
+          <option value="dns_comss_one">dns.comss.one — разблокировка зарубежных сервисов</option>
         </optgroup>
         <optgroup label="Без фильтрации — быстрые публичные">
           <option value="cloudflare">Cloudflare 1.1.1.1 — приватный, быстрый</option>
@@ -640,20 +649,66 @@
       </select>
     </div>
 
+    <div class="field wiresock-only" style="display:none;">
+      <label>Protocol masking (WireSock)</label>
+      <div class="grid2">
+        <div class="field" style="margin-bottom:0;">
+          <label style="margin-top:2px;">Режим</label>
+          <select id="protocolMaskingEnabled">
+            <option value="0" selected>Выключено</option>
+            <option value="1">Включено</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label style="margin-top:2px;">Id (домен)</label>
+          <input type="text" id="protocolMaskId" value="lenta.ru" placeholder="lenta.ru">
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label style="margin-top:2px;">Ip (протокол)</label>
+          <select id="protocolMaskIp">
+            <option value="quic" selected>quic</option>
+            <option value="tls">tls</option>
+            <option value="https">https</option>
+            <option value="http2">http2</option>
+            <option value="dtls">dtls</option>
+            <option value="stun">stun</option>
+            <option value="random">random</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label style="margin-top:2px;">Ib (клиент)</label>
+          <select id="protocolMaskIb">
+            <option value="firefox" selected>firefox</option>
+            <option value="chrome">chrome</option>
+            <option value="edge">edge</option>
+            <option value="safari">safari</option>
+            <option value="android">android</option>
+            <option value="ios">ios</option>
+            <option value="random">random</option>
+          </select>
+        </div>
+      </div>
+      <div class="split-note">
+        Добавит секцию <code># Protocol masking</code> с полями <code>Id/Ip/Ib</code> в WireSock-конфиг.
+      </div>
+    </div>
+
     <div class="field">
       <label>Маршрутизация трафика</label>
       <select id="splitMode">
         <option value="full" selected>Весь трафик через VPN (Full Tunnel)</option>
         <option value="selective">Только выбранные сервисы через VPN (Split Tunnel)</option>
+        <option value="blacklist">Весь трафик через VPN, выбранные сервисы в DIRECT (Blacklist)</option>
       </select>
       <div class="split-note">
-        Split tunnel работает по IP/подсетям: домены резолвятся во время генерации конфига.
+        Split tunnel работает по IP/подсетям: домены резолвятся во время генерации конфига. Blacklist/direct поддерживается в WireSock.
       </div>
 
       <div id="splitTargetsWrap" class="split-targets" style="display:none;">
         <div class="split-tools">
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('social')">Часто нужно</button>
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('gaming')">Игры</button>
+          <button type="button" class="split-tool-btn" onclick="applySplitPreset('ru_direct')">geosite:ru</button>
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('all')">Выбрать всё</button>
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('clear')">Очистить</button>
         </div>
@@ -675,6 +730,7 @@
           <label class="split-item"><input type="checkbox" data-split-target value="speedtest"><span>Speedtest.com</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="fast_com"><span>Fast.com</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="whoer"><span>Whoer.net</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="geosite_ru"><span>geosite:ru (core)</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="apex_legends"><span>Apex Legends</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="ea_app"><span>EA App</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="battle_net"><span>Battle.net</span></label>
@@ -752,6 +808,15 @@
   <footer>
     Импортируйте <code>.conf</code> в <a href="https://github.com/amnezia-vpn/amneziawg-windows"
       target="_blank">AmneziaWG</a> или <a href="https://amnezia.org" target="_blank">AmneziaVPN</a>
+    <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; justify-content:center;">
+      <button type="button" class="split-tool-btn" onclick="downloadClientApp('wireguard')">Скачать WireGuard</button>
+      <button type="button" class="split-tool-btn" onclick="downloadClientApp('amnezia')">Скачать Amnezia</button>
+      <button type="button" class="split-tool-btn" onclick="downloadClientApp('clash_verge')">Скачать Clash Verge</button>
+      <button type="button" class="split-tool-btn" onclick="downloadClientApp('wiresock')">Скачать WireSock</button>
+    </div>
+    <div class="split-note" id="downloadHint" style="text-align:center; margin-top:8px;">
+      Платформа определяется автоматически. Скачивание идет через proxy вашего сервера.
+    </div>
     <div class="version-line">Версия: <span id="siteVersion">loading...</span></div>
   </footer>
 
@@ -765,6 +830,7 @@
     const SPLIT_PRESETS = {
       social: ['discord', 'youtube', 'x_com', 'instagram', 'twitch', 'telegram', 'whatsapp', 'viber', 'tiktok', 'ipcheck_2ip', 'speedtest', 'fast_com', 'whoer'],
       gaming: ['steam', 'faceit', 'apex_legends', 'ea_app', 'battle_net', 'cs2', 'hearthstone', 'pubg'],
+      ru_direct: ['geosite_ru'],
     };
 
     function addSelectOption(selectEl, value, label) {
@@ -824,13 +890,19 @@
 
     function getSelectedConfigType() {
       const value = document.getElementById('configType').value;
+      if (value === 'wiresock') return 'wiresock';
       return value === 'wireguard' ? 'wireguard' : 'amnezia';
     }
 
     function updateConfigTypeVisibility() {
-      const isAmnezia = getSelectedConfigType() === 'amnezia';
+      const selectedType = getSelectedConfigType();
+      const isAmnezia = selectedType === 'amnezia';
+      const isWiresock = selectedType === 'wiresock';
       document.querySelectorAll('.amnezia-only').forEach((el) => {
         el.style.display = isAmnezia ? '' : 'none';
+      });
+      document.querySelectorAll('.wiresock-only').forEach((el) => {
+        el.style.display = isWiresock ? '' : 'none';
       });
       const connectionGrid = document.getElementById('connectionGrid');
       connectionGrid.style.gridTemplateColumns = isAmnezia ? '' : '1fr';
@@ -866,7 +938,72 @@
     function updateSplitTargetsVisibility() {
       const wrap = document.getElementById('splitTargetsWrap');
       const mode = document.getElementById('splitMode').value;
-      wrap.style.display = mode === 'selective' ? 'block' : 'none';
+      wrap.style.display = (mode === 'selective' || mode === 'blacklist') ? 'block' : 'none';
+    }
+
+    function detectClientPlatform() {
+      const ua = navigator.userAgent.toLowerCase();
+      const p = navigator.platform.toLowerCase();
+      if (ua.includes('android')) return 'android';
+      if (/iphone|ipad|ipod/.test(ua)) return 'ios';
+      if (p.includes('mac')) return 'macos';
+      if (p.includes('win')) return 'windows';
+      if (p.includes('linux')) return 'linux';
+      return 'windows';
+    }
+
+    function setDownloadHint(text) {
+      const el = document.getElementById('downloadHint');
+      if (el) el.textContent = text;
+    }
+
+    async function downloadClientApp(app) {
+      const platform = detectClientPlatform();
+      const directOpenLinks = {
+        wireguard: {
+          macos: 'https://apps.apple.com/us/app/wireguard/id1451685025',
+          ios: 'https://apps.apple.com/us/app/wireguard/id1451685025',
+          android: 'https://play.google.com/store/apps/details?id=com.wireguard.android',
+        },
+        wiresock: {
+          macos: 'https://www.wiresock.net/downloads/',
+          linux: 'https://www.wiresock.net/downloads/',
+          android: 'https://www.wiresock.net/downloads/',
+          ios: 'https://www.wiresock.net/downloads/',
+        },
+      };
+      const directUrl = directOpenLinks[app]?.[platform];
+      if (directUrl) {
+        window.open(directUrl, '_blank', 'noopener,noreferrer');
+        if (app === 'wiresock' && platform !== 'windows') {
+          setDownloadHint('WireSock в первую очередь под Windows. Открыта официальная страница загрузок.');
+        } else {
+          setDownloadHint(`Открыта официальная страница ${app} для ${platform}.`);
+        }
+        return;
+      }
+
+      const url = `/api/client-download/${encodeURIComponent(app)}?platform=${encodeURIComponent(platform)}`;
+      setDownloadHint(`Запрашиваю ${app} для платформы ${platform} через proxy...`);
+      try {
+        const resp = await fetch(url, { method: 'GET' });
+        if (!resp.ok) throw new Error(`Download error ${resp.status}`);
+        const blob = await resp.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        const defaultName = `${app}-${platform}`;
+        const cd = resp.headers.get('content-disposition') || '';
+        const fileMatch = cd.match(/filename=\"?([^\";]+)\"?/i);
+        a.download = fileMatch?.[1] || defaultName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+        setDownloadHint(`Скачано: ${a.download || defaultName}`);
+      } catch (err) {
+        setDownloadHint(`Ошибка скачивания через proxy: ${err.message}`);
+      }
     }
 
     function renderDnsMiss(unresolvedDomains) {
@@ -1118,6 +1255,10 @@
             dnsServer: document.getElementById('dnsServer').value,
             splitMode: document.getElementById('splitMode').value,
             splitTargets: getSelectedSplitTargets(),
+            protocolMaskingEnabled: document.getElementById('protocolMaskingEnabled').value === '1',
+            protocolMaskId: document.getElementById('protocolMaskId').value.trim(),
+            protocolMaskIp: document.getElementById('protocolMaskIp').value,
+            protocolMaskIb: document.getElementById('protocolMaskIb').value,
           }),
         });
 
@@ -1128,7 +1269,9 @@
         }
 
         document.getElementById('config-output').value = data.config;
-        lastGeneratedConfigType = data.configType === 'wireguard' ? 'wireguard' : 'amnezia';
+        if (data.configType === 'wireguard') lastGeneratedConfigType = 'wireguard';
+        else if (data.configType === 'wiresock') lastGeneratedConfigType = 'wiresock';
+        else lastGeneratedConfigType = 'amnezia';
 
         const badge = document.getElementById('accountBadge');
         if (data.accountType === 'warp_plus' || data.accountType === 'unlimited') {
@@ -1139,13 +1282,25 @@
           badge.className = 'badge badge-free';
         }
 
-        let statusText = `Endpoint: ${data.endpoint} · ${lastGeneratedConfigType === 'wireguard' ? 'WireGuard' : 'Amnezia'}`;
+        const configTitle = lastGeneratedConfigType === 'wireguard'
+          ? 'WireGuard'
+          : lastGeneratedConfigType === 'wiresock'
+            ? 'WireSock'
+            : 'Amnezia';
+        let statusText = `Endpoint: ${data.endpoint} · ${configTitle}`;
         if (data.licenseError) statusText += ` · ⚠ Ключ: ${data.licenseError}`;
         if (data.splitTunnel?.mode === 'selective') {
           const selectedCount = data.splitTunnel.selectedTargets?.length || 0;
           const routeCount = data.splitTunnel.resolvedAllowedIps || 0;
           const unresolvedCount = data.splitTunnel.unresolvedDomains?.length || 0;
           statusText += ` · Split: ${selectedCount} сервисов / ${routeCount} маршрутов`;
+          if (unresolvedCount) statusText += ` · DNS miss: ${unresolvedCount}`;
+        }
+        if (data.splitTunnel?.mode === 'blacklist') {
+          const selectedCount = data.splitTunnel.selectedTargets?.length || 0;
+          const routeCount = data.splitTunnel.disallowedIps || data.splitTunnel.resolvedAllowedIps || 0;
+          const unresolvedCount = data.splitTunnel.unresolvedDomains?.length || 0;
+          statusText += ` · Blacklist: ${selectedCount} сервисов / ${routeCount} direct-исключений`;
           if (unresolvedCount) statusText += ` · DNS miss: ${unresolvedCount}`;
         }
         renderDnsMiss(data.splitTunnel?.unresolvedDomains || []);
@@ -1169,6 +1324,8 @@
       a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
       a.download = lastGeneratedConfigType === 'wireguard'
         ? 'WARP_WireGuard.conf'
+        : lastGeneratedConfigType === 'wiresock'
+          ? 'WARP_WireSock.conf'
         : 'WARP_AmneziaWG.conf';
       a.click();
     }
@@ -1196,6 +1353,10 @@
       document.getElementById('dnsServer').value = 'malw_link';
       document.getElementById('quicPreset').value = 'yandex';
       document.getElementById('splitMode').value = 'full';
+      document.getElementById('protocolMaskingEnabled').value = '0';
+      document.getElementById('protocolMaskId').value = 'lenta.ru';
+      document.getElementById('protocolMaskIp').value = 'quic';
+      document.getElementById('protocolMaskIb').value = 'firefox';
       lastGeneratedConfigType = 'amnezia';
       setSelectedSplitTargets([]);
       updateConfigTypeVisibility();

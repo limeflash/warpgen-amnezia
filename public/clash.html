@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WarpGen Clash Configurator</title>
+  <style>
+    :root {
+      --bg: #071022;
+      --bg2: #0b1730;
+      --card: rgba(12, 24, 48, 0.86);
+      --card-soft: rgba(18, 32, 60, 0.72);
+      --text: #e8f0ff;
+      --muted: #9db1d4;
+      --line: rgba(163, 189, 230, 0.2);
+      --accent: #29a0b2;
+      --accent-2: #4fb58e;
+      --warn: #ffcc7e;
+      --danger: #e66a77;
+      --ok: #72d39a;
+      --focus: rgba(73, 186, 219, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "Manrope", "SF Pro Text", "Segoe UI", "Helvetica Neue", sans-serif;
+      min-height: 100vh;
+      background:
+        radial-gradient(980px 680px at 8% -6%, rgba(43, 82, 163, 0.45) 0%, transparent 58%),
+        radial-gradient(900px 620px at 104% 0%, rgba(37, 131, 109, 0.36) 0%, transparent 56%),
+        linear-gradient(180deg, var(--bg2), var(--bg));
+    }
+
+    .wrap {
+      width: min(1380px, 100%);
+      margin: 0 auto;
+      padding: 24px 16px 34px;
+    }
+
+    .hero {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: linear-gradient(135deg, rgba(36, 69, 130, 0.24), rgba(18, 37, 72, 0.18));
+      backdrop-filter: blur(10px);
+      margin-bottom: 14px;
+    }
+
+    .hero-title {
+      margin: 0;
+      font-size: clamp(30px, 4.4vw, 44px);
+      font-weight: 800;
+      letter-spacing: .1px;
+      line-height: 1.04;
+    }
+
+    .hero-sub {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: clamp(13px, 2.2vw, 16px);
+      line-height: 1.45;
+    }
+
+    .hero-link {
+      text-decoration: none;
+      color: var(--text);
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 11px 15px;
+      font-size: 13px;
+      white-space: nowrap;
+      transition: background .16s ease, border-color .16s ease;
+    }
+
+    .hero-link:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(160, 192, 235, .38);
+    }
+
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .meta-chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 11px;
+      font-size: 12px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(320px, .95fr);
+      gap: 14px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--card);
+      padding: 14px;
+      backdrop-filter: blur(8px);
+    }
+
+    .card.soft {
+      background: var(--card-soft);
+    }
+
+    .card h2 {
+      margin: 0;
+      font-size: clamp(21px, 2.4vw, 27px);
+      line-height: 1.16;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 9px;
+    }
+
+    .step {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      border: 1px solid rgba(88, 180, 208, .4);
+      color: #bdeaf7;
+      font-size: 12px;
+      font-weight: 700;
+      background: rgba(43, 130, 151, 0.2);
+      padding: 0 9px;
+    }
+
+    .help {
+      margin: 7px 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .col-3 { grid-column: span 3; }
+    .col-4 { grid-column: span 4; }
+    .col-6 { grid-column: span 6; }
+    .col-8 { grid-column: span 8; }
+    .col-12 { grid-column: span 12; }
+
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: .14px;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 11px;
+      font-size: 14px;
+      transition: border-color .14s ease, box-shadow .14s ease, background .14s ease;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: rgba(84, 186, 220, 0.65);
+      box-shadow: 0 0 0 3px var(--focus);
+      background: rgba(255, 255, 255, 0.09);
+    }
+
+    textarea {
+      min-height: 102px;
+      resize: vertical;
+      line-height: 1.42;
+    }
+
+    .server-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .server-row {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .server-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .badge {
+      font-size: 12px;
+      border: 1px solid rgba(96, 191, 214, 0.45);
+      background: rgba(43, 139, 163, 0.2);
+      color: #bce9f4;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-weight: 700;
+    }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      font-size: 13px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: background .14s ease, border-color .14s ease, transform .05s ease;
+      min-height: 40px;
+    }
+
+    button:hover {
+      background: rgba(255, 255, 255, 0.11);
+      border-color: rgba(175, 205, 245, 0.36);
+    }
+
+    button:active { transform: translateY(1px); }
+
+    button.primary {
+      border-color: transparent;
+      background: linear-gradient(135deg, #1c8fa7, #42b98b);
+      font-weight: 700;
+    }
+
+    button.good {
+      border-color: rgba(116, 209, 152, 0.5);
+      background: rgba(65, 156, 105, 0.25);
+    }
+
+    button.danger {
+      border-color: rgba(232, 120, 132, 0.52);
+      background: rgba(165, 53, 74, 0.3);
+    }
+
+    .preset-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.05);
+      color: #d8e7ff;
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+      transition: border-color .12s ease, background .12s ease;
+    }
+
+    .chip:hover {
+      border-color: rgba(152, 203, 240, 0.45);
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .chip.active {
+      border-color: rgba(91, 193, 215, 0.65);
+      background: rgba(42, 142, 165, 0.29);
+      color: #c7f5ff;
+    }
+
+    .warn {
+      margin-top: 10px;
+      color: var(--warn);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .import-box {
+      margin-top: 10px;
+      margin-bottom: 10px;
+      border: 1px dashed var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .import-title {
+      font-size: 13px;
+      color: #cde4ff;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .import-url-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+
+    .import-status {
+      margin-top: 8px;
+      min-height: 18px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .import-status[data-type="error"] { color: #ff9aa5; }
+    .import-status[data-type="ok"] { color: #8ae0b2; }
+    .import-status[data-type="progress"] { color: #7ecdeb; }
+
+    .summary {
+      position: sticky;
+      top: 14px;
+      align-self: start;
+      display: grid;
+      gap: 12px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .summary-item {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      min-height: 62px;
+    }
+
+    .summary-item b {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 3px;
+      font-weight: 600;
+    }
+
+    .summary-item span {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .status {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.42;
+      min-height: 20px;
+    }
+
+    .status[data-type="error"] { color: #ff9aa5; }
+    .status[data-type="ok"] { color: #8ae0b2; }
+    .status[data-type="progress"] { color: #7ecdeb; }
+
+    .result {
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.22);
+      margin-top: 8px;
+    }
+
+    .result-label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      word-break: break-all;
+    }
+
+    .tip-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      display: grid;
+      gap: 4px;
+    }
+
+    @media (max-width: 1120px) {
+      .layout { grid-template-columns: 1fr; }
+      .summary { position: static; }
+    }
+
+    @media (max-width: 760px) {
+      .hero {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .hero-link { width: 100%; text-align: center; }
+
+      .row {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+      }
+
+      .col-8, .col-6, .col-4, .col-3, .col-12 {
+        grid-column: span 6;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .import-url-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .wrap { padding: 14px 10px 24px; }
+      .card { padding: 11px; }
+      .summary-grid { grid-template-columns: 1fr; }
+      button { width: 100%; }
+      .btn-row { display: grid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <div>
+        <h1 class="hero-title">Clash Configurator</h1>
+        <p class="hero-sub">Генератор profile URL для Clash Verge: WARP / AmneziaWG / WireGuard. Итоговый профиль — WG-совместимый и сразу пригоден для подписки.</p>
+        <div class="meta-row">
+          <div class="meta-chip">Пошаговая настройка</div>
+          <div class="meta-chip">Адаптивный UI</div>
+          <div class="meta-chip">Готово для Clash Verge</div>
+        </div>
+      </div>
+      <a class="hero-link" href="/">← Вернуться в основной генератор</a>
+    </header>
+
+    <div class="layout">
+      <div class="stack">
+        <section class="card">
+          <div class="section-head">
+            <h2><span class="step">1</span> Серверы и Туннели</h2>
+          </div>
+          <p class="help">Добавляйте несколько узлов. Для Clash итоговый формат — WireGuard proxy. Метка версии Amnezia сохраняется в payload.</p>
+
+          <div class="row">
+            <div class="col-8">
+              <label>Имя профиля</label>
+              <input id="profileName" value="WarpGen Clash" placeholder="Например: TR stack" />
+            </div>
+            <div class="col-4">
+              <label>Amnezia версия (метка)</label>
+              <select id="amneziaVersion">
+                <option value="1.0">1.0</option>
+                <option value="1.5" selected>1.5</option>
+                <option value="2.0">2.0</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="import-box">
+            <div class="import-title">Импорт из `.conf` или ссылки</div>
+            <div class="help" style="margin: 0 0 8px;">Поддержка: `.conf`, `http(s)` ссылка на конфиг, а также `vpn://` Amnezia link.</div>
+            <div class="row">
+              <div class="col-4">
+                <button type="button" onclick="triggerConfFilePick()">Загрузить .conf</button>
+                <input id="confFileInput" type="file" accept=".conf,.txt,text/plain" style="display:none" />
+              </div>
+              <div class="col-8 import-url-row">
+                <input id="confUrlInput" placeholder="https://example.com/my-wg.conf" />
+                <button type="button" onclick="importConfFromUrl()">Импорт URL</button>
+              </div>
+            </div>
+            <div id="importStatus" class="import-status" data-type="info">Импорт не выполнялся.</div>
+          </div>
+
+          <div id="servers" class="server-list"></div>
+
+          <div class="btn-row" style="margin-top: 10px;">
+            <button type="button" onclick="addServer()">+ Добавить сервер</button>
+            <button type="button" onclick="addWarpTemplate()">+ WARP шаблон</button>
+            <button type="button" id="clashSpeedtestBtn" onclick="startClashLocalSpeedtest()">Локально подобрать endpoint+port (Windows)</button>
+            <button type="button" class="danger" onclick="clearServers()">Очистить серверы</button>
+          </div>
+          <div class="help" id="clashSpeedtestHint" style="margin:8px 0 0;">
+            Скачает `.bat` helper, протестирует endpoint/port из вашей сети и автоматически подставит лучший в WARP-ноду.
+          </div>
+
+          <div class="warn">Примечание: поля Amnezia (Jc/Jmin/Jmax/H*/I1) Clash не использует, поэтому в итоговый YAML они не попадают.</div>
+        </section>
+
+        <section class="card soft">
+          <div class="section-head">
+            <h2><span class="step">2</span> DNS</h2>
+          </div>
+          <p class="help">Выберите DNS провайдера из основного генератора и транспорт: Plain / DoH / DoT / DoQ / Mixed.</p>
+
+          <div class="row">
+            <div class="col-4">
+              <label>DNS режим</label>
+              <select id="dnsMode">
+                <option value="fake-ip" selected>fake-ip</option>
+                <option value="redir-host">redir-host</option>
+              </select>
+            </div>
+            <div class="col-4">
+              <label>DNS провайдер</label>
+              <select id="dnsProvider"></select>
+            </div>
+            <div class="col-4">
+              <label>Транспорт DNS</label>
+              <select id="dnsTransport"></select>
+            </div>
+            <div class="col-12">
+              <label>Шаблоны DNS</label>
+              <div class="preset-row">
+                <button type="button" onclick="fillDnsPreset('plain')">Plain</button>
+                <button type="button" onclick="fillDnsPreset('doh')">DoH</button>
+                <button type="button" onclick="fillDnsPreset('dot')">DoT</button>
+                <button type="button" onclick="fillDnsPreset('doq')">DoQ</button>
+                <button type="button" onclick="fillDnsPreset('mixed')">Mixed</button>
+              </div>
+            </div>
+            <div class="col-12">
+              <label>Nameserver (по одному на строку)</label>
+              <textarea id="dnsNameservers" placeholder="https://dns.malw.link/dns-query"></textarea>
+            </div>
+            <div class="col-12">
+              <label>Fallback (по одному на строку)</label>
+              <textarea id="dnsFallback" placeholder="https://1.1.1.1/dns-query"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <section class="card soft">
+          <div class="section-head">
+            <h2><span class="step">3</span> CDN и Routing</h2>
+          </div>
+          <p class="help">Выберите CDN CIDR для VPN и задайте домены для VPN/DIRECT маршрутизации.</p>
+
+          <label>CDN-провайдеры (IP-CIDR через VPN)</label>
+          <div class="chips" id="cdnChips"></div>
+
+          <div class="row" style="margin-top: 10px;">
+            <div class="col-12">
+              <label>Домены через VPN (по одному на строку)</label>
+              <textarea id="proxyDomains" placeholder="discord.com"></textarea>
+            </div>
+            <div class="col-12">
+              <label>Домены напрямую DIRECT (по одному на строку)</label>
+              <textarea id="directDomains" placeholder="yandex.ru"></textarea>
+            </div>
+          </div>
+
+          <div class="btn-row" style="margin-top: 10px;">
+            <button type="button" onclick="applyDomainPreset('blocked')">Заблокированные сайты → VPN</button>
+            <button type="button" onclick="applyDomainPreset('ru')">RU трафик → DIRECT</button>
+            <button type="button" onclick="applyDomainPreset('clear')">Очистить домены</button>
+          </div>
+        </section>
+      </div>
+
+      <aside class="card summary">
+        <div class="section-head" style="margin-bottom: 0;">
+          <h2><span class="step">4</span> Профиль</h2>
+        </div>
+        <p class="help" style="margin-top: 6px;">Сгенерируйте profile URL и добавьте его в Clash Verge как subscription.</p>
+
+        <div class="summary-grid">
+          <div class="summary-item">
+            <b>Серверы</b>
+            <span id="summaryServerCount">1</span>
+          </div>
+          <div class="summary-item">
+            <b>CDN</b>
+            <span id="summaryCdnCount">0</span>
+          </div>
+          <div class="summary-item">
+            <b>Домены</b>
+            <span id="summaryDomainCount">0</span>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="primary" id="genBtn" onclick="generateProfileUrl()">Сгенерировать Profile URL</button>
+          <button class="good" type="button" onclick="copyProfileUrl()">Копировать URL</button>
+        </div>
+
+        <div class="status" id="status" data-type="info">Готово к генерации.</div>
+
+        <div class="result" id="result" style="display:none;">
+          <div class="result-label">Profile URL</div>
+          <div class="mono" id="resultUrl"></div>
+          <div class="status" id="resultMeta" data-type="ok"></div>
+        </div>
+
+        <ul class="tip-list">
+          <li>Вставьте URL в Clash Verge: Profiles → New → URL.</li>
+          <li>После изменения настроек генерируйте новый URL.</li>
+          <li>Для быстрых правок используйте пресеты DNS и Routing.</li>
+        </ul>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const serverRows = [];
+    let clashOptions = null;
+    let clashSpeedtestPollTimer = null;
+
+    function lineSplit(text) {
+      return String(text || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    }
+
+    function setStatus(message, type = 'info') {
+      const el = document.getElementById('status');
+      el.textContent = message;
+      el.dataset.type = type;
+    }
+
+    function setClashSpeedtestHint(text) {
+      const el = document.getElementById('clashSpeedtestHint');
+      if (el) el.textContent = text;
+    }
+
+    function setImportStatus(message, type = 'info') {
+      const el = document.getElementById('importStatus');
+      if (!el) return;
+      el.textContent = message;
+      el.dataset.type = type;
+    }
+
+    function triggerConfFilePick() {
+      const input = document.getElementById('confFileInput');
+      if (input) input.click();
+    }
+
+    function applyImportedConfig(imported) {
+      if (!imported || typeof imported !== 'object') return;
+      const node = imported.node;
+      if (!node || typeof node !== 'object') throw new Error('Импорт не содержит данных node.');
+
+      if (typeof imported.profileName === 'string' && imported.profileName.trim()) {
+        document.getElementById('profileName').value = imported.profileName.trim();
+      }
+
+      clearServers();
+      addServer({
+        name: node.name || 'imported-node',
+        type: node.type || 'wireguard',
+        server: node.server || 'engage.cloudflareclient.com',
+        port: String(node.port || 2408),
+        address: node.address || '172.16.0.2/32',
+        privateKey: node.privateKey || '',
+        publicKey: node.publicKey || 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
+      });
+
+      const dnsList = Array.isArray(imported.dns?.nameservers) ? imported.dns.nameservers : [];
+      if (dnsList.length) {
+        document.getElementById('dnsNameservers').value = dnsList.join('\n');
+      }
+
+      updateSummary();
+    }
+
+    async function runConfigImport(payload) {
+      setImportStatus('Импортируем конфиг...', 'progress');
+      try {
+        const resp = await fetch('/api/clash/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) throw new Error(data.error || 'Импорт завершился ошибкой.');
+        applyImportedConfig(data.imported);
+        const endpointText = data.imported?.meta?.endpoint ? ` (${data.imported.meta.endpoint})` : '';
+        setImportStatus(`Импорт успешен${endpointText}.`, 'ok');
+        setStatus('Конфиг импортирован. Проверьте поля и сгенерируйте profile URL.', 'ok');
+      } catch (err) {
+        setImportStatus(`Ошибка импорта: ${err.message}`, 'error');
+      }
+    }
+
+    async function importConfFromUrl() {
+      const value = document.getElementById('confUrlInput').value.trim();
+      if (!value) {
+        setImportStatus('Вставьте URL конфига перед импортом.', 'error');
+        return;
+      }
+      if (value.toLowerCase().startsWith('vpn://')) {
+        await runConfigImport({ rawConfig: value });
+        return;
+      }
+      await runConfigImport({ url: value });
+    }
+
+    async function onConfFilePicked(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        await runConfigImport({ rawConfig: text });
+      } finally {
+        event.target.value = '';
+      }
+    }
+
+    function updateSummary() {
+      document.getElementById('summaryServerCount').textContent = String(serverRows.length);
+      const cdnCount = selectedCdnProviders().length;
+      document.getElementById('summaryCdnCount').textContent = String(cdnCount);
+      const domainsCount = lineSplit(document.getElementById('proxyDomains').value).length
+        + lineSplit(document.getElementById('directDomains').value).length;
+      document.getElementById('summaryDomainCount').textContent = String(domainsCount);
+    }
+
+    function createServerRow(initial = {}) {
+      const idx = serverRows.length + 1;
+      const wrap = document.createElement('div');
+      wrap.className = 'server-row';
+      wrap.innerHTML = `
+        <div class="server-head">
+          <div class="badge">Node #${idx}</div>
+          <button class="danger" type="button">Удалить</button>
+        </div>
+        <div class="row">
+          <div class="col-4"><label>Имя</label><input data-k="name" value="${initial.name || 'warp-node-' + idx}"></div>
+          <div class="col-4"><label>Тип</label>
+            <select data-k="type">
+              <option value="warp" ${initial.type === 'warp' ? 'selected' : ''}>WARP</option>
+              <option value="amnezia" ${initial.type === 'amnezia' ? 'selected' : ''}>AmneziaWG</option>
+              <option value="wireguard" ${initial.type === 'wireguard' ? 'selected' : ''}>WireGuard</option>
+            </select>
+          </div>
+          <div class="col-4"><label>Port</label><input data-k="port" value="${initial.port || '2408'}"></div>
+          <div class="col-6"><label>Server</label><input data-k="server" value="${initial.server || 'engage.cloudflareclient.com'}"></div>
+          <div class="col-6"><label>Address (WG ip/cidr)</label><input data-k="address" value="${initial.address || '172.16.0.2/32'}"></div>
+          <div class="col-6"><label>Private key</label><input data-k="privateKey" value="${initial.privateKey || ''}"></div>
+          <div class="col-6"><label>Public key</label><input data-k="publicKey" value="${initial.publicKey || 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo='}"></div>
+        </div>
+      `;
+
+      wrap.querySelector('button').addEventListener('click', () => {
+        wrap.remove();
+        const i = serverRows.indexOf(wrap);
+        if (i >= 0) serverRows.splice(i, 1);
+        refreshNodeLabels();
+        updateSummary();
+      });
+      return wrap;
+    }
+
+    function refreshNodeLabels() {
+      serverRows.forEach((row, i) => {
+        const badge = row.querySelector('.badge');
+        if (badge) badge.textContent = `Node #${i + 1}`;
+      });
+    }
+
+    function addServer(initial = {}) {
+      const node = createServerRow(initial);
+      serverRows.push(node);
+      document.getElementById('servers').appendChild(node);
+      refreshNodeLabels();
+      updateSummary();
+    }
+
+    function addWarpTemplate() {
+      addServer({ type: 'warp', server: 'engage.cloudflareclient.com', port: '2408', address: '172.16.0.2/32' });
+    }
+
+    function clearServers() {
+      document.getElementById('servers').innerHTML = '';
+      serverRows.length = 0;
+      updateSummary();
+    }
+
+    function getPreferredWarpRow() {
+      const warpRow = serverRows.find((row) => {
+        const type = row.querySelector('[data-k="type"]')?.value || '';
+        return type === 'warp';
+      });
+      return warpRow || serverRows[0] || null;
+    }
+
+    function applyBestEndpointToWarpNode(bestEndpoint) {
+      if (typeof bestEndpoint !== 'string') return false;
+      const clean = bestEndpoint.trim();
+      const idx = clean.lastIndexOf(':');
+      if (idx <= 0) return false;
+      const host = clean.slice(0, idx);
+      const port = clean.slice(idx + 1);
+      const row = getPreferredWarpRow();
+      if (!row) return false;
+      const typeEl = row.querySelector('[data-k="type"]');
+      const serverEl = row.querySelector('[data-k="server"]');
+      const portEl = row.querySelector('[data-k="port"]');
+      if (!serverEl || !portEl) return false;
+      if (typeEl && typeEl.value !== 'warp') typeEl.value = 'warp';
+      serverEl.value = host;
+      portEl.value = port;
+      return true;
+    }
+
+    async function pollClashSpeedtestSession(pollPath) {
+      if (clashSpeedtestPollTimer) {
+        clearInterval(clashSpeedtestPollTimer);
+        clashSpeedtestPollTimer = null;
+      }
+
+      const check = async () => {
+        try {
+          const resp = await fetch(pollPath, { cache: 'no-store' });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || `poll_error_${resp.status}`);
+          if (data.status === 'completed' && data.result?.bestEndpoint) {
+            if (!applyBestEndpointToWarpNode(data.result.bestEndpoint)) {
+              setClashSpeedtestHint(`Найден endpoint ${data.result.bestEndpoint}, но не удалось применить к ноде.`);
+              return;
+            }
+            setClashSpeedtestHint(`Лучший endpoint: ${data.result.bestEndpoint}. Поля Server/Port в WARP-ноде обновлены.`);
+            if (clashSpeedtestPollTimer) {
+              clearInterval(clashSpeedtestPollTimer);
+              clashSpeedtestPollTimer = null;
+            }
+          }
+        } catch {
+          // keep polling
+        }
+      };
+
+      await check();
+      clashSpeedtestPollTimer = setInterval(check, 3000);
+      setTimeout(() => {
+        if (clashSpeedtestPollTimer) {
+          clearInterval(clashSpeedtestPollTimer);
+          clashSpeedtestPollTimer = null;
+          setClashSpeedtestHint('Сессия speedtest истекла. Запустите подбор снова.');
+        }
+      }, 20 * 60 * 1000);
+    }
+
+    async function startClashLocalSpeedtest() {
+      const btn = document.getElementById('clashSpeedtestBtn');
+      btn.disabled = true;
+      btn.textContent = 'Подготовка...';
+      try {
+        const sessionResp = await fetch('/api/speedtest/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const sessionData = await sessionResp.json();
+        const useBat = typeof sessionData.downloadBatPath === 'string' && sessionData.downloadBatPath.trim();
+        const downloadPath = useBat ? sessionData.downloadBatPath : sessionData.downloadPath;
+        if (!sessionResp.ok || !downloadPath || !sessionData.pollPath) {
+          throw new Error(sessionData.error || 'Не удалось создать speedtest-сессию.');
+        }
+
+        const scriptResp = await fetch(downloadPath, { cache: 'no-store' });
+        if (!scriptResp.ok) throw new Error(`Не удалось скачать helper (${scriptResp.status}).`);
+        const scriptText = await scriptResp.text();
+        const blob = new Blob([scriptText], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = useBat
+          ? `run-warp-speedtest-${sessionData.sessionId}.bat`
+          : `warp-speedtest-${sessionData.sessionId}.ps1`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        setClashSpeedtestHint('Файл скачан. Запустите .bat/.ps1 и дождитесь авто-подстановки endpoint+port в WARP-ноду.');
+        await pollClashSpeedtestSession(sessionData.pollPath);
+      } catch (err) {
+        setClashSpeedtestHint(`Ошибка запуска speedtest: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Локально подобрать endpoint+port (Windows)';
+      }
+    }
+
+    function collectServers() {
+      return serverRows.map((row) => {
+        const get = (k) => row.querySelector(`[data-k="${k}"]`)?.value || '';
+        return {
+          name: get('name').trim(),
+          type: get('type').trim(),
+          server: get('server').trim(),
+          port: Number.parseInt(get('port').trim(), 10),
+          address: get('address').trim(),
+          privateKey: get('privateKey').trim(),
+          publicKey: get('publicKey').trim(),
+          amneziaVersion: document.getElementById('amneziaVersion').value,
+        };
+      });
+    }
+
+    function uniqList(items) {
+      return Array.from(new Set((Array.isArray(items) ? items : []).map((x) => String(x || '').trim()).filter(Boolean)));
+    }
+
+    function isIpv4(value) {
+      return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(value || '').trim());
+    }
+
+    function getSelectedDnsProvider() {
+      const providerKey = document.getElementById('dnsProvider').value;
+      const providers = Array.isArray(clashOptions?.dnsProviders) ? clashOptions.dnsProviders : [];
+      return providers.find((p) => p.key === providerKey) || providers[0] || null;
+    }
+
+    function buildDnsNameservers(provider, transport) {
+      if (!provider) return [];
+      const plain = uniqList(provider.plain);
+      const doh = uniqList(provider.doh);
+      const dot = uniqList(provider.dot);
+      const doq = uniqList(provider.doq);
+      const plainIpv4 = plain.filter(isIpv4).slice(0, 3);
+      const autoDot = plainIpv4.map((ip) => `tls://${ip}`);
+      const autoDoq = plainIpv4.map((ip) => `quic://${ip}`);
+
+      if (transport === 'plain') return plain.slice(0, 6);
+      if (transport === 'doh') return (doh.length ? doh : ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']).slice(0, 6);
+      if (transport === 'dot') return (dot.length ? dot : autoDot).slice(0, 6);
+      if (transport === 'doq') return (doq.length ? doq : autoDoq).slice(0, 6);
+
+      return uniqList([
+        ...(doh.length ? doh : ['https://1.1.1.1/dns-query']),
+        ...(dot.length ? dot : autoDot),
+        ...plain.slice(0, 2),
+      ]).slice(0, 8);
+    }
+
+    function buildDnsFallback(transport) {
+      const map = clashOptions?.dnsFallbackByTransport || {};
+      if (Array.isArray(map[transport]) && map[transport].length) return uniqList(map[transport]).slice(0, 8);
+      if (Array.isArray(map.mixed) && map.mixed.length) return uniqList(map.mixed).slice(0, 8);
+      return ['https://1.1.1.1/dns-query', 'tls://9.9.9.9', '8.8.8.8'];
+    }
+
+    function fillDnsPreset(kind) {
+      const provider = getSelectedDnsProvider();
+      const transportSelect = document.getElementById('dnsTransport');
+      const selectedTransport = kind || transportSelect.value || 'mixed';
+      transportSelect.value = selectedTransport;
+
+      const nsList = buildDnsNameservers(provider, selectedTransport);
+      const fbList = buildDnsFallback(selectedTransport);
+      document.getElementById('dnsNameservers').value = nsList.join('\n');
+      document.getElementById('dnsFallback').value = fbList.join('\n');
+    }
+
+    function selectedCdnProviders() {
+      return Array.from(document.querySelectorAll('#cdnChips .chip.active')).map((el) => el.dataset.key);
+    }
+
+    function applyDomainPreset(kind) {
+      if (!clashOptions) return;
+      const proxy = document.getElementById('proxyDomains');
+      const direct = document.getElementById('directDomains');
+      if (kind === 'clear') {
+        proxy.value = '';
+        direct.value = '';
+        updateSummary();
+        return;
+      }
+      if (kind === 'blocked') {
+        proxy.value = (clashOptions.domainPresets?.blocked_sites || []).join('\n');
+        updateSummary();
+        return;
+      }
+      if (kind === 'ru') {
+        direct.value = (clashOptions.domainPresets?.ru_direct || []).join('\n');
+        updateSummary();
+      }
+    }
+
+    async function loadClashOptions() {
+      const resp = await fetch('/api/clash/options', { cache: 'no-store' });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'clash options unavailable');
+      clashOptions = data;
+
+      const providerSelect = document.getElementById('dnsProvider');
+      providerSelect.innerHTML = '';
+      const providers = Array.isArray(data.dnsProviders) ? data.dnsProviders : [];
+      const providerGroups = new Map();
+      providers.forEach((provider) => {
+        const groupLabel = provider.group || 'Другие';
+        if (!providerGroups.has(groupLabel)) providerGroups.set(groupLabel, []);
+        providerGroups.get(groupLabel).push(provider);
+      });
+      providerGroups.forEach((items, groupLabel) => {
+        const group = document.createElement('optgroup');
+        group.label = groupLabel;
+        items.forEach((provider) => {
+          const option = document.createElement('option');
+          option.value = provider.key;
+          option.textContent = provider.label;
+          if (provider.key === 'malw_link') option.selected = true;
+          group.appendChild(option);
+        });
+        providerSelect.appendChild(group);
+      });
+
+      const transportSelect = document.getElementById('dnsTransport');
+      const transports = Array.isArray(data.dnsTransports) && data.dnsTransports.length
+        ? data.dnsTransports
+        : ['plain', 'doh', 'dot', 'doq', 'mixed'];
+      transportSelect.innerHTML = transports.map((transport) => {
+        const titleMap = { plain: 'Plain (IP)', doh: 'DoH', dot: 'DoT', doq: 'DoQ', mixed: 'Mixed' };
+        const text = titleMap[transport] || transport;
+        const selected = transport === 'mixed' ? ' selected' : '';
+        return `<option value="${transport}"${selected}>${text}</option>`;
+      }).join('');
+
+      const chips = document.getElementById('cdnChips');
+      chips.innerHTML = '';
+      (data.cdnProviders || []).forEach((p) => {
+        const el = document.createElement('div');
+        el.className = 'chip';
+        el.dataset.key = p.key;
+        el.textContent = `${p.label} (${p.cidrCount})`;
+        el.addEventListener('click', () => {
+          el.classList.toggle('active');
+          updateSummary();
+        });
+        chips.appendChild(el);
+      });
+      fillDnsPreset('mixed');
+      updateSummary();
+    }
+
+    async function generateProfileUrl() {
+      const btn = document.getElementById('genBtn');
+      const result = document.getElementById('result');
+      const resultUrl = document.getElementById('resultUrl');
+      const resultMeta = document.getElementById('resultMeta');
+      result.style.display = 'none';
+
+      const payload = {
+        name: document.getElementById('profileName').value.trim(),
+        nodes: collectServers(),
+        dns: {
+          mode: document.getElementById('dnsMode').value,
+          nameservers: lineSplit(document.getElementById('dnsNameservers').value),
+          fallback: lineSplit(document.getElementById('dnsFallback').value),
+        },
+        routing: {
+          cdnProviders: selectedCdnProviders(),
+          proxyDomains: lineSplit(document.getElementById('proxyDomains').value),
+          ruDirectDomains: lineSplit(document.getElementById('directDomains').value),
+        },
+      };
+
+      btn.disabled = true;
+      setStatus('Генерируем profile URL...', 'progress');
+      try {
+        const resp = await fetch('/api/clash/profile-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) throw new Error(data.error || 'Ошибка генерации');
+
+        result.style.display = 'block';
+        resultUrl.textContent = data.profileUrl;
+        resultMeta.textContent = `Профиль: ${data.name} · TTL: ${Math.floor((data.expiresInSec || 0) / 3600)}h · Узлов: ${payload.nodes.length}`;
+        resultMeta.dataset.type = 'ok';
+        setStatus('Готово. Добавьте URL в Clash Verge как profile/subscription.', 'ok');
+      } catch (err) {
+        setStatus(`Ошибка: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function copyProfileUrl() {
+      const text = document.getElementById('resultUrl').textContent.trim();
+      if (!text) {
+        setStatus('Сначала сгенерируйте profile URL.', 'error');
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      setStatus('Profile URL скопирован.', 'ok');
+    }
+
+    document.getElementById('proxyDomains').addEventListener('input', updateSummary);
+    document.getElementById('directDomains').addEventListener('input', updateSummary);
+    document.getElementById('confFileInput').addEventListener('change', onConfFilePicked);
+    document.getElementById('dnsProvider').addEventListener('change', () => fillDnsPreset(document.getElementById('dnsTransport').value || 'mixed'));
+    document.getElementById('dnsTransport').addEventListener('change', () => fillDnsPreset(document.getElementById('dnsTransport').value || 'mixed'));
+    document.getElementById('confUrlInput').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        importConfFromUrl();
+      }
+    });
+
+    addWarpTemplate();
+    loadClashOptions().catch((err) => {
+      setStatus(`Ошибка загрузки опций: ${err.message}`, 'error');
+    });
+  </script>
+</body>
+</html>
