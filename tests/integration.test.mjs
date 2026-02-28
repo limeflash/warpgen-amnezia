@@ -157,6 +157,7 @@ test('Windows speedtest helper script contains fallback endpoint logic', async (
   assert.match(scriptText, /Get-AuthenticodeSignature/);
   assert.match(scriptText, /Try-VerifyByChecksums/);
   assert.doesNotMatch(scriptText, /\$host\s*=/i);
+  assert.match(scriptText, /\$endpointHost\s*=/);
   assert.match(scriptText, /\$candidateHostName\s*=/);
 
   const fallbackJsonMatch = scriptText.match(/\$fallbackEndpoints = ConvertFrom-Json @'\s*([\s\S]*?)\s*'@/);

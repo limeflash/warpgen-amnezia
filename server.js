@@ -1826,10 +1826,10 @@ function Normalize-EndpointForReport {
   if (-not $Endpoint) { return $Endpoint }
   $parts = $Endpoint -split ':'
   if ($parts.Count -lt 2) { return $Endpoint }
-  $host = $parts[0].Trim()
+  $endpointHost = $parts[0].Trim()
   $port = $parts[1].Trim()
-  if (-not $host -or -not $port) { return $Endpoint }
-  if ($EngageIpList -contains $host) { return ('engage.cloudflareclient.com:' + $port) }
+  if (-not $endpointHost -or -not $port) { return $Endpoint }
+  if ($EngageIpList -contains $endpointHost) { return ('engage.cloudflareclient.com:' + $port) }
   return $Endpoint
 }
 
