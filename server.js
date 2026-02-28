@@ -1490,6 +1490,15 @@ if (Test-Path $workDir) { Remove-Item -Recurse -Force $workDir }
 New-Item -ItemType Directory -Path $workDir | Out-Null
 Set-Location $workDir
 
+$cpu = [Math]::Max(1, [Environment]::ProcessorCount)
+$workerP = [Math]::Max(8, [Math]::Min(32, $cpu * 2))
+$primaryC = [Math]::Max(800, [Math]::Min(6000, $cpu * 350))
+$rescueC = [Math]::Max(600, [Math]::Min(4500, [int]($primaryC * 0.75)))
+$qualityC = [Math]::Max(1200, [Math]::Min(7000, [int]($primaryC * 1.25)))
+$candidateP = [Math]::Max(4, [Math]::Min(16, [int]($workerP / 2)))
+$candidateC = [Math]::Max(400, [Math]::Min(2200, [int]($rescueC / 2)))
+Write-Host ('Adaptive engine: CPU=' + $cpu + ', p=' + $workerP + ', c=' + $primaryC + '/' + $rescueC + '/' + $qualityC)
+
 Write-Host '[1/5] Downloading CloudflareWarpSpeedTest...'
 $arch = if ([Environment]::Is64BitOperatingSystem) { 'amd64' } else { '386' }
 $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/peanut996/CloudflareWarpSpeedTest/releases/latest'
@@ -1517,7 +1526,7 @@ $allIps | Set-Content -Path $ipFile -Encoding ascii
 
 Write-Host '[3/5] Running speed test...'
 $csvPath = Join-Path $workDir 'result.csv'
-& $exe.FullName -all -n 50 -t 5 -c 5000 -tl 300 -tll 0 -tlr 0.2 -p 10 -f $ipFile -o $csvPath
+& $exe.FullName -all -n 60 -t 5 -c $primaryC -tl 450 -tll 0 -tlr 0.25 -p $workerP -f $ipFile -o $csvPath
 
 Write-Host '[4/5] Selecting best endpoint...'
 $rows = @()
@@ -1549,7 +1558,7 @@ if (-not $normalized -or $normalized.Count -eq 0) {
   $rescueFile = Join-Path $workDir 'ip-rescue.txt'
   $rescueIps | Set-Content -Path $rescueFile -Encoding ascii
   $rescueCsv = Join-Path $workDir 'result-rescue.csv'
-  & $exe.FullName -all -n 25 -t 3 -c 3000 -tl 1200 -tll 0 -tlr 1 -p 10 -f $rescueFile -o $rescueCsv
+  & $exe.FullName -all -n 35 -t 3 -c $rescueC -tl 1200 -tll 0 -tlr 1 -p $workerP -f $rescueFile -o $rescueCsv
 
   if (Test-Path $rescueCsv) {
     try {
@@ -1569,6 +1578,49 @@ if (-not $normalized -or $normalized.Count -eq 0) {
   }
 }
 
+$qualityPassUsed = $false
+if ($normalized -and $normalized.Count -gt 0) {
+  Write-Host 'Primary/rescue pass returned endpoints. Running quality pass on top hosts...'
+  $topCandidates = @($normalized | Sort-Object loss, latencyMs | Select-Object -First 12)
+  $qualityHosts = @()
+  foreach ($candidate in $topCandidates) {
+    if (-not $candidate.endpoint) { continue }
+    $candidateParts = $candidate.endpoint -split ':'
+    if ($candidateParts.Count -lt 1) { continue }
+    $host = $candidateParts[0].Trim()
+    if ($host) { $qualityHosts += $host }
+  }
+  $qualityHosts = @($qualityHosts | Sort-Object -Unique)
+
+  if ($qualityHosts.Count -gt 0) {
+    $qualityFile = Join-Path $workDir 'ip-quality.txt'
+    $qualityHosts | Set-Content -Path $qualityFile -Encoding ascii
+    $qualityCsv = Join-Path $workDir 'result-quality.csv'
+    & $exe.FullName -all -n 90 -t 6 -c $qualityC -tl 300 -tll 0 -tlr 0.2 -p $workerP -f $qualityFile -o $qualityCsv
+
+    if (Test-Path $qualityCsv) {
+      try {
+        $qualityRows = Import-Csv -Path $qualityCsv | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
+        if ($qualityRows -and $qualityRows.Count -gt 0) {
+          $qualityNorm = foreach ($r in $qualityRows) {
+            [PSCustomObject]@{
+              endpoint = $r.'IP:Port'
+              loss = [double](($r.Loss -replace '%', '').Trim())
+              latencyMs = [double](($r.Latency).Trim())
+            }
+          }
+          if ($qualityNorm -and $qualityNorm.Count -gt 0) {
+            $normalized = $qualityNorm
+            $qualityPassUsed = $true
+          }
+        }
+      } catch {
+        Write-Host ('Failed to parse quality speedtest CSV: ' + $_.Exception.Message)
+      }
+    }
+  }
+}
+
 if (-not $normalized -or $normalized.Count -eq 0) {
   Write-Host 'Rescue pass returned no endpoints. Trying candidate-by-candidate check...'
   foreach ($candidate in $fallbackEndpoints) {
@@ -1583,7 +1635,7 @@ if (-not $normalized -or $normalized.Count -eq 0) {
     @($candidateHost) | Set-Content -Path $candidateIpFile -Encoding ascii
     $candidateCsv = Join-Path $workDir ('result-candidate-' + ($candidateHost -replace '[^a-zA-Z0-9]', '_') + '.csv')
 
-    & $exe.FullName -all -n 12 -t 2 -c 1500 -tl 2000 -tll 0 -tlr 1 -p 5 -f $candidateIpFile -o $candidateCsv
+    & $exe.FullName -all -n 16 -t 2 -c $candidateC -tl 2000 -tll 0 -tlr 1 -p $candidateP -f $candidateIpFile -o $candidateCsv
     if (-not (Test-Path $candidateCsv)) { continue }
 
     try {
@@ -1625,6 +1677,7 @@ if ($normalized -and $normalized.Count -gt 0) {
   if ($best) {
     $bestEndpoint = $best.endpoint
     $topResults = @($normalized | Sort-Object loss, latencyMs | Select-Object -First 5)
+    if ($qualityPassUsed) { $reportSource = 'windows-local-helper-quality' }
   }
 }
 

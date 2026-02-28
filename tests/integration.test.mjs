@@ -147,6 +147,8 @@ test('Windows speedtest helper script contains fallback endpoint logic', async (
   const scriptResp = await fetch(`${BASE}${sessionBody.downloadPath}`);
   assert.equal(scriptResp.status, 200);
   const scriptText = await scriptResp.text();
+  assert.match(scriptText, /Adaptive engine: CPU=/);
+  assert.match(scriptText, /quality pass on top hosts/);
   assert.match(scriptText, /No available endpoints from local speedtest/);
   assert.match(scriptText, /candidate-by-candidate check/);
   assert.match(scriptText, /windows-local-helper-fallback/);
