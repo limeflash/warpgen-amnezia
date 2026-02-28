@@ -547,8 +547,10 @@
     <div class="field">
       <label>DNS сервер</label>
       <select id="dnsServer">
+        <optgroup label="🌐 Разблокировать внешние сервисы">
+          <option value="malw_link" selected>dns.malw.link — разблокировка заблокированных сайтов ✓</option>
+        </optgroup>
         <optgroup label="Без фильтрации — быстрые публичные">
-          <option value="malw_link" selected>dns.malw.link — разблокировка зарубежных сервисов</option>
           <option value="cloudflare">Cloudflare 1.1.1.1 — приватный, быстрый</option>
           <option value="google">Google 8.8.8.8</option>
           <option value="quad9_nofilter">Quad9 9.9.9.10 — без фильтрации</option>
