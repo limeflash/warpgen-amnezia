@@ -275,23 +275,52 @@ const QUIC_PRESETS = {
 
 const QUIC_KEYS = Object.keys(QUIC_PRESETS);
 
-const WARP_ENDPOINTS = {
-    '162.159.192.1': 'Free WARP anycast #1',
-    '162.159.192.2': 'Free WARP anycast #2',
-    '162.159.192.5': 'Free WARP anycast #5',
-    '162.159.193.1': 'WARP 193.1',
-    '162.159.193.2': 'WARP 193.2',
-    '162.159.195.1': 'WARP 195.1',
-    '162.159.195.4': 'WARP 195.4 (confirmed working)',
-    '162.159.195.100': 'WARP 195.100',
-    '162.159.195.134': 'WARP 195.134',
-    '162.159.204.1': 'WARP 204.1',
-    '188.114.96.1': 'EU WARP 96.1',
-    '188.114.97.1': 'EU WARP 97.1',
-    '188.114.98.1': 'EU WARP 98.1',
-    '188.114.99.1': 'EU WARP 99.1',
-    'auto': 'Авто (из API)',
-};
+const ALLOWED_WARP_PORTS = [
+    500, 854, 859, 864, 878, 880, 890, 891, 894, 903, 908, 928, 934, 939, 942, 943, 945, 946,
+    955, 968, 987, 988, 1002, 1010, 1014, 1018, 1070, 1074, 1180, 1387, 1701, 1843, 2371, 2408,
+    2506, 3138, 3476, 3581, 3854, 4177, 4198, 4233, 4500, 5279, 5956, 7103, 7152, 7156, 7281,
+    7559, 8319, 8742, 8854, 8886,
+];
+const ALLOWED_WARP_PORT_SET = new Set(ALLOWED_WARP_PORTS);
+
+const STATIC_WARP_ENDPOINTS = [
+    ...Array.from({ length: 20 }, (_, idx) => `162.159.192.${idx + 1}`),
+    ...Array.from({ length: 10 }, (_, idx) => `162.159.195.${idx + 1}`),
+    'engage.cloudflareclient.com',
+];
+const ALLOWED_WARP_ENDPOINT_SET = new Set(STATIC_WARP_ENDPOINTS.map((value) => value.toLowerCase()));
+
+const WARP_ENDPOINT_GROUPS = [
+    {
+        label: 'Рекомендуемые',
+        items: [
+            { value: 'auto', label: 'Авто (engage.cloudflareclient.com)' },
+            { value: 'engage.cloudflareclient.com', label: 'engage.cloudflareclient.com' },
+        ],
+    },
+    {
+        label: '162.159.192.1-20',
+        items: Array.from({ length: 20 }, (_, idx) => {
+            const ip = `162.159.192.${idx + 1}`;
+            return { value: ip, label: ip };
+        }),
+    },
+    {
+        label: '162.159.195.1-10',
+        items: Array.from({ length: 10 }, (_, idx) => {
+            const ip = `162.159.195.${idx + 1}`;
+            return { value: ip, label: ip };
+        }),
+    },
+];
+
+const WARP_ENDPOINTS = WARP_ENDPOINT_GROUPS.reduce((acc, group) => {
+    for (const item of group.items) acc[item.value] = item.label;
+    return acc;
+}, {});
+
+const SPEEDTEST_SESSION_TTL_MS = 20 * 60 * 1000;
+const SPEEDTEST_SESSIONS = new Map();
 
 const SPLIT_TUNNEL_TARGETS = {
     discord: {
@@ -321,6 +350,45 @@ const SPLIT_TUNNEL_TARGETS = {
     hearthstone: { label: 'Hearthstone', domains: ['battle.net', 'www.battle.net', 'blizzard.com', 'www.blizzard.com', 'us.patch.battle.net', 'eu.patch.battle.net', 'blzddist1-a.akamaihd.net'] },
     pubg: { label: 'PUBG', domains: ['pubg.com', 'www.pubg.com', 'api.pubg.com', 'accounts.pubg.com', 'krafton.com', 'www.krafton.com', 'pubgmobile.com', 'www.pubgmobile.com', 'steamcdn-a.akamaihd.net'] },
 };
+
+// Fallback CIDR database for domains that frequently return no A/AAAA (ENODATA)
+// even though app traffic still goes via known provider edge ranges.
+const STATIC_DOMAIN_FALLBACK_CIDRS = {
+    'best.discord.media': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
+    'cdn.discordapp.net': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
+    'router.discordapp.net': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
+    'discord.tools': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
+    'discord-activities.com': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
+    'discordapp.net': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
+};
+
+// Runtime cache keeps last known IPs for domains that resolved successfully.
+// If DNS later fails, these cached CIDRs are used as fallback.
+const SPLIT_DOMAIN_RUNTIME_CACHE = new Map();
+
+function cacheDomainCidrs(domain, cidrList) {
+    if (!domain || !Array.isArray(cidrList) || !cidrList.length) return;
+    const existing = SPLIT_DOMAIN_RUNTIME_CACHE.get(domain) || new Set();
+    for (const cidr of cidrList) {
+        if (typeof cidr === 'string' && cidr.trim()) existing.add(cidr.trim());
+    }
+    if (existing.size) SPLIT_DOMAIN_RUNTIME_CACHE.set(domain, existing);
+}
+
+function getDomainFallbackCidrs(domain) {
+    const merged = new Set();
+    const staticCidrs = STATIC_DOMAIN_FALLBACK_CIDRS[domain];
+    if (Array.isArray(staticCidrs)) {
+        for (const cidr of staticCidrs) {
+            if (typeof cidr === 'string' && cidr.trim()) merged.add(cidr.trim());
+        }
+    }
+    const cached = SPLIT_DOMAIN_RUNTIME_CACHE.get(domain);
+    if (cached) {
+        for (const cidr of cached.values()) merged.add(cidr);
+    }
+    return Array.from(merged);
+}
 
 function cfRequest(method, urlPath, token, body) {
     return new Promise((resolve, reject) => {
@@ -450,8 +518,277 @@ async function resolveSplitAllowedIPs(targetKeys) {
     };
 }
 
+function normalizeEndpointInput(value) {
+    if (typeof value !== 'string') return '';
+    return value.trim().toLowerCase();
+}
+
+function normalizePortInput(value) {
+    const port = Number.parseInt(String(value), 10);
+    if (!Number.isInteger(port)) return null;
+    return port;
+}
+
+function isAllowedWarpEndpoint(value) {
+    if (!value) return false;
+    if (value === 'auto') return true;
+    return ALLOWED_WARP_ENDPOINT_SET.has(value);
+}
+
+function isAllowedWarpPort(value) {
+    if (!Number.isInteger(value)) return false;
+    return ALLOWED_WARP_PORT_SET.has(value);
+}
+
+function isAllowedWarpResultIp(ip) {
+    if (net.isIP(ip) !== 4) return false;
+    const parts = ip.split('.').map((x) => Number.parseInt(x, 10));
+    if (parts.length !== 4 || parts.some((x) => Number.isNaN(x))) return false;
+    if (parts[0] !== 162 || parts[1] !== 159) return false;
+    if (parts[2] === 192 && parts[3] >= 1 && parts[3] <= 20) return true;
+    if (parts[2] === 195 && parts[3] >= 1 && parts[3] <= 10) return true;
+    return false;
+}
+
+function parseEndpointHostPort(rawValue) {
+    if (typeof rawValue !== 'string') return null;
+    const clean = rawValue.trim();
+    const match = clean.match(/^([^:]+):(\d{2,5})$/);
+    if (!match) return null;
+    const host = match[1].trim();
+    const port = Number.parseInt(match[2], 10);
+    if (!host || !Number.isInteger(port)) return null;
+    return { host, port };
+}
+
+function getRequestBaseUrl(req) {
+    const proto = req.headers['x-forwarded-proto']
+        ? String(req.headers['x-forwarded-proto']).split(',')[0].trim()
+        : req.protocol;
+    const host = req.headers['x-forwarded-host']
+        ? String(req.headers['x-forwarded-host']).split(',')[0].trim()
+        : req.get('host');
+    return `${proto || 'http'}://${host}`;
+}
+
+function getClientIp(req) {
+    const xff = req.headers['x-forwarded-for'];
+    if (typeof xff === 'string' && xff.trim()) {
+        return xff.split(',')[0].trim();
+    }
+    return req.ip || req.socket?.remoteAddress || '';
+}
+
+function cleanupSpeedtestSessions() {
+    const now = Date.now();
+    for (const [id, session] of SPEEDTEST_SESSIONS.entries()) {
+        if (now - session.createdAt > SPEEDTEST_SESSION_TTL_MS) {
+            SPEEDTEST_SESSIONS.delete(id);
+        }
+    }
+}
+
+function buildWindowsSpeedtestScript({ sessionId, reportUrl }) {
+    const staticIps = [
+        ...Array.from({ length: 20 }, (_, idx) => `162.159.192.${idx + 1}`),
+        ...Array.from({ length: 10 }, (_, idx) => `162.159.195.${idx + 1}`),
+    ];
+    const psIpArray = staticIps.map((ip) => `'${ip}'`).join(', ');
+    return `# Cloudflare WARP local endpoint speedtest helper
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$sessionId = '${sessionId}'
+$reportUrl = '${reportUrl}'
+$workDir = Join-Path $env:TEMP ('warp-speedtest-' + $sessionId)
+if (Test-Path $workDir) { Remove-Item -Recurse -Force $workDir }
+New-Item -ItemType Directory -Path $workDir | Out-Null
+Set-Location $workDir
+
+Write-Host '[1/5] Downloading CloudflareWarpSpeedTest...'
+$arch = if ([Environment]::Is64BitOperatingSystem) { 'amd64' } else { '386' }
+$release = Invoke-RestMethod -Uri 'https://api.github.com/repos/peanut996/CloudflareWarpSpeedTest/releases/latest'
+$asset = $release.assets | Where-Object { $_.name -like ('*windows-' + $arch + '.zip') } | Select-Object -First 1
+if (-not $asset) { throw 'Windows build not found in latest release' }
+$zipPath = Join-Path $workDir $asset.name
+Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+Expand-Archive -Path $zipPath -DestinationPath $workDir -Force
+
+$exe = Get-ChildItem -Path $workDir -Recurse -Filter '*.exe' | Where-Object { $_.Name -like 'CloudflareWarpSpeedTest*.exe' } | Select-Object -First 1
+if (-not $exe) { throw 'CloudflareWarpSpeedTest executable not found after extraction' }
+
+Write-Host '[2/5] Building local IP list...'
+$staticIps = @(${psIpArray})
+$engageIps = @()
+try {
+  $engageIps = Resolve-DnsName -Name 'engage.cloudflareclient.com' -Type A -ErrorAction Stop | Select-Object -ExpandProperty IPAddress -Unique
+} catch {
+  Write-Host 'engage.cloudflareclient.com DNS resolve failed, continuing with static ranges.'
+}
+$allIps = ($staticIps + $engageIps) | Sort-Object -Unique
+if (-not $allIps -or $allIps.Count -eq 0) { throw 'No IPs to test' }
+$ipFile = Join-Path $workDir 'ip.txt'
+$allIps | Set-Content -Path $ipFile -Encoding ascii
+
+Write-Host '[3/5] Running speed test...'
+$csvPath = Join-Path $workDir 'result.csv'
+& $exe.FullName -n 50 -t 5 -c 40 -tl 300 -tll 0 -tlr 0.2 -p 10 -f $ipFile -o $csvPath
+
+Write-Host '[4/5] Selecting best endpoint...'
+$rows = Import-Csv -Path $csvPath | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
+if (-not $rows -or $rows.Count -eq 0) { throw 'No rows in result.csv' }
+
+$normalized = foreach ($r in $rows) {
+  [PSCustomObject]@{
+    endpoint = $r.'IP:Port'
+    loss = [double](($r.Loss -replace '%', '').Trim())
+    latencyMs = [double](($r.Latency).Trim())
+  }
+}
+$best = $normalized | Sort-Object loss, latencyMs | Select-Object -First 1
+if (-not $best) { throw 'Cannot determine best endpoint' }
+
+Write-Host '[5/5] Reporting to site...'
+$payload = @{
+  sessionId = $sessionId
+  bestEndpoint = $best.endpoint
+  topResults = @($normalized | Sort-Object loss, latencyMs | Select-Object -First 5)
+  source = 'windows-local-helper'
+} | ConvertTo-Json -Depth 8
+Invoke-RestMethod -Uri $reportUrl -Method POST -ContentType 'application/json' -Body $payload | Out-Null
+
+try { Set-Clipboard -Value $best.endpoint } catch {}
+Write-Host ''
+Write-Host ('Best endpoint: ' + $best.endpoint)
+Write-Host 'Done. You can return to the site, endpoint will be filled automatically.'
+`;
+}
+
+function buildWindowsBatchScript({ sessionId, baseUrl }) {
+    const ps1Url = `${baseUrl}/api/speedtest/windows-script/${sessionId}`;
+    return `@echo off
+setlocal
+set "PS1_URL=${ps1Url}"
+set "PS1_FILE=%TEMP%\\warp-speedtest-${sessionId}.ps1"
+
+echo Downloading helper script...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -Uri '%PS1_URL%' -OutFile '%PS1_FILE%'; & '%PS1_FILE%' } catch { Write-Host $_; exit 1 }"
+if errorlevel 1 (
+  echo.
+  echo Failed to run local WARP speedtest helper.
+  pause
+  exit /b 1
+)
+
+echo.
+echo Finished. Return to your browser page.
+pause
+`;
+}
+
+setInterval(cleanupSpeedtestSessions, 5 * 60 * 1000).unref();
+
 app.get('/api/endpoints', (req, res) => {
     res.json(WARP_ENDPOINTS);
+});
+
+app.get('/api/warp-options', (req, res) => {
+    res.json({
+        defaultPort: 2408,
+        defaultEndpoint: 'auto',
+        ports: ALLOWED_WARP_PORTS,
+        endpointGroups: WARP_ENDPOINT_GROUPS,
+    });
+});
+
+app.post('/api/speedtest/session', (req, res) => {
+    cleanupSpeedtestSessions();
+    const sessionId = crypto.randomBytes(12).toString('hex');
+    const session = {
+        id: sessionId,
+        createdAt: Date.now(),
+        status: 'pending',
+        clientIp: getClientIp(req),
+        result: null,
+    };
+    SPEEDTEST_SESSIONS.set(sessionId, session);
+
+    res.json({
+        sessionId,
+        expiresInSec: Math.floor(SPEEDTEST_SESSION_TTL_MS / 1000),
+        downloadPath: `/api/speedtest/windows-script/${sessionId}`,
+        downloadBatPath: `/api/speedtest/windows-bat/${sessionId}`,
+        pollPath: `/api/speedtest/session/${sessionId}`,
+    });
+});
+
+app.get('/api/speedtest/windows-script/:sessionId', (req, res) => {
+    cleanupSpeedtestSessions();
+    const sessionId = String(req.params.sessionId || '').trim();
+    const session = SPEEDTEST_SESSIONS.get(sessionId);
+    if (!session) return res.status(404).send('Session not found or expired.');
+
+    const reportUrl = `${getRequestBaseUrl(req)}/api/speedtest/report`;
+    const script = buildWindowsSpeedtestScript({ sessionId, reportUrl });
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="warp-speedtest-${sessionId}.ps1"`);
+    res.send(script);
+});
+
+app.get('/api/speedtest/windows-bat/:sessionId', (req, res) => {
+    cleanupSpeedtestSessions();
+    const sessionId = String(req.params.sessionId || '').trim();
+    const session = SPEEDTEST_SESSIONS.get(sessionId);
+    if (!session) return res.status(404).send('Session not found or expired.');
+
+    const script = buildWindowsBatchScript({
+        sessionId,
+        baseUrl: getRequestBaseUrl(req),
+    });
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="run-warp-speedtest-${sessionId}.bat"`);
+    res.send(script);
+});
+
+app.get('/api/speedtest/session/:sessionId', (req, res) => {
+    cleanupSpeedtestSessions();
+    const sessionId = String(req.params.sessionId || '').trim();
+    const session = SPEEDTEST_SESSIONS.get(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found or expired.' });
+
+    res.json({
+        sessionId,
+        status: session.status,
+        result: session.result,
+    });
+});
+
+app.post('/api/speedtest/report', (req, res) => {
+    cleanupSpeedtestSessions();
+    const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
+    const bestEndpoint = typeof req.body?.bestEndpoint === 'string' ? req.body.bestEndpoint.trim() : '';
+    const topResults = Array.isArray(req.body?.topResults) ? req.body.topResults.slice(0, 10) : [];
+    if (!sessionId || !bestEndpoint) {
+        return res.status(400).json({ error: 'sessionId and bestEndpoint are required.' });
+    }
+
+    const session = SPEEDTEST_SESSIONS.get(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found or expired.' });
+
+    const parsed = parseEndpointHostPort(bestEndpoint);
+    if (!parsed || !isAllowedWarpPort(parsed.port) || !isAllowedWarpResultIp(parsed.host)) {
+        return res.status(400).json({ error: 'Best endpoint is outside allowed endpoint/port list.' });
+    }
+
+    session.status = 'completed';
+    session.result = {
+        bestEndpoint: `${parsed.host}:${parsed.port}`,
+        topResults,
+        reportedAt: new Date().toISOString(),
+        reporterIp: getClientIp(req),
+    };
+
+    res.json({ ok: true, bestEndpoint: session.result.bestEndpoint });
 });
 
 app.get('/api/version', (req, res) => {
@@ -596,6 +933,18 @@ app.post('/api/generate', async (req, res) => {
             });
         }
         const isAmneziaConfig = normalizedConfigType === 'amnezia';
+        const normalizedEndpointIp = normalizeEndpointInput(endpointIp) || 'auto';
+        const normalizedEndpointPort = normalizePortInput(endpointPort);
+        if (!isAllowedWarpEndpoint(normalizedEndpointIp)) {
+            return res.status(400).json({
+                error: 'Endpoint не входит в разрешенный список.',
+            });
+        }
+        if (!isAllowedWarpPort(normalizedEndpointPort)) {
+            return res.status(400).json({
+                error: 'Порт endpoint не входит в разрешенный список.',
+            });
+        }
 
         const DNS_SERVERS = {
             cloudflare: '1.1.1.1, 2606:4700:4700::1111, 1.0.0.1, 2606:4700:4700::1001',
@@ -726,14 +1075,10 @@ app.post('/api/generate', async (req, res) => {
         const ipv4 = cfg.interface?.addresses?.v4;
         const ipv6 = cfg.interface?.addresses?.v6;
 
-        let epIp;
-        if (endpointIp === 'auto' || !endpointIp) {
-            const rawHost = (cfg.peers?.[0]?.endpoint?.host || '').split(':')[0];
-            epIp = await resolveHost(rawHost);
-        } else {
-            epIp = endpointIp;
-        }
-        const ep = `${epIp}:${endpointPort}`;
+        const epHost = normalizedEndpointIp === 'auto'
+            ? 'engage.cloudflareclient.com'
+            : normalizedEndpointIp;
+        const ep = `${epHost}:${normalizedEndpointPort}`;
 
         const address = [ipv4, ipv6]
             .map(normalizeInterfaceAddress)

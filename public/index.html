@@ -411,6 +411,38 @@
       text-align: center;
     }
 
+    .dns-miss-spoiler {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .dns-miss-spoiler summary {
+      cursor: pointer;
+      user-select: none;
+      color: var(--muted);
+      font-size: 12px;
+      outline: none;
+    }
+
+    .dns-miss-note {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .dns-miss-list {
+      margin-top: 8px;
+      padding-left: 18px;
+      max-height: 180px;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text);
+    }
+
     /* ── Footer ── */
     footer {
       margin-top: 32px;
@@ -494,42 +526,22 @@
       </div>
       <div class="field">
         <label>Порт Endpoint</label>
-        <select id="endpointPort">
-          <option value="2408">2408 — рекомендуется</option>
-          <option value="500">500 — IPSec</option>
-          <option value="4500">4500 — стандартный WARP</option>
-          <option value="1701">1701 — L2TP</option>
-        </select>
+        <select id="endpointPort"></select>
+        <div class="split-note">Разрешены только официально рабочие порты из WARP speedtest набора.</div>
       </div>
     </div>
 
     <div class="field">
       <label>Endpoint IP</label>
-      <select id="endpointIp">
-        <option value="auto">Авто (из API Cloudflare)</option>
-        <optgroup label="✓ Официальный WireGuard ingress (162.159.193.0/24)">
-          <option value="162.159.193.1">162.159.193.1</option>
-          <option value="162.159.193.2">162.159.193.2</option>
-          <option value="162.159.193.5">162.159.193.5</option>
-          <option value="162.159.193.10">162.159.193.10</option>
-        </optgroup>
-        <optgroup label="Consumer WARP (162.159.192.0/24)">
-          <option value="162.159.192.1">162.159.192.1</option>
-          <option value="162.159.192.2">162.159.192.2</option>
-          <option value="162.159.192.5">162.159.192.5</option>
-        </optgroup>
-        <optgroup label="Неофициальные / community (работают ситуативно)">
-          <option value="162.159.195.1">162.159.195.1</option>
-          <option value="162.159.195.4">162.159.195.4 — из рабочего конфига ✓</option>
-          <option value="162.159.195.100">162.159.195.100</option>
-          <option value="162.159.195.134">162.159.195.134</option>
-          <option value="162.159.204.1">162.159.204.1</option>
-          <option value="188.114.96.1">188.114.96.1</option>
-          <option value="188.114.97.1">188.114.97.1</option>
-          <option value="188.114.98.1">188.114.98.1</option>
-          <option value="188.114.99.1">188.114.99.1</option>
-        </optgroup>
-      </select>
+      <select id="endpointIp"></select>
+      <div class="split-tools" style="margin-top:8px;">
+        <button type="button" class="split-tool-btn" id="localSpeedtestBtn" onclick="startLocalSpeedtest()">
+          Локально подобрать endpoint (Windows)
+        </button>
+      </div>
+      <div class="split-note" id="localSpeedtestHint">
+        Скачает `.bat` helper: двойной клик, он сам скачает CloudflareWarpSpeedTest, протестирует с вашей сети и вернет лучший endpoint в сайт.
+      </div>
     </div>
 
     <div class="field">
@@ -727,6 +739,11 @@
       <button class="btn-copy" id="copyBtn" onclick="copyConfig()">⎘ Копировать</button>
     </div>
     <div class="status-pill" id="statusPill"></div>
+    <details class="dns-miss-spoiler" id="dnsMissSpoiler" style="display:none;">
+      <summary>Показать DNS miss домены</summary>
+      <div class="dns-miss-note">Эти домены не удалось резолвить при генерации, поэтому маршруты для них не добавлены.</div>
+      <ul class="dns-miss-list" id="dnsMissList"></ul>
+    </details>
   </div>
 
   <footer>
@@ -739,11 +756,68 @@
     let lastGeneratedConfigType = 'amnezia';
     let secretTapCount = 0;
     let secretTapTimer = null;
+    let warpOptionsLoaded = false;
+    let speedtestPollTimer = null;
 
     const SPLIT_PRESETS = {
       social: ['discord', 'youtube', 'x_com', 'instagram', 'twitch', 'telegram', 'whatsapp', 'viber', 'tiktok', 'ipcheck_2ip', 'speedtest', 'fast_com', 'whoer'],
       gaming: ['steam', 'faceit', 'apex_legends', 'ea_app', 'battle_net', 'cs2', 'hearthstone', 'pubg'],
     };
+
+    function addSelectOption(selectEl, value, label) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      selectEl.appendChild(option);
+      return option;
+    }
+
+    async function loadWarpOptions() {
+      const endpointPortSelect = document.getElementById('endpointPort');
+      const endpointIpSelect = document.getElementById('endpointIp');
+      try {
+        const resp = await fetch('/api/warp-options', { cache: 'no-store' });
+        const data = await resp.json();
+        if (!resp.ok || !Array.isArray(data?.ports) || !Array.isArray(data?.endpointGroups)) {
+          throw new Error('invalid_warp_options');
+        }
+
+        endpointPortSelect.innerHTML = '';
+        data.ports.forEach((port) => {
+          const isRecommended = Number(port) === Number(data.defaultPort || 2408);
+          addSelectOption(
+            endpointPortSelect,
+            String(port),
+            isRecommended ? `${port} — рекомендуется` : String(port),
+          );
+        });
+        endpointPortSelect.value = String(data.defaultPort || 2408);
+
+        endpointIpSelect.innerHTML = '';
+        data.endpointGroups.forEach((group) => {
+          const optGroup = document.createElement('optgroup');
+          optGroup.label = group.label || 'Endpoints';
+          (group.items || []).forEach((item) => {
+            addSelectOption(optGroup, item.value, item.label || item.value);
+          });
+          endpointIpSelect.appendChild(optGroup);
+        });
+        endpointIpSelect.value = data.defaultEndpoint || 'auto';
+        warpOptionsLoaded = true;
+      } catch {
+        if (!endpointPortSelect.options.length) {
+          endpointPortSelect.innerHTML = '';
+          addSelectOption(endpointPortSelect, '2408', '2408 — рекомендуется');
+          endpointPortSelect.value = '2408';
+        }
+        if (!endpointIpSelect.options.length) {
+          endpointIpSelect.innerHTML = '';
+          addSelectOption(endpointIpSelect, 'auto', 'Авто (engage.cloudflareclient.com)');
+          endpointIpSelect.value = 'auto';
+        }
+        warpOptionsLoaded = false;
+      }
+    }
 
     function getSelectedConfigType() {
       const value = document.getElementById('configType').value;
@@ -790,6 +864,29 @@
       const wrap = document.getElementById('splitTargetsWrap');
       const mode = document.getElementById('splitMode').value;
       wrap.style.display = mode === 'selective' ? 'block' : 'none';
+    }
+
+    function renderDnsMiss(unresolvedDomains) {
+      const spoiler = document.getElementById('dnsMissSpoiler');
+      const list = document.getElementById('dnsMissList');
+      const domains = Array.isArray(unresolvedDomains)
+        ? unresolvedDomains.filter((d) => typeof d === 'string' && d.trim())
+        : [];
+
+      list.innerHTML = '';
+      if (!domains.length) {
+        spoiler.style.display = 'none';
+        spoiler.open = false;
+        return;
+      }
+
+      domains.forEach((domain) => {
+        const item = document.createElement('li');
+        item.textContent = domain;
+        list.appendChild(item);
+      });
+      spoiler.style.display = 'block';
+      spoiler.open = false;
     }
 
     async function loadVersion() {
@@ -893,6 +990,104 @@
       }
     }
 
+    function setLocalSpeedtestHint(text) {
+      const hint = document.getElementById('localSpeedtestHint');
+      hint.textContent = text;
+    }
+
+    function applyBestEndpoint(bestEndpoint) {
+      if (typeof bestEndpoint !== 'string') return;
+      const clean = bestEndpoint.trim();
+      const idx = clean.lastIndexOf(':');
+      if (idx <= 0) return;
+      const ip = clean.slice(0, idx);
+      const port = clean.slice(idx + 1);
+      const endpointIpSelect = document.getElementById('endpointIp');
+      const endpointPortSelect = document.getElementById('endpointPort');
+      endpointIpSelect.value = ip;
+      endpointPortSelect.value = port;
+    }
+
+    async function pollSpeedtestSession(pollPath) {
+      if (speedtestPollTimer) {
+        clearInterval(speedtestPollTimer);
+        speedtestPollTimer = null;
+      }
+      const runCheck = async () => {
+        try {
+          const resp = await fetch(pollPath, { cache: 'no-store' });
+          const data = await resp.json();
+          if (!resp.ok) {
+            throw new Error(data.error || `poll_error_${resp.status}`);
+          }
+          if (data.status === 'completed' && data.result?.bestEndpoint) {
+            applyBestEndpoint(data.result.bestEndpoint);
+            setLocalSpeedtestHint(`Найден лучший endpoint: ${data.result.bestEndpoint}. Поля Endpoint IP и Port обновлены.`);
+            if (speedtestPollTimer) {
+              clearInterval(speedtestPollTimer);
+              speedtestPollTimer = null;
+            }
+          }
+        } catch {
+          // keep polling
+        }
+      };
+
+      await runCheck();
+      speedtestPollTimer = setInterval(runCheck, 3000);
+      setTimeout(() => {
+        if (speedtestPollTimer) {
+          clearInterval(speedtestPollTimer);
+          speedtestPollTimer = null;
+          setLocalSpeedtestHint('Сессия speedtest истекла. Нажмите кнопку еще раз для нового запуска.');
+        }
+      }, 20 * 60 * 1000);
+    }
+
+    async function startLocalSpeedtest() {
+      const btn = document.getElementById('localSpeedtestBtn');
+      btn.disabled = true;
+      btn.textContent = 'Подготовка...';
+      try {
+        if (!warpOptionsLoaded) {
+          await loadWarpOptions();
+        }
+        const sessionResp = await fetch('/api/speedtest/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const sessionData = await sessionResp.json();
+        const downloadPath = sessionData.downloadBatPath || sessionData.downloadPath;
+        if (!sessionResp.ok || !downloadPath || !sessionData.pollPath) {
+          throw new Error(sessionData.error || 'Не удалось создать speedtest-сессию.');
+        }
+
+        const scriptResp = await fetch(downloadPath, { cache: 'no-store' });
+        if (!scriptResp.ok) throw new Error(`Не удалось скачать helper-скрипт (${scriptResp.status}).`);
+        const scriptText = await scriptResp.text();
+        const blob = new Blob([scriptText], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = downloadPath.includes('.bat')
+          ? `run-warp-speedtest-${sessionData.sessionId}.bat`
+          : `warp-speedtest-${sessionData.sessionId}.ps1`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        setLocalSpeedtestHint('Файл скачан. Запустите .bat двойным кликом (или .ps1 через PowerShell), затем дождитесь авто-подстановки endpoint.');
+        await pollSpeedtestSession(sessionData.pollPath);
+      } catch (err) {
+        setLocalSpeedtestHint(`Ошибка запуска локального speedtest: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Локально подобрать endpoint (Windows)';
+      }
+    }
+
     // ── Generate ──
     async function generate() {
       const btn = document.getElementById('generateBtn');
@@ -903,6 +1098,7 @@
       btn.innerHTML = '<span class="spinner"></span>Генерируем...';
       errBox.style.display = 'none';
       resultCard.style.display = 'none';
+      renderDnsMiss([]);
 
       try {
         const resp = await fetch('/api/generate', {
@@ -948,6 +1144,7 @@
           statusText += ` · Split: ${selectedCount} сервисов / ${routeCount} маршрутов`;
           if (unresolvedCount) statusText += ` · DNS miss: ${unresolvedCount}`;
         }
+        renderDnsMiss(data.splitTunnel?.unresolvedDomains || []);
         document.getElementById('statusPill').textContent = statusText;
         resultCard.style.display = 'block';
         resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -999,6 +1196,7 @@
       setSelectedSplitTargets([]);
       updateConfigTypeVisibility();
       updateSplitTargetsVisibility();
+      if (!warpOptionsLoaded) loadWarpOptions();
     }
 
     document.getElementById('configType').addEventListener('change', updateConfigTypeVisibility);
@@ -1006,6 +1204,7 @@
     document.getElementById('logoTrigger').addEventListener('click', handleLogoSecretTap);
     updateConfigTypeVisibility();
     updateSplitTargetsVisibility();
+    loadWarpOptions();
     loadVersion();
 
     document.addEventListener('keydown', (e) => {
