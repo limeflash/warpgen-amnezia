@@ -318,6 +318,39 @@
       line-height: 1.45;
     }
 
+    .import-box {
+      margin-top: 10px;
+      margin-bottom: 10px;
+      border: 1px dashed var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .import-title {
+      font-size: 13px;
+      color: #cde4ff;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .import-url-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+
+    .import-status {
+      margin-top: 8px;
+      min-height: 18px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .import-status[data-type="error"] { color: #ff9aa5; }
+    .import-status[data-type="ok"] { color: #8ae0b2; }
+    .import-status[data-type="progress"] { color: #7ecdeb; }
+
     .summary {
       position: sticky;
       top: 14px;
@@ -420,6 +453,10 @@
       .summary-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+
+      .import-url-row {
+        grid-template-columns: 1fr;
+      }
     }
 
     @media (max-width: 520px) {
@@ -467,6 +504,22 @@
                 <option value="2.0">2.0</option>
               </select>
             </div>
+          </div>
+
+          <div class="import-box">
+            <div class="import-title">Импорт из `.conf` или ссылки</div>
+            <div class="help" style="margin: 0 0 8px;">Парсим [Interface]/[Peer] и заполняем node + DNS. Удобно, если уже есть рабочий WG/Amnezia конфиг.</div>
+            <div class="row">
+              <div class="col-4">
+                <button type="button" onclick="triggerConfFilePick()">Загрузить .conf</button>
+                <input id="confFileInput" type="file" accept=".conf,.txt,text/plain" style="display:none" />
+              </div>
+              <div class="col-8 import-url-row">
+                <input id="confUrlInput" placeholder="https://example.com/my-wg.conf" />
+                <button type="button" onclick="importConfFromUrl()">Импорт URL</button>
+              </div>
+            </div>
+            <div id="importStatus" class="import-status" data-type="info">Импорт не выполнялся.</div>
           </div>
 
           <div id="servers" class="server-list"></div>
@@ -596,6 +649,85 @@
       const el = document.getElementById('status');
       el.textContent = message;
       el.dataset.type = type;
+    }
+
+    function setImportStatus(message, type = 'info') {
+      const el = document.getElementById('importStatus');
+      if (!el) return;
+      el.textContent = message;
+      el.dataset.type = type;
+    }
+
+    function triggerConfFilePick() {
+      const input = document.getElementById('confFileInput');
+      if (input) input.click();
+    }
+
+    function applyImportedConfig(imported) {
+      if (!imported || typeof imported !== 'object') return;
+      const node = imported.node;
+      if (!node || typeof node !== 'object') throw new Error('Импорт не содержит данных node.');
+
+      if (typeof imported.profileName === 'string' && imported.profileName.trim()) {
+        document.getElementById('profileName').value = imported.profileName.trim();
+      }
+
+      clearServers();
+      addServer({
+        name: node.name || 'imported-node',
+        type: node.type || 'wireguard',
+        server: node.server || 'engage.cloudflareclient.com',
+        port: String(node.port || 2408),
+        address: node.address || '172.16.0.2/32',
+        privateKey: node.privateKey || '',
+        publicKey: node.publicKey || 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
+      });
+
+      const dnsList = Array.isArray(imported.dns?.nameservers) ? imported.dns.nameservers : [];
+      if (dnsList.length) {
+        document.getElementById('dnsNameservers').value = dnsList.join('\n');
+      }
+
+      updateSummary();
+    }
+
+    async function runConfigImport(payload) {
+      setImportStatus('Импортируем конфиг...', 'progress');
+      try {
+        const resp = await fetch('/api/clash/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) throw new Error(data.error || 'Импорт завершился ошибкой.');
+        applyImportedConfig(data.imported);
+        const endpointText = data.imported?.meta?.endpoint ? ` (${data.imported.meta.endpoint})` : '';
+        setImportStatus(`Импорт успешен${endpointText}.`, 'ok');
+        setStatus('Конфиг импортирован. Проверьте поля и сгенерируйте profile URL.', 'ok');
+      } catch (err) {
+        setImportStatus(`Ошибка импорта: ${err.message}`, 'error');
+      }
+    }
+
+    async function importConfFromUrl() {
+      const value = document.getElementById('confUrlInput').value.trim();
+      if (!value) {
+        setImportStatus('Вставьте URL конфига перед импортом.', 'error');
+        return;
+      }
+      await runConfigImport({ url: value });
+    }
+
+    async function onConfFilePicked(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        await runConfigImport({ rawConfig: text });
+      } finally {
+        event.target.value = '';
+      }
     }
 
     function updateSummary() {
@@ -806,6 +938,13 @@
 
     document.getElementById('proxyDomains').addEventListener('input', updateSummary);
     document.getElementById('directDomains').addEventListener('input', updateSummary);
+    document.getElementById('confFileInput').addEventListener('change', onConfFilePicked);
+    document.getElementById('confUrlInput').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        importConfFromUrl();
+      }
+    });
 
     addWarpTemplate();
     loadClashOptions().catch((err) => {

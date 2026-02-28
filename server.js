@@ -1,5 +1,6 @@
 const express = require('express');
 const https = require('https');
+const http = require('http');
 const dns = require('dns').promises;
 const crypto = require('crypto');
 const net = require('net');
@@ -693,6 +694,257 @@ function getClientIp(req) {
     return req.ip || req.socket?.remoteAddress || '';
 }
 
+function splitCsvValue(rawValue) {
+    return String(rawValue || '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+}
+
+function parseWgEndpoint(rawValue) {
+    if (typeof rawValue !== 'string') return null;
+    const value = rawValue.trim();
+    if (!value) return null;
+    let match = value.match(/^\[([^\]]+)\]:(\d{1,5})$/);
+    if (!match) match = value.match(/^([^:]+):(\d{1,5})$/);
+    if (!match) return null;
+    const host = match[1].trim();
+    const port = Number.parseInt(match[2], 10);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+    return { host, port };
+}
+
+function parseIniWireGuardConfig(rawConfig) {
+    const lines = String(rawConfig || '').replace(/\u0000/g, '').split(/\r?\n/);
+    const cfg = { interface: {}, peer: {} };
+    let section = '';
+
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+
+        const sectionMatch = line.match(/^\[([^\]]+)\]$/);
+        if (sectionMatch) {
+            section = sectionMatch[1].trim().toLowerCase();
+            continue;
+        }
+
+        const eq = line.indexOf('=');
+        if (eq < 1) continue;
+        const key = line.slice(0, eq).trim().toLowerCase();
+        const value = line.slice(eq + 1).trim();
+        if (!key) continue;
+
+        if (section === 'interface') cfg.interface[key] = value;
+        if (section === 'peer') cfg.peer[key] = value;
+    }
+
+    return cfg;
+}
+
+function pickPrimaryAddress(addressValue) {
+    const addresses = splitCsvValue(addressValue);
+    if (!addresses.length) return '172.16.0.2/32';
+    const ipv4WithCidr = addresses.find((addr) => addr.includes('.') && addr.includes('/'));
+    if (ipv4WithCidr) return ipv4WithCidr;
+    const anyWithCidr = addresses.find((addr) => addr.includes('/'));
+    return anyWithCidr || addresses[0];
+}
+
+function detectImportedNodeType(server, publicKey, iface) {
+    const hasAmneziaFields = ['s1', 's2', 'jc', 'jmin', 'jmax', 'h1', 'h2', 'h3', 'h4', 'i1']
+        .some((key) => typeof iface?.[key] === 'string' && iface[key].trim());
+    if (hasAmneziaFields) return 'amnezia';
+
+    const host = String(server || '').trim().toLowerCase();
+    if (publicKey === WARP_WIREGUARD_PUBLIC_KEY) return 'warp';
+    if (host === 'engage.cloudflareclient.com') return 'warp';
+    if (isAllowedWarpResultIp(host)) return 'warp';
+    if (host.includes('cloudflareclient.com')) return 'warp';
+    return 'wireguard';
+}
+
+function parseClashImportConfig(rawConfig) {
+    const raw = String(rawConfig || '').trim();
+    if (!raw) throw new Error('Пустой конфиг.');
+    const parsed = parseIniWireGuardConfig(raw);
+    const iface = parsed.interface || {};
+    const peer = parsed.peer || {};
+
+    const privateKey = typeof iface.privatekey === 'string' ? iface.privatekey.trim() : '';
+    if (!privateKey) throw new Error('В конфиге не найден Interface.PrivateKey.');
+
+    const endpoint = parseWgEndpoint(peer.endpoint || '');
+    if (!endpoint) throw new Error('В конфиге не найден корректный Peer.Endpoint (host:port).');
+
+    const publicKey = typeof peer.publickey === 'string' && peer.publickey.trim()
+        ? peer.publickey.trim()
+        : WARP_WIREGUARD_PUBLIC_KEY;
+    const type = detectImportedNodeType(endpoint.host, publicKey, iface);
+    const safeHost = endpoint.host.replace(/[^a-zA-Z0-9.-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    const nodeName = `${type}-${safeHost || 'imported'}`.slice(0, 64);
+    const dnsNameservers = splitCsvValue(iface.dns);
+
+    return {
+        profileName: `Imported ${type.toUpperCase()}`,
+        node: {
+            name: nodeName,
+            type,
+            server: endpoint.host,
+            port: endpoint.port,
+            address: pickPrimaryAddress(iface.address),
+            privateKey,
+            publicKey,
+        },
+        dns: {
+            nameservers: dnsNameservers,
+        },
+        meta: {
+            endpoint: `${endpoint.host}:${endpoint.port}`,
+            detectedType: type,
+            hasAmneziaFields: type === 'amnezia',
+        },
+    };
+}
+
+function isPrivateOrSpecialIpv4(ip) {
+    const parts = ip.split('.').map((x) => Number.parseInt(x, 10));
+    if (parts.length !== 4 || parts.some((x) => Number.isNaN(x) || x < 0 || x > 255)) return true;
+    if (parts[0] === 0 || parts[0] === 10 || parts[0] === 127) return true;
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
+    if (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)) return true;
+    if (parts[0] >= 224) return true;
+    return false;
+}
+
+function isPrivateOrSpecialIpv6(ip) {
+    const normalized = String(ip || '').toLowerCase();
+    if (!normalized) return true;
+    if (normalized === '::' || normalized === '::1') return true;
+    if (normalized.startsWith('fe80:')) return true;
+    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
+    if (normalized.startsWith('ff')) return true;
+    return false;
+}
+
+function isPublicRoutableIp(ip) {
+    const family = net.isIP(ip);
+    if (!family) return false;
+    if (family === 4) return !isPrivateOrSpecialIpv4(ip);
+    return !isPrivateOrSpecialIpv6(ip);
+}
+
+async function assertSafeImportUrl(rawUrl) {
+    let parsed;
+    try {
+        parsed = new URL(String(rawUrl || '').trim());
+    } catch {
+        throw new Error('Некорректный URL для импорта.');
+    }
+
+    if (!['https:', 'http:'].includes(parsed.protocol)) {
+        throw new Error('Разрешены только http/https ссылки.');
+    }
+    if (parsed.username || parsed.password) {
+        throw new Error('Ссылки с логином/паролем не поддерживаются.');
+    }
+
+    const host = String(parsed.hostname || '').trim();
+    const hostLower = host.toLowerCase();
+    if (!host) throw new Error('URL не содержит хост.');
+    if (hostLower === 'localhost' || hostLower.endsWith('.local') || hostLower.endsWith('.internal')) {
+        throw new Error('Локальные хосты для импорта запрещены.');
+    }
+
+    const ipFamily = net.isIP(host);
+    if (ipFamily) {
+        if (!isPublicRoutableIp(host)) {
+            throw new Error('URL указывает на приватный/локальный IP, импорт запрещен.');
+        }
+        return parsed.toString();
+    }
+
+    let resolved = [];
+    try {
+        resolved = await dns.lookup(host, { all: true, verbatim: true });
+    } catch {
+        throw new Error('Не удалось резолвить домен в URL.');
+    }
+    if (!Array.isArray(resolved) || !resolved.length) {
+        throw new Error('Не удалось получить IP для указанного URL.');
+    }
+    if (resolved.some((item) => !isPublicRoutableIp(item.address))) {
+        throw new Error('URL резолвится в приватный/локальный IP, импорт запрещен.');
+    }
+    return parsed.toString();
+}
+
+function fetchRemoteText(remoteUrl, depth = 0, maxBytes = 512 * 1024) {
+    if (depth > 5) return Promise.reject(new Error('Слишком много редиректов при импорте.'));
+    return new Promise((resolve, reject) => {
+        let parsed;
+        try {
+            parsed = new URL(remoteUrl);
+        } catch {
+            reject(new Error('Некорректный URL для загрузки.'));
+            return;
+        }
+        const client = parsed.protocol === 'https:' ? https : (parsed.protocol === 'http:' ? http : null);
+        if (!client) {
+            reject(new Error('Поддерживаются только http/https ссылки.'));
+            return;
+        }
+
+        const req = client.request({
+            method: 'GET',
+            hostname: parsed.hostname,
+            path: `${parsed.pathname}${parsed.search}`,
+            headers: {
+                'User-Agent': 'WarpGen-Config-Importer/1.0',
+                'Accept': 'text/plain,application/octet-stream,*/*',
+            },
+            timeout: 12000,
+        }, (remoteRes) => {
+            const statusCode = remoteRes.statusCode || 500;
+            const location = remoteRes.headers.location;
+            if (statusCode >= 300 && statusCode < 400 && location) {
+                remoteRes.resume();
+                const nextUrl = new URL(location, remoteUrl).toString();
+                fetchRemoteText(nextUrl, depth + 1, maxBytes).then(resolve).catch(reject);
+                return;
+            }
+            if (statusCode >= 400) {
+                remoteRes.resume();
+                reject(new Error(`Сервер вернул HTTP ${statusCode}.`));
+                return;
+            }
+
+            const chunks = [];
+            let total = 0;
+            remoteRes.on('data', (chunk) => {
+                total += chunk.length;
+                if (total > maxBytes) {
+                    remoteRes.destroy(new Error('Файл слишком большой для импорта.'));
+                    return;
+                }
+                chunks.push(chunk);
+            });
+            remoteRes.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+            remoteRes.on('error', (err) => reject(err));
+        });
+
+        req.on('timeout', () => {
+            req.destroy(new Error('Таймаут загрузки конфига.'));
+        });
+        req.on('error', (err) => reject(err));
+        req.end();
+    });
+}
+
 function normalizeClientPlatform(value) {
     const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
     if (['windows', 'macos', 'linux', 'android', 'ios'].includes(raw)) return raw;
@@ -1228,6 +1480,28 @@ app.get('/api/clash/options', (req, res) => {
         domainPresets: CLASH_DOMAIN_PRESETS,
         ttlSec: Math.floor(CLASH_PROFILE_TTL_MS / 1000),
     });
+});
+
+app.post('/api/clash/import', async (req, res) => {
+    try {
+        const rawConfig = typeof req.body?.rawConfig === 'string' ? req.body.rawConfig : '';
+        const remoteUrl = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+
+        let sourceText = rawConfig.trim();
+        if (!sourceText) {
+            if (!remoteUrl) {
+                return res.status(400).json({ error: 'Передайте rawConfig или url для импорта.' });
+            }
+            const safeUrl = await assertSafeImportUrl(remoteUrl);
+            sourceText = await fetchRemoteText(safeUrl);
+        }
+
+        const imported = parseClashImportConfig(sourceText);
+        res.json({ ok: true, imported });
+    } catch (err) {
+        const message = err?.message || 'Не удалось импортировать конфиг.';
+        res.status(400).json({ error: message });
+    }
 });
 
 app.post('/api/clash/profile-url', (req, res) => {

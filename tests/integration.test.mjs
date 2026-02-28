@@ -103,3 +103,31 @@ test('Client downloads list contains required apps', async () => {
     assert.ok(keys.has(required));
   }
 });
+
+test('Clash import parses WireGuard config text', async () => {
+  const rawConfig = [
+    '[Interface]',
+    'PrivateKey = test_private_key',
+    'Address = 172.16.0.2/32, 2606:4700:110:8f9c::2/128',
+    'DNS = 1.1.1.1, 1.0.0.1',
+    '',
+    '[Peer]',
+    'PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
+    'Endpoint = 162.159.192.5:2408',
+    'AllowedIPs = 0.0.0.0/0, ::/0',
+  ].join('\n');
+
+  const resp = await fetch(`${BASE}/api/clash/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rawConfig }),
+  });
+  assert.equal(resp.status, 200);
+  const body = await resp.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.imported?.node?.server, '162.159.192.5');
+  assert.equal(body.imported?.node?.port, 2408);
+  assert.equal(body.imported?.node?.address, '172.16.0.2/32');
+  assert.equal(body.imported?.node?.type, 'warp');
+  assert.deepEqual(body.imported?.dns?.nameservers || [], ['1.1.1.1', '1.0.0.1']);
+});
