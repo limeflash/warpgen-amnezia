@@ -1921,7 +1921,6 @@ Write-Host 'Done. You can return to the site, endpoint will be filled automatica
 function buildWindowsBatchScript({ sessionId, baseUrl }) {
     const ps1Url = `${baseUrl}/api/speedtest/windows-script/${sessionId}`;
     return `@echo off
-chcp 65001 > nul
 setlocal
 set "PS1_URL=${ps1Url}"
 set "PS1_FILE=%TEMP%\\warp-speedtest-${sessionId}.ps1"
@@ -1929,34 +1928,33 @@ set "PS1_FILE=%TEMP%\\warp-speedtest-${sessionId}.ps1"
 echo WARP Endpoint Speedtest
 echo ========================
 echo.
-echo [Info] Если WARP-эндпоинты заблокированы DPI, скрипт автоматически
-echo        попробует обход через zapret/winws.
-echo [Info] Для DPI-bypass нужны права администратора.
-echo        Если скрипт попросит - перезапустите .bat правой кнопкой:
-echo        "Запуск от имени администратора"
+echo [Info] If WARP endpoints are blocked by DPI, the script will
+echo        automatically try to bypass via zapret/winws.
+echo [Info] DPI-bypass requires Administrator rights.
+echo        If prompted - right-click the .bat and choose
+echo        "Run as administrator"
 echo.
 
-:: Проверяем, запущены ли от администратора
 net session >nul 2>&1
 if %errorLevel% equ 0 (
-  echo [OK] Запущено от имени администратора. DPI-bypass будет доступен.
+  echo [OK] Running as Administrator. DPI-bypass available.
 ) else (
-  echo [Warning] Запущено без прав администратора.
-  echo           Если потребуется DPI-bypass, перезапустите как администратор.
+  echo [Warning] Running without Administrator rights.
+  echo           Re-run as Administrator if DPI-bypass is needed.
 )
 echo.
 
-echo Скачиваем вспомогательный скрипт...
+echo Downloading helper script...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -Uri '%PS1_URL%' -OutFile '%PS1_FILE%'; & '%PS1_FILE%' } catch { Write-Host $_; exit 1 }"
 if errorlevel 1 (
   echo.
-  echo Ошибка запуска WARP speedtest.
+  echo ERROR: WARP speedtest failed.
   pause
   exit /b 1
 )
 
 echo.
-echo Готово. Вернитесь на страницу сайта.
+echo Done. Go back to the website.
 pause
 `;
 }
