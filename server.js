@@ -1606,24 +1606,45 @@ function Select-WindowsArchiveAsset {
     [string]$Label
   )
   if (-not $Assets) { return $null }
-  $preferred = $Assets | Where-Object {
-    $_.name -match '(?i)win' -and
-    $_.name -match '(?i)(amd64|x64|64|win64)' -and
-    $_.name -match '(?i)\\.(zip|7z|tar\\.gz|tgz|tar)$'
-  } | Select-Object -First 1
-  if ($preferred) {
-    Write-Host ('[DPI] ' + $Label + ': selected preferred asset ' + $preferred.name)
-    return $preferred
+  $archives = $Assets | Where-Object { $_.name -match '(?i)\\.(zip|7z|tar\\.gz|tgz|tar)$' }
+  if (-not $archives -or $archives.Count -eq 0) {
+    Write-Host ('[DPI] ' + $Label + ': no archive assets in release.')
+    return $null
   }
-  $anyWinArchive = $Assets | Where-Object {
-    $_.name -match '(?i)win' -and $_.name -match '(?i)\\.(zip|7z|tar\\.gz|tgz|tar)$'
+
+  $preferredWin64 = $archives | Where-Object {
+    $_.name -match '(?i)win' -and $_.name -match '(?i)(amd64|x64|64|win64)'
   } | Select-Object -First 1
-  if ($anyWinArchive) {
-    Write-Host ('[DPI] ' + $Label + ': selected fallback asset ' + $anyWinArchive.name)
-  } else {
-    Write-Host ('[DPI] ' + $Label + ': windows archive asset not found in release.')
+  if ($preferredWin64) {
+    Write-Host ('[DPI] ' + $Label + ': selected preferred windows-x64 asset ' + $preferredWin64.name)
+    return $preferredWin64
   }
-  return $anyWinArchive
+
+  $preferredWinAny = $archives | Where-Object { $_.name -match '(?i)win' } | Select-Object -First 1
+  if ($preferredWinAny) {
+    Write-Host ('[DPI] ' + $Label + ': selected windows archive asset ' + $preferredWinAny.name)
+    return $preferredWinAny
+  }
+
+  $portableZip = $archives | Where-Object {
+    $_.name -match '(?i)\\.zip$' -and $_.name -notmatch '(?i)(openwrt|embedded)'
+  } | Select-Object -First 1
+  if ($portableZip) {
+    Write-Host ('[DPI] ' + $Label + ': selected portable zip asset ' + $portableZip.name)
+    return $portableZip
+  }
+
+  $portableAny = $archives | Where-Object { $_.name -notmatch '(?i)(openwrt|embedded)' } | Select-Object -First 1
+  if ($portableAny) {
+    Write-Host ('[DPI] ' + $Label + ': selected portable archive asset ' + $portableAny.name)
+    return $portableAny
+  }
+
+  $fallbackArchive = $archives | Select-Object -First 1
+  if ($fallbackArchive) {
+    Write-Host ('[DPI] ' + $Label + ': selected fallback archive asset ' + $fallbackArchive.name)
+  }
+  return $fallbackArchive
 }
 
 function Expand-ArchiveAny {
@@ -1660,11 +1681,89 @@ function Expand-ArchiveAny {
 
 function Find-WinwsExecutable {
   param([string]$SearchRoot)
-  $winwsExe = Get-ChildItem -Path $SearchRoot -Recurse -File -Filter 'winws2.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($winwsExe) { return $winwsExe }
-  $winwsExe = Get-ChildItem -Path $SearchRoot -Recurse -File -Filter 'winws.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($winwsExe) { return $winwsExe }
-  return Get-ChildItem -Path $SearchRoot -Recurse -File -Filter 'winws*.exe' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -First 1
+  $candidates = @(
+    Get-ChildItem -Path $SearchRoot -Recurse -File -Filter 'winws2.exe' -ErrorAction SilentlyContinue
+  )
+  if (-not $candidates -or $candidates.Count -eq 0) {
+    $candidates = @(
+      Get-ChildItem -Path $SearchRoot -Recurse -File -Filter 'winws.exe' -ErrorAction SilentlyContinue
+    )
+  }
+  if (-not $candidates -or $candidates.Count -eq 0) {
+    $candidates = @(
+      Get-ChildItem -Path $SearchRoot -Recurse -File -Filter 'winws*.exe' -ErrorAction SilentlyContinue
+    )
+  }
+  if (-not $candidates -or $candidates.Count -eq 0) { return $null }
+
+  $best = $candidates | Sort-Object @{
+      Expression = {
+        $score = 0
+        $p = $_.FullName.ToLower()
+        if ($p -match 'binaries[\\\\/]+windows-x86_64') { $score += 100 }
+        elseif ($p -match 'windows-x86_64|win64|x64') { $score += 80 }
+        elseif ($p -match 'binaries[\\\\/]+windows-x86|win32|x86') { $score += 40 }
+        if (Test-Path (Join-Path $_.DirectoryName 'cygwin1.dll')) { $score += 60 }
+        if (Test-Path (Join-Path $_.DirectoryName 'WinDivert.dll')) { $score += 40 }
+        if (Test-Path (Join-Path $_.DirectoryName 'WinDivert64.sys')) { $score += 10 }
+        if (Test-Path (Join-Path $_.DirectoryName 'WinDivert32.sys')) { $score += 10 }
+        $score
+      }
+      Descending = $true
+    }, @{
+      Expression = { $_.FullName.Length }
+      Descending = $false
+    } | Select-Object -First 1
+
+  return $best
+}
+
+function Ensure-WinwsRuntimeFiles {
+  param(
+    [System.IO.FileInfo]$WinwsExe,
+    [string]$SearchRoot
+  )
+  if (-not $WinwsExe) { return $false }
+  $exeDir = $WinwsExe.DirectoryName
+  if (-not (Test-Path $exeDir)) { return $false }
+
+  function Copy-MissingRuntimeFile {
+    param([string]$FileName)
+    $targetPath = Join-Path $exeDir $FileName
+    if (Test-Path $targetPath) { return $true }
+    $source = Get-ChildItem -Path $SearchRoot -Recurse -File -Filter $FileName -ErrorAction SilentlyContinue |
+      Sort-Object @{
+        Expression = {
+          $p = $_.DirectoryName.ToLower()
+          if ($p -match 'binaries[\\\\/]+windows-x86_64') { 0 }
+          elseif ($p -match 'windows-x86_64|win64|x64') { 1 }
+          elseif ($p -match 'binaries[\\\\/]+windows-x86|win32|x86') { 2 }
+          else { 9 }
+        }
+      }, FullName | Select-Object -First 1
+    if (-not $source) { return $false }
+    try {
+      Copy-Item -Path $source.FullName -Destination $targetPath -Force -ErrorAction Stop
+      Write-Host ('[DPI] Runtime file copied: ' + $FileName + ' <- ' + $source.FullName)
+      return $true
+    } catch {
+      Write-Host ('[DPI] Failed to copy runtime file ' + $FileName + ': ' + $_.Exception.Message)
+      return $false
+    }
+  }
+
+  $okCygwin = Copy-MissingRuntimeFile -FileName 'cygwin1.dll'
+  $okDivert = Copy-MissingRuntimeFile -FileName 'WinDivert.dll'
+  $driverName = if ([Environment]::Is64BitOperatingSystem) { 'WinDivert64.sys' } else { 'WinDivert32.sys' }
+  Copy-MissingRuntimeFile -FileName $driverName | Out-Null
+
+  if (-not ($okCygwin -and $okDivert)) {
+    Write-Host '[DPI] winws runtime incomplete: cygwin1.dll or WinDivert.dll missing.'
+    return $false
+  }
+
+  $env:PATH = $exeDir + ';' + $env:PATH
+  return $true
 }
 
 function Normalize-EndpointForReport {
@@ -1975,11 +2074,15 @@ if (-not $bestEndpoint) {
     if ($winwsExe) {
       try {
         Report-AuthenticodeStatus -FilePath $winwsExe.FullName -Label 'winws' | Out-Null
+        $runtimeOk = Ensure-WinwsRuntimeFiles -WinwsExe $winwsExe -SearchRoot $zapretDir
+        if (-not $runtimeOk) {
+          throw 'Required winws runtime files are missing (cygwin1.dll/WinDivert.dll).'
+        }
         $warpPorts = '${warpPortsStr}'
         $winwsArgs = "--wf-udp=$warpPorts --udp-fake-count=6 --wf-l3=ipv4"
         Write-Host ('[DPI] Запускаем winws: ' + $winwsExe.FullName)
         Write-Host ('[DPI] Параметры: ' + $winwsArgs)
-        $winwsProcess = Start-Process -FilePath $winwsExe.FullName -ArgumentList $winwsArgs -PassThru -WindowStyle Hidden -ErrorAction Stop
+        $winwsProcess = Start-Process -FilePath $winwsExe.FullName -ArgumentList $winwsArgs -PassThru -WindowStyle Hidden -WorkingDirectory $winwsExe.DirectoryName -ErrorAction Stop
         Write-Host ('[DPI] winws запущен (PID: ' + $winwsProcess.Id + '). Ожидаем 3 сек...')
         Start-Sleep -Seconds 3
 
