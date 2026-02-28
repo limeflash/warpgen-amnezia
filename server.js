@@ -2079,8 +2079,17 @@ if %errorLevel% equ 0 (
 echo.
 
 echo Downloading helper script...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -Uri '%PS1_URL%' -OutFile '%PS1_FILE%'; & '%PS1_FILE%' } catch { Write-Host $_; exit 1 }"
+set "ATTEMPT=0"
+:download_retry
+set /a ATTEMPT+=1
+echo [Download] Attempt %ATTEMPT%/3
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $u = '%PS1_URL%'; if ($u -notmatch '\\?') { $u = $u + '?t=' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }; Invoke-WebRequest -Uri $u -OutFile '%PS1_FILE%'; & '%PS1_FILE%' } catch { Write-Host $_; exit 1 }"
 if errorlevel 1 (
+  if %ATTEMPT% LSS 3 (
+    echo [Download] Failed, retrying in 2 seconds...
+    timeout /t 2 /nobreak >nul
+    goto download_retry
+  )
   echo.
   echo ERROR: WARP speedtest failed.
   pause
@@ -2091,6 +2100,18 @@ echo.
 echo Done. Go back to the website.
 pause
 `;
+}
+
+function normalizePublicScriptBaseUrl(rawBaseUrl) {
+    const base = String(rawBaseUrl || '').trim();
+    if (!base) return base;
+    const lower = base.toLowerCase();
+    const isLocalHost =
+        lower.startsWith('http://localhost') ||
+        lower.startsWith('http://127.0.0.1') ||
+        lower.startsWith('http://[::1]');
+    if (isLocalHost) return base;
+    return base.replace(/^http:\/\//i, 'https://');
 }
 
 function cleanupClashProfiles() {
@@ -2169,7 +2190,8 @@ app.get('/api/speedtest/windows-script/:sessionId', (req, res) => {
     const session = SPEEDTEST_SESSIONS.get(sessionId);
     if (!session) return res.status(404).send('Session not found or expired.');
 
-    const reportUrl = `${getRequestBaseUrl(req)}/api/speedtest/report`;
+    const baseUrl = normalizePublicScriptBaseUrl(getRequestBaseUrl(req));
+    const reportUrl = `${baseUrl}/api/speedtest/report`;
     const fallbackCandidates = getAdaptiveSpeedtestFallbackEndpoints(session.clientIp);
     const script = buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates, dpiFirst: session.dpiFirst });
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -2183,9 +2205,10 @@ app.get('/api/speedtest/windows-bat/:sessionId', (req, res) => {
     const session = SPEEDTEST_SESSIONS.get(sessionId);
     if (!session) return res.status(404).send('Session not found or expired.');
 
+    const baseUrl = normalizePublicScriptBaseUrl(getRequestBaseUrl(req));
     const script = buildWindowsBatchScript({
         sessionId,
-        baseUrl: getRequestBaseUrl(req),
+        baseUrl,
     });
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="run-warp-speedtest-${sessionId}.bat"`);
