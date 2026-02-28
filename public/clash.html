@@ -508,7 +508,7 @@
 
           <div class="import-box">
             <div class="import-title">Импорт из `.conf` или ссылки</div>
-            <div class="help" style="margin: 0 0 8px;">Парсим [Interface]/[Peer] и заполняем node + DNS. Удобно, если уже есть рабочий WG/Amnezia конфиг.</div>
+            <div class="help" style="margin: 0 0 8px;">Поддержка: `.conf`, `http(s)` ссылка на конфиг, а также `vpn://` Amnezia link.</div>
             <div class="row">
               <div class="col-4">
                 <button type="button" onclick="triggerConfFilePick()">Загрузить .conf</button>
@@ -714,6 +714,10 @@
       const value = document.getElementById('confUrlInput').value.trim();
       if (!value) {
         setImportStatus('Вставьте URL конфига перед импортом.', 'error');
+        return;
+      }
+      if (value.toLowerCase().startsWith('vpn://')) {
+        await runConfigImport({ rawConfig: value });
         return;
       }
       await runConfigImport({ url: value });

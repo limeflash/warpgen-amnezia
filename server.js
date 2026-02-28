@@ -1,6 +1,7 @@
 const express = require('express');
 const https = require('https');
 const http = require('http');
+const zlib = require('zlib');
 const dns = require('dns').promises;
 const crypto = require('crypto');
 const net = require('net');
@@ -807,6 +808,72 @@ function parseClashImportConfig(rawConfig) {
     };
 }
 
+function base64UrlToBuffer(value) {
+    const raw = String(value || '').trim();
+    if (!raw) throw new Error('Пустой payload vpn://.');
+    const normalized = raw.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    return Buffer.from(padded, 'base64');
+}
+
+function decodeAmneziaVpnLink(vpnLink) {
+    const raw = String(vpnLink || '').trim();
+    if (!raw.toLowerCase().startsWith('vpn://')) {
+        throw new Error('Некорректная vpn:// ссылка.');
+    }
+    const payload = raw.slice('vpn://'.length);
+    const compressed = base64UrlToBuffer(payload);
+    if (compressed.length <= 4) {
+        throw new Error('Поврежденный vpn:// payload.');
+    }
+
+    let decoded;
+    try {
+        decoded = zlib.inflateSync(compressed.subarray(4)).toString('utf8');
+    } catch {
+        throw new Error('Не удалось распаковать vpn:// payload.');
+    }
+
+    let root;
+    try {
+        root = JSON.parse(decoded);
+    } catch {
+        throw new Error('Некорректный JSON внутри vpn:// payload.');
+    }
+
+    const container = Array.isArray(root?.containers) ? root.containers[0] : null;
+    if (!container?.awg?.last_config) {
+        throw new Error('В vpn:// payload отсутствует awg.last_config.');
+    }
+
+    let nested;
+    try {
+        nested = JSON.parse(String(container.awg.last_config || '{}'));
+    } catch {
+        throw new Error('Некорректный формат awg.last_config.');
+    }
+
+    const configTextRaw = typeof nested?.config === 'string' ? nested.config : '';
+    if (!configTextRaw.trim()) {
+        throw new Error('В awg.last_config отсутствует поле config.');
+    }
+
+    const dns1 = typeof root?.dns1 === 'string' && root.dns1.trim() ? root.dns1.trim() : '1.1.1.1';
+    const dns2 = typeof root?.dns2 === 'string' && root.dns2.trim() ? root.dns2.trim() : '1.0.0.1';
+    return configTextRaw
+        .replace(/\$PRIMARY_DNS/g, dns1)
+        .replace(/\$SECONDARY_DNS/g, dns2);
+}
+
+function normalizeImportedConfigText(rawInput) {
+    const text = String(rawInput || '').trim();
+    if (!text) throw new Error('Пустой конфиг.');
+    if (text.toLowerCase().startsWith('vpn://')) {
+        return decodeAmneziaVpnLink(text);
+    }
+    return text;
+}
+
 function isPrivateOrSpecialIpv4(ip) {
     const parts = ip.split('.').map((x) => Number.parseInt(x, 10));
     if (parts.length !== 4 || parts.some((x) => Number.isNaN(x) || x < 0 || x > 255)) return true;
@@ -1495,6 +1562,7 @@ app.post('/api/clash/import', async (req, res) => {
             const safeUrl = await assertSafeImportUrl(remoteUrl);
             sourceText = await fetchRemoteText(safeUrl);
         }
+        sourceText = normalizeImportedConfigText(sourceText);
 
         const imported = parseClashImportConfig(sourceText);
         res.json({ ok: true, imported });
