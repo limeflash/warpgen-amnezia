@@ -242,6 +242,34 @@ test('Windows .bat script contains admin check and DPI info', async () => {
   assert.match(batText, /DPI/);
   assert.match(batText, /Administrator/i);
   assert.match(batText, /Invoke-WebRequest/);
+  assert.match(batText, /set "PS1_URL=http:\/\/localhost:3219\/api\/speedtest\/windows-script\//);
+});
+
+test('Windows .bat script uses forwarded https base URL and has download retries', async () => {
+  const sessionResp = await fetch(`${BASE}/api/speedtest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(sessionResp.status, 200);
+  const { downloadBatPath } = await sessionResp.json();
+  assert.ok(typeof downloadBatPath === 'string' && downloadBatPath.length > 0);
+
+  const batResp = await fetch(`${BASE}${downloadBatPath}`, {
+    headers: {
+      'x-forwarded-proto': 'https',
+      'x-forwarded-host': 'warpgen.simg.pro',
+    },
+  });
+  assert.equal(batResp.status, 200);
+  const batText = await batResp.text();
+
+  assert.match(batText, /set "PS1_URL=https:\/\/warpgen\.simg\.pro\/api\/speedtest\/windows-script\//);
+  assert.match(batText, /:download_retry/);
+  assert.match(batText, /\[Download\] Attempt %ATTEMPT%\/3/);
+  assert.match(batText, /if %ATTEMPT% LSS 3/);
+  assert.match(batText, /timeout \/t 2 \/nobreak >nul/);
+  assert.match(batText, /\?t=/);
 });
 
 test('Clash import parses WireGuard config text', async () => {
