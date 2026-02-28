@@ -1061,7 +1061,8 @@
           body: JSON.stringify({}),
         });
         const sessionData = await sessionResp.json();
-        const downloadPath = sessionData.downloadBatPath || sessionData.downloadPath;
+        const useBat = typeof sessionData.downloadBatPath === 'string' && sessionData.downloadBatPath.trim();
+        const downloadPath = useBat ? sessionData.downloadBatPath : sessionData.downloadPath;
         if (!sessionResp.ok || !downloadPath || !sessionData.pollPath) {
           throw new Error(sessionData.error || 'Не удалось создать speedtest-сессию.');
         }
@@ -1073,7 +1074,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = downloadPath.includes('.bat')
+        a.download = useBat
           ? `run-warp-speedtest-${sessionData.sessionId}.bat`
           : `warp-speedtest-${sessionData.sessionId}.ps1`;
         document.body.appendChild(a);
