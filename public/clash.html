@@ -773,21 +773,40 @@
           <button class="danger" type="button">Удалить</button>
         </div>
         <div class="row">
-          <div class="col-4"><label>Имя</label><input data-k="name" value="${initial.name || 'warp-node-' + idx}"></div>
+          <div class="col-4"><label>Имя</label><input data-k="name"></div>
           <div class="col-4"><label>Тип</label>
             <select data-k="type">
-              <option value="warp" ${initial.type === 'warp' ? 'selected' : ''}>WARP</option>
-              <option value="amnezia" ${initial.type === 'amnezia' ? 'selected' : ''}>AmneziaWG</option>
-              <option value="wireguard" ${initial.type === 'wireguard' ? 'selected' : ''}>WireGuard</option>
+              <option value="warp">WARP</option>
+              <option value="amnezia">AmneziaWG</option>
+              <option value="wireguard">WireGuard</option>
             </select>
           </div>
-          <div class="col-4"><label>Port</label><input data-k="port" value="${initial.port || '2408'}"></div>
-          <div class="col-6"><label>Server</label><input data-k="server" value="${initial.server || 'engage.cloudflareclient.com'}"></div>
-          <div class="col-6"><label>Address (WG ip/cidr)</label><input data-k="address" value="${initial.address || '172.16.0.2/32'}"></div>
-          <div class="col-6"><label>Private key</label><input data-k="privateKey" value="${initial.privateKey || ''}"></div>
-          <div class="col-6"><label>Public key</label><input data-k="publicKey" value="${initial.publicKey || 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo='}"></div>
+          <div class="col-4"><label>Port</label><input data-k="port"></div>
+          <div class="col-6"><label>Server</label><input data-k="server"></div>
+          <div class="col-6"><label>Address (WG ip/cidr)</label><input data-k="address"></div>
+          <div class="col-6"><label>Private key</label><input data-k="privateKey"></div>
+          <div class="col-6"><label>Public key</label><input data-k="publicKey"></div>
         </div>
       `;
+      const defaults = {
+        name: `warp-node-${idx}`,
+        type: 'warp',
+        port: '2408',
+        server: 'engage.cloudflareclient.com',
+        address: '172.16.0.2/32',
+        privateKey: '',
+        publicKey: 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
+      };
+      const normalizedType = ['warp', 'amnezia', 'wireguard'].includes(String(initial.type || '').trim().toLowerCase())
+        ? String(initial.type || '').trim().toLowerCase()
+        : defaults.type;
+      wrap.querySelector('[data-k="name"]').value = String(initial.name || defaults.name);
+      wrap.querySelector('[data-k="type"]').value = normalizedType;
+      wrap.querySelector('[data-k="port"]').value = String(initial.port || defaults.port);
+      wrap.querySelector('[data-k="server"]').value = String(initial.server || defaults.server);
+      wrap.querySelector('[data-k="address"]').value = String(initial.address || defaults.address);
+      wrap.querySelector('[data-k="privateKey"]').value = String(initial.privateKey || defaults.privateKey);
+      wrap.querySelector('[data-k="publicKey"]').value = String(initial.publicKey || defaults.publicKey);
 
       wrap.querySelector('button').addEventListener('click', () => {
         wrap.remove();

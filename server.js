@@ -1,13 +1,14 @@
 const express = require('express');
-const https = require('https');
-const http = require('http');
-const zlib = require('zlib');
 const dns = require('dns').promises;
 const crypto = require('crypto');
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
+const { createCloudflareApi } = require('./lib/cloudflare');
+const { createRateLimitManager } = require('./lib/ratelimit');
+const { createOutboundUtils } = require('./lib/outbound');
+const { createClashUtils } = require('./lib/clash');
 
 function getEnvInt(name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
     const raw = process.env[name];
@@ -36,6 +37,16 @@ const DNS_NEGATIVE_CACHE_TTL_MS = getEnvInt('DNS_NEGATIVE_CACHE_TTL_MS', 90 * 10
 const DNS_MAX_CACHE_ENTRIES = getEnvInt('DNS_MAX_CACHE_ENTRIES', 20_000, { min: 1000, max: 200_000 });
 const DNS_RESOLVE_CONCURRENCY = getEnvInt('DNS_RESOLVE_CONCURRENCY', 24, { min: 1, max: 256 });
 const TRUST_PROXY_ENABLED = getEnvBool('TRUST_PROXY', false);
+const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').trim();
+const RATE_LIMIT_WINDOW_MS = getEnvInt('RATE_LIMIT_WINDOW_MS', 60_000, { min: 1_000, max: 3_600_000 });
+const RATE_LIMIT_GENERATE_MAX = getEnvInt('RATE_LIMIT_GENERATE_MAX', 25, { min: 1, max: 10_000 });
+const RATE_LIMIT_LICENSE_CHECK_MAX = getEnvInt('RATE_LIMIT_LICENSE_CHECK_MAX', 20, { min: 1, max: 10_000 });
+const RATE_LIMIT_TEST_LICENSE_MAX = getEnvInt('RATE_LIMIT_TEST_LICENSE_MAX', 8, { min: 1, max: 10_000 });
+const RATE_LIMIT_DOWNLOAD_MAX = getEnvInt('RATE_LIMIT_DOWNLOAD_MAX', 60, { min: 1, max: 10_000 });
+const RATE_LIMIT_MAX_ENTRIES = getEnvInt('RATE_LIMIT_MAX_ENTRIES', 100_000, { min: 1000, max: 1_000_000 });
+const CLASH_PROFILE_MAX_ENTRIES = getEnvInt('CLASH_PROFILE_MAX_ENTRIES', 5000, { min: 100, max: 200_000 });
+const SPLIT_RUNTIME_MAX_DOMAINS = getEnvInt('SPLIT_RUNTIME_MAX_DOMAINS', 5000, { min: 100, max: 200_000 });
+const SPLIT_RUNTIME_MAX_CIDRS_PER_DOMAIN = getEnvInt('SPLIT_RUNTIME_MAX_CIDRS_PER_DOMAIN', 64, { min: 4, max: 1024 });
 
 const app = express();
 app.set('trust proxy', TRUST_PROXY_ENABLED ? 1 : false);
@@ -73,11 +84,6 @@ const GIT_SHA = (process.env.GIT_SHA || safeExec('git rev-parse --short=8 HEAD')
 const GIT_DATE = process.env.GIT_DATE || safeExec('git show -s --format=%cI HEAD') || new Date().toISOString();
 const VERSION_DISPLAY = `${APP_VERSION}+${GIT_SHA}`;
 
-function isWarpLicenseFormat(licenseKey) {
-    if (typeof licenseKey !== 'string') return false;
-    return /^[A-Za-z0-9]{8}-[A-Za-z0-9]{8}-[A-Za-z0-9]{8}$/.test(licenseKey.trim());
-}
-
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -91,22 +97,15 @@ function isRetryableNetworkError(err) {
     return ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE'].includes(code);
 }
 
-// ─────────────── WireGuard key generation ───────────────
-async function generateWireGuardKeys() {
-    const pair = await new Promise((resolve, reject) => {
-        crypto.generateKeyPair('x25519', (err, publicKey, privateKey) => {
-            if (err) reject(err);
-            else resolve({ privateKey, publicKey });
-        });
-    });
-
-    const privBytes = pair.privateKey.export({ type: 'pkcs8', format: 'der' });
-    const pubBytes = pair.publicKey.export({ type: 'spki', format: 'der' });
-    return {
-        priv: Buffer.from(privBytes).slice(-32).toString('base64'),
-        pub: Buffer.from(pubBytes).slice(-32).toString('base64'),
-    };
-}
+const cloudflareApi = createCloudflareApi({
+    requestTimeoutMs: OUTBOUND_REQUEST_TIMEOUT_MS,
+    retries: OUTBOUND_REQUEST_RETRIES,
+    retryBaseMs: OUTBOUND_REQUEST_RETRY_BASE_MS,
+    isRetryableStatus,
+    isRetryableNetworkError,
+    sleep,
+});
+const { isWarpLicenseFormat, generateWireGuardKeys, cfRequest } = cloudflareApi;
 
 // ─────────────── QUIC Initial Packet generator ───────────────
 function encodeQUICVarInt(n) {
@@ -939,8 +938,15 @@ function cacheDomainCidrs(domain, cidrList) {
     const existing = SPLIT_DOMAIN_RUNTIME_CACHE.get(domain) || new Set();
     for (const cidr of cidrList) {
         if (typeof cidr === 'string' && cidr.trim()) existing.add(cidr.trim());
+        if (existing.size >= SPLIT_RUNTIME_MAX_CIDRS_PER_DOMAIN) break;
     }
-    if (existing.size) SPLIT_DOMAIN_RUNTIME_CACHE.set(domain, existing);
+    if (!existing.size) return;
+    SPLIT_DOMAIN_RUNTIME_CACHE.set(domain, existing);
+    while (SPLIT_DOMAIN_RUNTIME_CACHE.size > SPLIT_RUNTIME_MAX_DOMAINS) {
+        const oldest = SPLIT_DOMAIN_RUNTIME_CACHE.keys().next();
+        if (oldest.done) break;
+        SPLIT_DOMAIN_RUNTIME_CACHE.delete(oldest.value);
+    }
 }
 
 function getDomainFallbackCidrs(domain) {
@@ -956,58 +962,6 @@ function getDomainFallbackCidrs(domain) {
         for (const cidr of cached.values()) merged.add(cidr);
     }
     return Array.from(merged);
-}
-
-function cfRequest(method, urlPath, token, body) {
-    const requestOnce = () => new Promise((resolve, reject) => {
-        const data = body ? JSON.stringify(body) : null;
-        const options = {
-            hostname: 'api.cloudflareclient.com',
-            port: 443,
-            path: `/v0i1909051800/${urlPath}`,
-            method,
-            timeout: OUTBOUND_REQUEST_TIMEOUT_MS,
-            headers: {
-                'User-Agent': 'okhttp/3.12.1',
-                'Content-Type': 'application/json',
-                ...(token && { 'Authorization': `Bearer ${token}` }),
-                ...(data && { 'Content-Length': Buffer.byteLength(data) }),
-            },
-        };
-        const req = https.request(options, (res) => {
-            let raw = '';
-            res.on('data', (chunk) => { raw += chunk; });
-            res.on('end', () => {
-                try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
-                catch { resolve({ status: res.statusCode, body: { _raw: raw } }); }
-            });
-        });
-        req.on('timeout', () => {
-            req.destroy(Object.assign(new Error('Cloudflare request timeout'), { code: 'ETIMEDOUT' }));
-        });
-        req.on('error', reject);
-        if (data) req.write(data);
-        req.end();
-    });
-
-    return (async () => {
-        let attempt = 0;
-        while (true) {
-            try {
-                const result = await requestOnce();
-                if (isRetryableStatus(result.status) && attempt < OUTBOUND_REQUEST_RETRIES) {
-                    attempt += 1;
-                    await sleep(OUTBOUND_REQUEST_RETRY_BASE_MS * attempt);
-                    continue;
-                }
-                return result;
-            } catch (err) {
-                if (attempt >= OUTBOUND_REQUEST_RETRIES || !isRetryableNetworkError(err)) throw err;
-                attempt += 1;
-                await sleep(OUTBOUND_REQUEST_RETRY_BASE_MS * attempt);
-            }
-        }
-    })();
 }
 
 async function resolveHost(host) {
@@ -1223,16 +1177,6 @@ function parseEndpointHostPort(rawValue) {
     return { host, port };
 }
 
-function getRequestBaseUrl(req) {
-    const proto = req.headers['x-forwarded-proto']
-        ? String(req.headers['x-forwarded-proto']).split(',')[0].trim()
-        : req.protocol;
-    const host = req.headers['x-forwarded-host']
-        ? String(req.headers['x-forwarded-host']).split(',')[0].trim()
-        : req.get('host');
-    return `${proto || 'http'}://${host}`;
-}
-
 function normalizeIpCandidate(rawValue) {
     const value = String(rawValue || '').trim();
     if (!value) return '';
@@ -1254,342 +1198,64 @@ function getClientIp(req) {
     return direct || '';
 }
 
-function splitCsvValue(rawValue) {
-    return String(rawValue || '')
-        .split(',')
-        .map((x) => x.trim())
-        .filter(Boolean);
-}
+const outboundUtils = createOutboundUtils({
+    trustProxyEnabled: TRUST_PROXY_ENABLED,
+    publicBaseUrl: PUBLIC_BASE_URL,
+    outboundRequestTimeoutMs: OUTBOUND_REQUEST_TIMEOUT_MS,
+    outboundRequestRetries: OUTBOUND_REQUEST_RETRIES,
+    outboundRequestRetryBaseMs: OUTBOUND_REQUEST_RETRY_BASE_MS,
+    downloadProxyTimeoutMs: DOWNLOAD_PROXY_TIMEOUT_MS,
+    downloadProxyMaxBytes: DOWNLOAD_PROXY_MAX_BYTES,
+    isRetryableStatus,
+    isRetryableNetworkError,
+    sleep,
+    isDnsHostname,
+});
+const {
+    getRequestBaseUrl,
+    assertSafeImportUrl,
+    assertSafeDownloadUrl,
+    fetchRemoteText,
+    proxyRemoteDownload,
+    githubApiJson,
+} = outboundUtils;
 
-function parseWgEndpoint(rawValue) {
-    if (typeof rawValue !== 'string') return null;
-    const value = rawValue.trim();
-    if (!value) return null;
-    let match = value.match(/^\[([^\]]+)\]:(\d{1,5})$/);
-    if (!match) match = value.match(/^([^:]+):(\d{1,5})$/);
-    if (!match) return null;
-    const host = match[1].trim();
-    const port = Number.parseInt(match[2], 10);
-    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null;
-    return { host, port };
-}
+const rateLimitManager = createRateLimitManager({
+    getClientIp,
+    defaultWindowMs: RATE_LIMIT_WINDOW_MS,
+    maxEntries: RATE_LIMIT_MAX_ENTRIES,
+});
+const { createRateLimitMiddleware, cleanupRateLimitState } = rateLimitManager;
 
-function parseIniWireGuardConfig(rawConfig) {
-    const lines = String(rawConfig || '').replace(/\u0000/g, '').split(/\r?\n/);
-    const cfg = { interface: {}, peer: {} };
-    let section = '';
+const rateLimitGenerate = createRateLimitMiddleware({
+    key: 'generate',
+    maxPerWindow: RATE_LIMIT_GENERATE_MAX,
+});
+const rateLimitLicenseCheck = createRateLimitMiddleware({
+    key: 'license-check',
+    maxPerWindow: RATE_LIMIT_LICENSE_CHECK_MAX,
+});
+const rateLimitTestLicense = createRateLimitMiddleware({
+    key: 'test-license',
+    maxPerWindow: RATE_LIMIT_TEST_LICENSE_MAX,
+});
+const rateLimitClientDownload = createRateLimitMiddleware({
+    key: 'client-download',
+    maxPerWindow: RATE_LIMIT_DOWNLOAD_MAX,
+});
 
-    for (const rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line || line.startsWith('#') || line.startsWith(';')) continue;
-
-        const sectionMatch = line.match(/^\[([^\]]+)\]$/);
-        if (sectionMatch) {
-            section = sectionMatch[1].trim().toLowerCase();
-            continue;
-        }
-
-        const eq = line.indexOf('=');
-        if (eq < 1) continue;
-        const key = line.slice(0, eq).trim().toLowerCase();
-        const value = line.slice(eq + 1).trim();
-        if (!key) continue;
-
-        if (section === 'interface') cfg.interface[key] = value;
-        if (section === 'peer') cfg.peer[key] = value;
-    }
-
-    return cfg;
-}
-
-function pickPrimaryAddress(addressValue) {
-    const addresses = splitCsvValue(addressValue);
-    if (!addresses.length) return '172.16.0.2/32';
-    const ipv4WithCidr = addresses.find((addr) => addr.includes('.') && addr.includes('/'));
-    if (ipv4WithCidr) return ipv4WithCidr;
-    const anyWithCidr = addresses.find((addr) => addr.includes('/'));
-    return anyWithCidr || addresses[0];
-}
-
-function detectImportedNodeType(server, publicKey, iface) {
-    const hasAmneziaFields = ['s1', 's2', 'jc', 'jmin', 'jmax', 'h1', 'h2', 'h3', 'h4', 'i1']
-        .some((key) => typeof iface?.[key] === 'string' && iface[key].trim());
-    if (hasAmneziaFields) return 'amnezia';
-
-    const host = String(server || '').trim().toLowerCase();
-    if (publicKey === WARP_WIREGUARD_PUBLIC_KEY) return 'warp';
-    if (host === 'engage.cloudflareclient.com') return 'warp';
-    if (isAllowedWarpResultIp(host)) return 'warp';
-    if (host.includes('cloudflareclient.com')) return 'warp';
-    return 'wireguard';
-}
-
-function parseClashImportConfig(rawConfig) {
-    const raw = String(rawConfig || '').trim();
-    if (!raw) throw new Error('Пустой конфиг.');
-    const parsed = parseIniWireGuardConfig(raw);
-    const iface = parsed.interface || {};
-    const peer = parsed.peer || {};
-
-    const privateKey = typeof iface.privatekey === 'string' ? iface.privatekey.trim() : '';
-    if (!privateKey) throw new Error('В конфиге не найден Interface.PrivateKey.');
-
-    const endpoint = parseWgEndpoint(peer.endpoint || '');
-    if (!endpoint) throw new Error('В конфиге не найден корректный Peer.Endpoint (host:port).');
-
-    const publicKey = typeof peer.publickey === 'string' && peer.publickey.trim()
-        ? peer.publickey.trim()
-        : WARP_WIREGUARD_PUBLIC_KEY;
-    const type = detectImportedNodeType(endpoint.host, publicKey, iface);
-    const safeHost = endpoint.host.replace(/[^a-zA-Z0-9.-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-    const nodeName = `${type}-${safeHost || 'imported'}`.slice(0, 64);
-    const dnsNameservers = splitCsvValue(iface.dns);
-
-    return {
-        profileName: `Imported ${type.toUpperCase()}`,
-        node: {
-            name: nodeName,
-            type,
-            server: endpoint.host,
-            port: endpoint.port,
-            address: pickPrimaryAddress(iface.address),
-            privateKey,
-            publicKey,
-        },
-        dns: {
-            nameservers: dnsNameservers,
-        },
-        meta: {
-            endpoint: `${endpoint.host}:${endpoint.port}`,
-            detectedType: type,
-            hasAmneziaFields: type === 'amnezia',
-        },
-    };
-}
-
-function base64UrlToBuffer(value) {
-    const raw = String(value || '').trim();
-    if (!raw) throw new Error('Пустой payload vpn://.');
-    const normalized = raw.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-    return Buffer.from(padded, 'base64');
-}
-
-function decodeAmneziaVpnLink(vpnLink) {
-    const raw = String(vpnLink || '').trim();
-    if (!raw.toLowerCase().startsWith('vpn://')) {
-        throw new Error('Некорректная vpn:// ссылка.');
-    }
-    const payload = raw.slice('vpn://'.length);
-    const compressed = base64UrlToBuffer(payload);
-    if (compressed.length <= 4) {
-        throw new Error('Поврежденный vpn:// payload.');
-    }
-
-    let decoded;
-    try {
-        decoded = zlib.inflateSync(compressed.subarray(4)).toString('utf8');
-    } catch {
-        throw new Error('Не удалось распаковать vpn:// payload.');
-    }
-
-    let root;
-    try {
-        root = JSON.parse(decoded);
-    } catch {
-        throw new Error('Некорректный JSON внутри vpn:// payload.');
-    }
-
-    const container = Array.isArray(root?.containers) ? root.containers[0] : null;
-    if (!container?.awg?.last_config) {
-        throw new Error('В vpn:// payload отсутствует awg.last_config.');
-    }
-
-    let nested;
-    try {
-        nested = JSON.parse(String(container.awg.last_config || '{}'));
-    } catch {
-        throw new Error('Некорректный формат awg.last_config.');
-    }
-
-    const configTextRaw = typeof nested?.config === 'string' ? nested.config : '';
-    if (!configTextRaw.trim()) {
-        throw new Error('В awg.last_config отсутствует поле config.');
-    }
-
-    const dns1 = typeof root?.dns1 === 'string' && root.dns1.trim() ? root.dns1.trim() : '1.1.1.1';
-    const dns2 = typeof root?.dns2 === 'string' && root.dns2.trim() ? root.dns2.trim() : '1.0.0.1';
-    return configTextRaw
-        .replace(/\$PRIMARY_DNS/g, dns1)
-        .replace(/\$SECONDARY_DNS/g, dns2);
-}
-
-function normalizeImportedConfigText(rawInput) {
-    const text = String(rawInput || '').trim();
-    if (!text) throw new Error('Пустой конфиг.');
-    if (text.toLowerCase().startsWith('vpn://')) {
-        return decodeAmneziaVpnLink(text);
-    }
-    return text;
-}
-
-function isPrivateOrSpecialIpv4(ip) {
-    const parts = ip.split('.').map((x) => Number.parseInt(x, 10));
-    if (parts.length !== 4 || parts.some((x) => Number.isNaN(x) || x < 0 || x > 255)) return true;
-    if (parts[0] === 0 || parts[0] === 10 || parts[0] === 127) return true;
-    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
-    if (parts[0] === 169 && parts[1] === 254) return true;
-    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-    if (parts[0] === 192 && parts[1] === 168) return true;
-    if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
-    if (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)) return true;
-    if (parts[0] >= 224) return true;
-    return false;
-}
-
-function isPrivateOrSpecialIpv6(ip) {
-    const normalized = String(ip || '').toLowerCase();
-    if (!normalized) return true;
-    if (normalized === '::' || normalized === '::1') return true;
-    if (normalized.startsWith('fe80:')) return true;
-    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
-    if (normalized.startsWith('ff')) return true;
-    return false;
-}
-
-function isPublicRoutableIp(ip) {
-    const family = net.isIP(ip);
-    if (!family) return false;
-    if (family === 4) return !isPrivateOrSpecialIpv4(ip);
-    return !isPrivateOrSpecialIpv6(ip);
-}
-
-async function assertSafeOutboundUrl(rawUrl, { allowHttp = true, allowHttps = true, context = 'URL' } = {}) {
-    let parsed;
-    try {
-        parsed = new URL(String(rawUrl || '').trim());
-    } catch {
-        throw new Error(`Некорректный ${context}.`);
-    }
-
-    const protocolAllowed = (parsed.protocol === 'http:' && allowHttp) || (parsed.protocol === 'https:' && allowHttps);
-    if (!protocolAllowed) {
-        throw new Error(allowHttp && allowHttps
-            ? 'Разрешены только http/https ссылки.'
-            : 'Разрешены только https ссылки.');
-    }
-    if (parsed.username || parsed.password) {
-        throw new Error('Ссылки с логином/паролем не поддерживаются.');
-    }
-
-    const host = String(parsed.hostname || '').trim();
-    const hostLower = host.toLowerCase();
-    if (!host) throw new Error('URL не содержит хост.');
-    if (hostLower === 'localhost' || hostLower.endsWith('.local') || hostLower.endsWith('.internal')) {
-        throw new Error(`${context} указывает на локальный хост, запрос запрещен.`);
-    }
-
-    const ipFamily = net.isIP(host);
-    if (ipFamily) {
-        if (!isPublicRoutableIp(host)) {
-            throw new Error(`${context} указывает на приватный/локальный IP, запрос запрещен.`);
-        }
-        return parsed.toString();
-    }
-
-    let resolved = [];
-    try {
-        resolved = await dns.lookup(host, { all: true, verbatim: true });
-    } catch {
-        throw new Error(`Не удалось резолвить домен для ${context}.`);
-    }
-    if (!Array.isArray(resolved) || !resolved.length) {
-        throw new Error(`Не удалось получить IP для ${context}.`);
-    }
-    if (resolved.some((item) => !isPublicRoutableIp(item.address))) {
-        throw new Error(`${context} резолвится в приватный/локальный IP, запрос запрещен.`);
-    }
-    return parsed.toString();
-}
-
-async function assertSafeImportUrl(rawUrl) {
-    return assertSafeOutboundUrl(rawUrl, { allowHttp: true, allowHttps: true, context: 'URL для импорта' });
-}
-
-async function assertSafeDownloadUrl(rawUrl) {
-    return assertSafeOutboundUrl(rawUrl, { allowHttp: false, allowHttps: true, context: 'URL загрузки' });
-}
-
-function fetchRemoteText(remoteUrl, depth = 0, maxBytes = 512 * 1024) {
-    if (depth > 5) return Promise.reject(new Error('Слишком много редиректов при импорте.'));
-    return new Promise((resolve, reject) => {
-        let parsed;
-        try {
-            parsed = new URL(remoteUrl);
-        } catch {
-            reject(new Error('Некорректный URL для загрузки.'));
-            return;
-        }
-        const client = parsed.protocol === 'https:' ? https : (parsed.protocol === 'http:' ? http : null);
-        if (!client) {
-            reject(new Error('Поддерживаются только http/https ссылки.'));
-            return;
-        }
-
-        const req = client.request({
-            method: 'GET',
-            hostname: parsed.hostname,
-            path: `${parsed.pathname}${parsed.search}`,
-            headers: {
-                'User-Agent': 'WarpGen-Config-Importer/1.0',
-                'Accept': 'text/plain,application/octet-stream,*/*',
-            },
-            timeout: OUTBOUND_REQUEST_TIMEOUT_MS,
-        }, (remoteRes) => {
-            const statusCode = remoteRes.statusCode || 500;
-            const location = remoteRes.headers.location;
-            if (statusCode >= 300 && statusCode < 400 && location) {
-                remoteRes.resume();
-                const nextUrl = new URL(location, remoteUrl).toString();
-                assertSafeImportUrl(nextUrl)
-                    .then((safeNextUrl) => fetchRemoteText(safeNextUrl, depth + 1, maxBytes))
-                    .then(resolve)
-                    .catch(reject);
-                return;
-            }
-            if (statusCode >= 400) {
-                remoteRes.resume();
-                reject(new Error(`Сервер вернул HTTP ${statusCode}.`));
-                return;
-            }
-            const contentLength = Number.parseInt(String(remoteRes.headers['content-length'] || ''), 10);
-            if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-                remoteRes.resume();
-                reject(new Error('Файл слишком большой для импорта.'));
-                return;
-            }
-
-            const chunks = [];
-            let total = 0;
-            remoteRes.on('data', (chunk) => {
-                total += chunk.length;
-                if (total > maxBytes) {
-                    remoteRes.destroy(new Error('Файл слишком большой для импорта.'));
-                    return;
-                }
-                chunks.push(chunk);
-            });
-            remoteRes.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-            remoteRes.on('error', (err) => reject(err));
-        });
-
-        req.on('timeout', () => {
-            req.destroy(new Error('Таймаут загрузки конфига.'));
-        });
-        req.on('error', (err) => reject(err));
-        req.end();
-    });
-}
+const clashUtils = createClashUtils({
+    warpWireguardPublicKey: WARP_WIREGUARD_PUBLIC_KEY,
+    normalizeInterfaceAddress,
+    isDnsHostname,
+});
+const {
+    normalizeImportedConfigText,
+    parseClashImportConfig,
+    sanitizeProfileName,
+    validateClashNode,
+    buildClashYaml,
+} = clashUtils;
 
 function normalizeClientPlatform(value) {
     const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -1597,124 +1263,50 @@ function normalizeClientPlatform(value) {
     return 'windows';
 }
 
-function proxyRemoteDownload(remoteUrl, res, depth = 0) {
-    if (depth > 5) {
-        res.status(502).json({ error: 'Too many redirects.' });
-        return;
-    }
-    const parsed = new URL(remoteUrl);
-    const client = parsed.protocol === 'https:' ? https : null;
-    if (!client) {
-        res.status(400).json({ error: 'Only https downloads are supported.' });
-        return;
-    }
-    let finished = false;
-    const fail = (statusCode, message) => {
-        if (finished) return;
-        finished = true;
-        if (!res.headersSent) {
-            res.status(statusCode).json({ error: message });
-        } else {
-            res.destroy(new Error(message));
-        }
-    };
-
-    const req = client.request({
-        method: 'GET',
-        hostname: parsed.hostname,
-        path: `${parsed.pathname}${parsed.search}`,
-        headers: { 'User-Agent': 'WarpGen-Download-Proxy/1.0' },
-        timeout: DOWNLOAD_PROXY_TIMEOUT_MS,
-    }, (remoteRes) => {
-        const code = remoteRes.statusCode || 500;
-        const location = remoteRes.headers.location;
-        if (code >= 300 && code < 400 && location) {
-            remoteRes.resume();
-            const nextUrl = new URL(location, remoteUrl).toString();
-            assertSafeDownloadUrl(nextUrl)
-                .then((safeNextUrl) => proxyRemoteDownload(safeNextUrl, res, depth + 1))
-                .catch((err) => fail(502, `Download redirect blocked: ${err.message}`));
-            return;
-        }
-        const contentLength = Number.parseInt(String(remoteRes.headers['content-length'] || ''), 10);
-        if (Number.isFinite(contentLength) && contentLength > DOWNLOAD_PROXY_MAX_BYTES) {
-            remoteRes.resume();
-            fail(413, 'Remote file is too large.');
-            return;
-        }
-        res.status(code);
-        const passHeaders = ['content-type', 'content-length', 'content-disposition', 'last-modified', 'etag'];
-        for (const header of passHeaders) {
-            const val = remoteRes.headers[header];
-            if (val) res.setHeader(header, val);
-        }
-        let streamedBytes = 0;
-        remoteRes.on('data', (chunk) => {
-            streamedBytes += chunk.length;
-            if (streamedBytes > DOWNLOAD_PROXY_MAX_BYTES) {
-                remoteRes.destroy(new Error('Remote file exceeds max allowed size.'));
-            }
-        });
-        remoteRes.on('error', (err) => {
-            fail(502, `Download proxy failed: ${err.message}`);
-        });
-        remoteRes.pipe(res);
-    });
-    req.on('timeout', () => {
-        req.destroy(Object.assign(new Error('Upstream download timeout.'), { code: 'ETIMEDOUT' }));
-    });
-    req.on('error', (err) => {
-        fail(502, `Download proxy failed: ${err.message}`);
-    });
-    req.end();
+function parseDottedVersion(value) {
+    return String(value || '')
+        .split('.')
+        .map((part) => Number.parseInt(part, 10))
+        .map((num) => (Number.isFinite(num) ? num : 0));
 }
 
-function githubApiJson(pathname) {
-    const requestOnce = () => new Promise((resolve, reject) => {
-        const req = https.request({
-            method: 'GET',
-            hostname: 'api.github.com',
-            path: pathname,
-            timeout: OUTBOUND_REQUEST_TIMEOUT_MS,
-            headers: {
-                'User-Agent': 'WarpGen-Download-Proxy/1.0',
-                'Accept': 'application/vnd.github+json',
-            },
-        }, (apiRes) => {
-            let raw = '';
-            apiRes.on('data', (chunk) => { raw += chunk; });
-            apiRes.on('end', () => {
-                if ((apiRes.statusCode || 500) >= 400) {
-                    reject(Object.assign(new Error(`GitHub API ${apiRes.statusCode}`), {
-                        statusCode: apiRes.statusCode || 500,
-                    }));
-                    return;
-                }
-                try { resolve(JSON.parse(raw)); }
-                catch { reject(new Error('Invalid GitHub JSON')); }
-            });
-        });
-        req.on('timeout', () => {
-            req.destroy(Object.assign(new Error('GitHub API timeout'), { code: 'ETIMEDOUT' }));
-        });
-        req.on('error', reject);
-        req.end();
-    });
+function compareDottedVersions(a, b) {
+    const left = parseDottedVersion(a);
+    const right = parseDottedVersion(b);
+    const length = Math.max(left.length, right.length);
+    for (let i = 0; i < length; i += 1) {
+        const l = left[i] || 0;
+        const r = right[i] || 0;
+        if (l > r) return 1;
+        if (l < r) return -1;
+    }
+    return 0;
+}
 
-    return (async () => {
-        let attempt = 0;
-        while (true) {
-            try {
-                return await requestOnce();
-            } catch (err) {
-                const statusCode = Number.parseInt(String(err?.statusCode || 0), 10);
-                const retryable = isRetryableNetworkError(err) || isRetryableStatus(statusCode);
-                if (attempt >= OUTBOUND_REQUEST_RETRIES || !retryable) throw err;
-                attempt += 1;
-                await sleep(OUTBOUND_REQUEST_RETRY_BASE_MS * attempt);
-            }
-        }
-    })();
+async function resolveWireSockWindowsDirectUrl() {
+    const cacheKey = 'wiresock:windows:direct';
+    const cached = CLIENT_DOWNLOAD_CACHE.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < CLIENT_DOWNLOAD_CACHE_TTL_MS) return cached.url;
+
+    const landingUrl = CLIENT_DOWNLOADS?.wiresock?.links?.windows;
+    if (!landingUrl) return null;
+    const safeLanding = await assertSafeDownloadUrl(landingUrl);
+    const html = await fetchRemoteText(safeLanding, 0, 2 * 1024 * 1024);
+
+    const regex = /https:\/\/wiresock\.net\/_api\/download-release\.php\?product=wiresock-secure-connect(?:&amp;|&)platform=windows_x64(?:&amp;|&)version=([0-9.]+)/gi;
+    const candidates = [];
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+        const rawUrl = String(match[0] || '').replace(/&amp;/g, '&');
+        const version = String(match[1] || '').trim();
+        if (rawUrl && version) candidates.push({ rawUrl, version });
+    }
+    if (!candidates.length) return null;
+
+    candidates.sort((a, b) => compareDottedVersions(b.version, a.version));
+    const resolved = candidates[0].rawUrl;
+    CLIENT_DOWNLOAD_CACHE.set(cacheKey, { ts: Date.now(), url: resolved });
+    return resolved;
 }
 
 async function resolveGithubLatestAsset(appKey, appMeta, platform) {
@@ -1736,6 +1328,16 @@ async function resolveGithubLatestAsset(appKey, appMeta, platform) {
 async function resolveClientDownloadUrl(appKey, platform) {
     const appMeta = CLIENT_DOWNLOADS[appKey];
     if (!appMeta) return null;
+
+    if (appKey === 'wiresock' && platform === 'windows') {
+        try {
+            const direct = await resolveWireSockWindowsDirectUrl();
+            if (direct) return direct;
+        } catch {
+            // fallback below
+        }
+    }
+
     let url = null;
     try {
         url = await resolveGithubLatestAsset(appKey, appMeta, platform);
@@ -2070,13 +1672,7 @@ function Normalize-EndpointForReport {
     [string]$Endpoint,
     [array]$EngageIpList
   )
-  if (-not $Endpoint) { return $Endpoint }
-  $parts = $Endpoint -split ':'
-  if ($parts.Count -lt 2) { return $Endpoint }
-  $endpointHost = $parts[0].Trim()
-  $port = $parts[1].Trim()
-  if (-not $endpointHost -or -not $port) { return $Endpoint }
-  if ($EngageIpList -contains $endpointHost) { return ('engage.cloudflareclient.com:' + $port) }
+  # Keep raw endpoint from speedtest (IP:port), do not rewrite to domain.
   return $Endpoint
 }
 
@@ -2497,164 +2093,6 @@ pause
 `;
 }
 
-function sanitizeProfileName(value, fallback) {
-    const raw = typeof value === 'string' ? value.trim() : '';
-    if (!raw) return fallback;
-    return raw.replace(/\s+/g, ' ').slice(0, 64);
-}
-
-function normalizeClashNodeType(value) {
-    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
-    if (raw === 'warp' || raw === 'amnezia' || raw === 'wireguard') return raw;
-    return 'wireguard';
-}
-
-function validateClashNode(node, idx) {
-    const name = sanitizeProfileName(node?.name, `node-${idx + 1}`);
-    const type = normalizeClashNodeType(node?.type);
-    const server = typeof node?.server === 'string' ? node.server.trim() : '';
-    const port = Number.parseInt(String(node?.port || ''), 10);
-    const privateKey = typeof node?.privateKey === 'string' ? node.privateKey.trim() : '';
-    const publicKey = typeof node?.publicKey === 'string' && node.publicKey.trim()
-        ? node.publicKey.trim()
-        : WARP_WIREGUARD_PUBLIC_KEY;
-    const address = typeof node?.address === 'string' && node.address.trim()
-        ? node.address.trim()
-        : '172.16.0.2/32';
-
-    if (!server) throw new Error(`Узел #${idx + 1}: server обязателен.`);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Узел #${idx + 1}: некорректный port.`);
-    if (!privateKey) throw new Error(`Узел #${idx + 1}: privateKey обязателен.`);
-
-    return {
-        name,
-        type,
-        server,
-        port,
-        privateKey,
-        publicKey,
-        address,
-        reserved: Array.isArray(node?.reserved) ? node.reserved.slice(0, 3).map((n) => Number.parseInt(n, 10) || 0) : null,
-    };
-}
-
-function toYamlValue(value) {
-    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-    if (value === null || value === undefined) return '""';
-    const str = String(value);
-    if (/^[a-zA-Z0-9._:@/+-]+$/.test(str)) return str;
-    return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
-function renderYamlObject(obj, indent = 0) {
-    const pad = ' '.repeat(indent);
-    const lines = [];
-    for (const [key, value] of Object.entries(obj)) {
-        if (Array.isArray(value)) {
-            if (!value.length) {
-                lines.push(`${pad}${key}: []`);
-                continue;
-            }
-            lines.push(`${pad}${key}:`);
-            for (const item of value) {
-                if (item && typeof item === 'object' && !Array.isArray(item)) {
-                    const entries = Object.entries(item);
-                    if (!entries.length) {
-                        lines.push(`${pad}  - {}`);
-                        continue;
-                    }
-                    const [firstKey, firstValue] = entries[0];
-                    lines.push(`${pad}  - ${firstKey}: ${toYamlValue(firstValue)}`);
-                    for (let i = 1; i < entries.length; i += 1) {
-                        const [nestedKey, nestedValue] = entries[i];
-                        lines.push(`${pad}    ${nestedKey}: ${toYamlValue(nestedValue)}`);
-                    }
-                } else {
-                    lines.push(`${pad}  - ${toYamlValue(item)}`);
-                }
-            }
-            continue;
-        }
-        if (value && typeof value === 'object') {
-            lines.push(`${pad}${key}:`);
-            lines.push(renderYamlObject(value, indent + 2));
-            continue;
-        }
-        lines.push(`${pad}${key}: ${toYamlValue(value)}`);
-    }
-    return lines.filter(Boolean).join('\n');
-}
-
-function buildClashYaml(profile) {
-    const proxyNames = profile.nodes.map((node) => node.name);
-    const dnsNameservers = Array.isArray(profile.dns.nameservers) && profile.dns.nameservers.length
-        ? profile.dns.nameservers
-        : ['https://dns.malw.link/dns-query'];
-    const dnsFallback = Array.isArray(profile.dns.fallback) && profile.dns.fallback.length
-        ? profile.dns.fallback
-        : ['https://1.1.1.1/dns-query', 'tls://1.1.1.1'];
-    const rules = [];
-    for (const domain of profile.routing.ruDirectDomains) rules.push(`DOMAIN-SUFFIX,${domain},DIRECT`);
-    for (const domain of profile.routing.proxyDomains) rules.push(`DOMAIN-SUFFIX,${domain},WARP Auto`);
-    for (const cidr of profile.routing.cdnCidrs) rules.push(`IP-CIDR,${cidr},WARP Auto,no-resolve`);
-    rules.push('MATCH,DIRECT');
-    const lines = [
-        'mixed_port: 7890',
-        'allow_lan: true',
-        'mode: rule',
-        'log-level: info',
-        'ipv6: true',
-        'proxies:',
-    ];
-
-    for (const node of profile.nodes) {
-        lines.push(`  - name: ${toYamlValue(node.name)}`);
-        lines.push('    type: wireguard');
-        lines.push(`    server: ${toYamlValue(node.server)}`);
-        lines.push(`    port: ${node.port}`);
-        lines.push(`    ip: ${toYamlValue(node.address)}`);
-        lines.push(`    private-key: ${toYamlValue(node.privateKey)}`);
-        lines.push(`    public-key: ${toYamlValue(node.publicKey)}`);
-        lines.push('    udp: true');
-        lines.push('    remote-dns-resolve: true');
-        lines.push('    mtu: 1280');
-        if (Array.isArray(node.reserved) && node.reserved.length === 3) {
-            lines.push(`    reserved: [${node.reserved.map((n) => Number.parseInt(n, 10) || 0).join(', ')}]`);
-        }
-        if (node.type === 'amnezia') {
-            lines.push('    x-note: amnezia-metadata-only');
-        }
-    }
-
-    lines.push('proxy-groups:');
-    lines.push('  - name: "WARP Auto"');
-    lines.push('    type: url-test');
-    lines.push('    proxies:');
-    for (const name of proxyNames) lines.push(`      - ${toYamlValue(name)}`);
-    lines.push('    url: http://www.gstatic.com/generate_204');
-    lines.push('    interval: 300');
-    lines.push('    tolerance: 80');
-    lines.push('  - name: "WARP Manual"');
-    lines.push('    type: select');
-    lines.push('    proxies:');
-    for (const name of [...proxyNames, 'WARP Auto', 'DIRECT']) lines.push(`      - ${toYamlValue(name)}`);
-
-    lines.push('dns:');
-    lines.push('  enable: true');
-    lines.push('  listen: 0.0.0.0:1053');
-    lines.push('  ipv6: true');
-    lines.push(`  enhanced-mode: ${profile.dns.mode === 'redir-host' ? 'redir-host' : 'fake-ip'}`);
-    lines.push('  fake-ip-range: 198.18.0.1/16');
-    lines.push('  nameserver:');
-    for (const value of dnsNameservers) lines.push(`    - ${toYamlValue(value)}`);
-    lines.push('  fallback:');
-    for (const value of dnsFallback) lines.push(`    - ${toYamlValue(value)}`);
-
-    lines.push('rules:');
-    for (const rule of rules) lines.push(`  - ${toYamlValue(rule)}`);
-    return `${lines.join('\n')}\n`;
-}
-
 function cleanupClashProfiles() {
     const now = Date.now();
     for (const [id, profile] of CLASH_PROFILES.entries()) {
@@ -2662,10 +2100,21 @@ function cleanupClashProfiles() {
     }
 }
 
+function enforceClashProfileLimit() {
+    if (CLASH_PROFILES.size <= CLASH_PROFILE_MAX_ENTRIES) return;
+    const overflow = CLASH_PROFILES.size - CLASH_PROFILE_MAX_ENTRIES;
+    const oldest = Array.from(CLASH_PROFILES.entries())
+        .sort((a, b) => (a[1]?.createdAt || 0) - (b[1]?.createdAt || 0))
+        .slice(0, overflow)
+        .map(([id]) => id);
+    for (const id of oldest) CLASH_PROFILES.delete(id);
+}
+
 setInterval(cleanupSpeedtestSessions, 5 * 60 * 1000).unref();
 setInterval(cleanupSpeedtestAdaptiveState, 30 * 60 * 1000).unref();
 setInterval(cleanupDnsResolveCache, 10 * 60 * 1000).unref();
 setInterval(cleanupClashProfiles, 10 * 60 * 1000).unref();
+setInterval(cleanupRateLimitState, 60 * 1000).unref();
 
 app.get('/api/endpoints', (req, res) => {
     res.json(WARP_ENDPOINTS);
@@ -2815,17 +2264,48 @@ app.get('/api/client-downloads', (req, res) => {
     });
 });
 
-app.get('/api/client-download/:app', async (req, res) => {
+app.get('/api/client-download/:app', rateLimitClientDownload, async (req, res) => {
     try {
         const appKey = typeof req.params?.app === 'string' ? req.params.app.trim().toLowerCase() : '';
-        if (!CLIENT_DOWNLOADS[appKey]) {
+        const appMeta = CLIENT_DOWNLOADS[appKey];
+        if (!appMeta) {
             return res.status(404).json({ error: 'Unknown app.' });
         }
         const platform = normalizeClientPlatform(req.query?.platform);
-        const url = await resolveClientDownloadUrl(appKey, platform);
-        if (!url) return res.status(404).json({ error: 'No download URL for platform.' });
-        const safeUrl = await assertSafeDownloadUrl(url);
-        proxyRemoteDownload(safeUrl, res);
+        const fallbackUrl = appMeta.links?.[platform] || appMeta.links?.windows || null;
+        const resolvedUrl = await resolveClientDownloadUrl(appKey, platform);
+        const primaryUrl = resolvedUrl || fallbackUrl;
+        if (!primaryUrl) return res.status(404).json({ error: 'No download URL for platform.' });
+
+        let safePrimary = null;
+        let safeFallback = null;
+
+        try {
+            safePrimary = await assertSafeDownloadUrl(primaryUrl);
+        } catch (primaryErr) {
+            if (!fallbackUrl || fallbackUrl === primaryUrl) throw primaryErr;
+            safeFallback = await assertSafeDownloadUrl(fallbackUrl);
+            proxyRemoteDownload(safeFallback, res);
+            return;
+        }
+
+        if (fallbackUrl && fallbackUrl !== safePrimary.url) {
+            try {
+                safeFallback = await assertSafeDownloadUrl(fallbackUrl);
+            } catch {
+                safeFallback = null;
+            }
+        }
+
+        proxyRemoteDownload(safePrimary, res, 0, {
+            onFail: () => {
+                if (!safeFallback) return false;
+                const target = safeFallback;
+                safeFallback = null;
+                proxyRemoteDownload(target, res);
+                return true;
+            },
+        });
     } catch (err) {
         res.status(502).json({ error: `Failed to resolve download: ${err.message}` });
     }
@@ -2928,6 +2408,7 @@ app.post('/api/clash/profile-url', (req, res) => {
             dns: { mode: dnsMode, nameservers: dnsNameservers, fallback: dnsFallback },
             routing: { proxyDomains, ruDirectDomains, cdnCidrs },
         });
+        enforceClashProfileLimit();
 
         const profileUrl = `${getRequestBaseUrl(req)}/api/clash/profile/${token}`;
         res.json({
@@ -2953,7 +2434,7 @@ app.get('/api/clash/profile/:token', (req, res) => {
     res.send(yaml);
 });
 
-app.post('/api/check-license', async (req, res) => {
+app.post('/api/check-license', rateLimitLicenseCheck, async (req, res) => {
     const rawKey = typeof req.body?.licenseKey === 'string' ? req.body.licenseKey.trim() : '';
     if (!rawKey) {
         return res.status(400).json({ error: 'Введите ключ WARP+ для проверки.' });
@@ -3023,7 +2504,7 @@ app.post('/api/check-license', async (req, res) => {
     }
 });
 
-app.post('/api/generate-test-license', async (req, res) => {
+app.post('/api/generate-test-license', rateLimitTestLicense, async (req, res) => {
     try {
         const { pub } = await generateWireGuardKeys();
         const regResult = await cfRequest('POST', 'reg', null, {
@@ -3064,7 +2545,7 @@ app.post('/api/generate-test-license', async (req, res) => {
     }
 });
 
-app.post('/api/generate', async (req, res) => {
+app.post('/api/generate', rateLimitGenerate, async (req, res) => {
     try {
         const {
             licenseKey = '',

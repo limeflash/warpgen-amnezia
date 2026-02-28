@@ -402,7 +402,7 @@ test('Clash profile URL returns YAML profile', async () => {
           server: '162.159.192.5',
           port: 2408,
           address: '172.16.0.2/32',
-          privateKey: 'test_private_key_clash',
+          privateKey: 'eNEI+8/rj0bMTqhv3xoPkhbWCZ9pL2+VKAnm8T1dikc=',
           publicKey: 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
         },
       ],
