@@ -1453,30 +1453,63 @@ $csvPath = Join-Path $workDir 'result.csv'
 & $exe.FullName -all -n 50 -t 5 -c 5000 -tl 300 -tll 0 -tlr 0.2 -p 10 -f $ipFile -o $csvPath
 
 Write-Host '[4/5] Selecting best endpoint...'
-$rows = Import-Csv -Path $csvPath | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
-if (-not $rows -or $rows.Count -eq 0) { throw 'No rows in result.csv' }
+$rows = @()
+if (Test-Path $csvPath) {
+  try {
+    $rows = Import-Csv -Path $csvPath | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
+  } catch {
+    Write-Host ('Failed to parse result.csv: ' + $_.Exception.Message)
+    $rows = @()
+  }
+} else {
+  Write-Host 'result.csv was not created by CloudflareWarpSpeedTest.'
+}
 
-$normalized = foreach ($r in $rows) {
-  [PSCustomObject]@{
-    endpoint = $r.'IP:Port'
-    loss = [double](($r.Loss -replace '%', '').Trim())
-    latencyMs = [double](($r.Latency).Trim())
+$normalized = @()
+if ($rows -and $rows.Count -gt 0) {
+  $normalized = foreach ($r in $rows) {
+    [PSCustomObject]@{
+      endpoint = $r.'IP:Port'
+      loss = [double](($r.Loss -replace '%', '').Trim())
+      latencyMs = [double](($r.Latency).Trim())
+    }
   }
 }
-$best = $normalized | Sort-Object loss, latencyMs | Select-Object -First 1
-if (-not $best) { throw 'Cannot determine best endpoint' }
-$bestEndpoint = $best.endpoint
+
+$bestEndpoint = $null
+$topResults = @()
+$reportSource = 'windows-local-helper'
+if ($normalized -and $normalized.Count -gt 0) {
+  $best = $normalized | Sort-Object loss, latencyMs | Select-Object -First 1
+  if ($best) {
+    $bestEndpoint = $best.endpoint
+    $topResults = @($normalized | Sort-Object loss, latencyMs | Select-Object -First 5)
+  }
+}
+
+if (-not $bestEndpoint) {
+  $fallbackCandidates = @(
+    '162.159.192.5:2408',
+    '162.159.192.1:2408',
+    '162.159.195.1:1701',
+    '162.159.195.2:908',
+    '162.159.192.18:908'
+  )
+  $bestEndpoint = $fallbackCandidates | Select-Object -First 1
+  $reportSource = 'windows-local-helper-fallback'
+  Write-Host ('No available endpoints from local speedtest. Using fallback endpoint: ' + $bestEndpoint)
+}
 
 Write-Host '[5/5] Reporting to site...'
 $payload = @{
   sessionId = $sessionId
   bestEndpoint = $bestEndpoint
-  topResults = @($normalized | Sort-Object loss, latencyMs | Select-Object -First 5)
-  source = 'windows-local-helper'
+  topResults = $topResults
+  source = $reportSource
 } | ConvertTo-Json -Depth 8
 Invoke-RestMethod -Uri $reportUrl -Method POST -ContentType 'application/json' -Body $payload | Out-Null
 
-try { Set-Clipboard -Value $best.endpoint } catch {}
+try { Set-Clipboard -Value $bestEndpoint } catch {}
 Write-Host ''
 Write-Host ('Best endpoint: ' + $bestEndpoint)
 Write-Host 'Done. You can return to the site, endpoint will be filled automatically.'

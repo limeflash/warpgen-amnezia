@@ -134,6 +134,24 @@ test('Client downloads list contains required apps', async () => {
   }
 });
 
+test('Windows speedtest helper script contains fallback endpoint logic', async () => {
+  const sessionResp = await fetch(`${BASE}/api/speedtest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(sessionResp.status, 200);
+  const sessionBody = await sessionResp.json();
+  assert.ok(typeof sessionBody.downloadPath === 'string' && sessionBody.downloadPath.length > 0);
+
+  const scriptResp = await fetch(`${BASE}${sessionBody.downloadPath}`);
+  assert.equal(scriptResp.status, 200);
+  const scriptText = await scriptResp.text();
+  assert.match(scriptText, /No available endpoints from local speedtest/);
+  assert.match(scriptText, /windows-local-helper-fallback/);
+  assert.match(scriptText, /162\.159\.192\.5:2408/);
+});
+
 test('Clash import parses WireGuard config text', async () => {
   const rawConfig = [
     '[Interface]',
