@@ -1578,6 +1578,8 @@ function buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates 
     );
     const warpPortsStr = ALLOWED_WARP_PORTS.join(',');
     return `\uFEFF# Cloudflare WARP local endpoint speedtest helper
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [Console]::OutputEncoding
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -1919,6 +1921,7 @@ Write-Host 'Done. You can return to the site, endpoint will be filled automatica
 function buildWindowsBatchScript({ sessionId, baseUrl }) {
     const ps1Url = `${baseUrl}/api/speedtest/windows-script/${sessionId}`;
     return `@echo off
+chcp 65001 > nul
 setlocal
 set "PS1_URL=${ps1Url}"
 set "PS1_FILE=%TEMP%\\warp-speedtest-${sessionId}.ps1"

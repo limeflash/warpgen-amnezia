@@ -207,6 +207,7 @@ test('Windows .bat script contains admin check and DPI info', async () => {
   const batText = await batResp.text();
 
   assert.match(batText, /@echo off/);
+  assert.match(batText, /chcp 65001/);
   assert.match(batText, /net session/);
   assert.match(batText, /DPI/);
   assert.match(batText, /администратор/i);
