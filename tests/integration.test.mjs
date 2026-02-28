@@ -196,11 +196,16 @@ test('Windows speedtest PS1 script contains DPI bypass via zapret block', async 
   assert.match(scriptText, /openwrt\|embedded/);
   assert.match(scriptText, /selected portable zip asset/);
   assert.match(scriptText, /udp-fake-count=6/);
+  assert.match(scriptText, /wf-udp-in=/);
+  assert.match(scriptText, /wf-udp-out=/);
   assert.match(scriptText, /wf-udp=/);
+  assert.match(scriptText, /directional filters/);
   assert.match(scriptText, /wf-l3=ipv4/);
   assert.match(scriptText, /-WorkingDirectory\s+\$winwsExe\.DirectoryName/);
   assert.match(scriptText, /windows-local-helper-dpi-bypass/);
-  assert.match(scriptText, /result-dpi-bypass\.csv/);
+  assert.match(scriptText, /result-dpi-bypass-/);
+  assert.match(scriptText, /winws directional filters/);
+  assert.match(scriptText, /Профилей обхода/);
 
   // WARP ports are embedded
   assert.match(scriptText, /500,854/);

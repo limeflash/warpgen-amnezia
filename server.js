@@ -1766,6 +1766,40 @@ function Ensure-WinwsRuntimeFiles {
   return $true
 }
 
+function Write-LogTail {
+  param(
+    [string]$Path,
+    [string]$Prefix = '[DPI][log]',
+    [int]$Tail = 20
+  )
+  if (-not $Path -or -not (Test-Path $Path)) { return }
+  try {
+    $lines = Get-Content -Path $Path -Tail $Tail -ErrorAction Stop
+    foreach ($line in $lines) {
+      if ($null -eq $line) { continue }
+      $text = ($line | Out-String).TrimEnd()
+      if (-not $text) { continue }
+      Write-Host ($Prefix + ' ' + $text)
+    }
+  } catch {
+    Write-Host ('[DPI] Failed to read log tail from ' + $Path + ': ' + $_.Exception.Message)
+  }
+}
+
+function Find-FileByName {
+  param(
+    [string]$SearchRoot,
+    [string]$Name
+  )
+  try {
+    return Get-ChildItem -Path $SearchRoot -Recurse -File -Filter $Name -ErrorAction SilentlyContinue |
+      Sort-Object FullName |
+      Select-Object -First 1
+  } catch {
+    return $null
+  }
+}
+
 function Normalize-EndpointForReport {
   param(
     [string]$Endpoint,
@@ -2079,49 +2113,147 @@ if (-not $bestEndpoint) {
           throw 'Required winws runtime files are missing (cygwin1.dll/WinDivert.dll).'
         }
         $warpPorts = '${warpPortsStr}'
-        $winwsArgs = "--wf-udp=$warpPorts --udp-fake-count=6 --wf-l3=ipv4"
-        Write-Host ('[DPI] Запускаем winws: ' + $winwsExe.FullName)
-        Write-Host ('[DPI] Параметры: ' + $winwsArgs)
-        $winwsProcess = Start-Process -FilePath $winwsExe.FullName -ArgumentList $winwsArgs -PassThru -WindowStyle Hidden -WorkingDirectory $winwsExe.DirectoryName -ErrorAction Stop
-        Write-Host ('[DPI] winws запущен (PID: ' + $winwsProcess.Id + '). Ожидаем 3 сек...')
-        Start-Sleep -Seconds 3
+        $warpPortCount = ($warpPorts -split ',').Count
+        Write-Host ('[DPI] Портов в тестовом наборе: ' + $warpPortCount)
+        $supportsDirectionalWf = $false
+        try {
+          $helpText = (& $winwsExe.FullName --help 2>&1 | Out-String)
+          if ($helpText -match '--wf-udp-in' -and $helpText -match '--wf-udp-out') {
+            $supportsDirectionalWf = $true
+          }
+        } catch {
+          Write-Host ('[DPI] Не удалось прочитать help winws: ' + $_.Exception.Message)
+        }
+        Write-Host ('[DPI] winws directional filters: ' + ($(if ($supportsDirectionalWf) { 'supported' } else { 'not detected' })))
 
-        Write-Host '[DPI] Повторный скан WARP-эндпоинтов через DPI-bypass...'
-        $dpiCsvPath = Join-Path $workDir 'result-dpi-bypass.csv'
-        & $exe.FullName -all -n 60 -t 5 -c $rescueC -tl 600 -tll 0 -tlr 0.5 -p $workerP -f $ipFile -o $dpiCsvPath
-
-        if (Test-Path $dpiCsvPath) {
-          try {
-            $dpiRows = Import-Csv -Path $dpiCsvPath | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
-            if ($dpiRows -and $dpiRows.Count -gt 0) {
-              $dpiNorm = foreach ($r in $dpiRows) {
-                [PSCustomObject]@{
-                  endpoint  = $r.'IP:Port'
-                  loss      = [double](($r.Loss -replace '%','').Trim())
-                  latencyMs = [double](($r.Latency).Trim())
-                }
-              }
-              $dpiBest = $dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 1
-              if ($dpiBest) {
-                $bestEndpoint = $dpiBest.endpoint
-                $topResults   = @($dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 5)
-                $reportSource = 'windows-local-helper-dpi-bypass'
-                Write-Host ('[DPI] Найден эндпоинт через DPI-bypass: ' + $bestEndpoint)
-              }
-            } else {
-              Write-Host '[DPI] DPI-bypass скан не вернул эндпоинтов.'
+        $winwsProfiles = @()
+        if ($supportsDirectionalWf) {
+          $luaLib = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-lib.lua'
+          $luaAntidpi = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-antidpi.lua'
+          if ($luaLib -and $luaAntidpi) {
+            $winwsProfiles += [PSCustomObject]@{
+              name = 'z2-wireguard-lua'
+              args = @(
+                "--wf-udp-in=$warpPorts",
+                "--wf-udp-out=$warpPorts",
+                "--wf-l3=ipv4",
+                "--filter-l7=wireguard",
+                "--payload=wireguard_initiation,wireguard_cookie",
+                "--lua-init=@$($luaLib.FullName)",
+                "--lua-init=@$($luaAntidpi.FullName)",
+                "--lua-desync=fake:blob=0x00000000000000000000000000000000:repeats=2"
+              )
             }
-          } catch {
-            Write-Host ('[DPI] Ошибка разбора результатов DPI-bypass: ' + $_.Exception.Message)
+            Write-Host '[DPI] Добавлен профиль z2-wireguard-lua (lua-файлы найдены).'
+          } else {
+            Write-Host '[DPI] Lua-файлы для wireguard-профиля не найдены, пропускаем z2-wireguard-lua.'
+          }
+
+          $winwsProfiles += [PSCustomObject]@{
+            name = 'z2-inout-default'
+            args = @(
+              "--wf-udp-in=$warpPorts",
+              "--wf-udp-out=$warpPorts",
+              "--udp-fake-count=6",
+              "--wf-l3=ipv4"
+            )
+          }
+          $winwsProfiles += [PSCustomObject]@{
+            name = 'z2-inout-light'
+            args = @(
+              "--wf-udp-in=$warpPorts",
+              "--wf-udp-out=$warpPorts",
+              "--udp-fake-count=4",
+              "--wf-l3=ipv4"
+            )
+          }
+        }
+        $winwsProfiles += [PSCustomObject]@{
+          name = 'compat-legacy-wf-udp'
+          args = @(
+            "--wf-udp=$warpPorts",
+            "--udp-fake-count=6",
+            "--wf-l3=ipv4"
+          )
+        }
+        Write-Host ('[DPI] Профилей обхода: ' + $winwsProfiles.Count)
+
+        foreach ($profile in $winwsProfiles) {
+          if ($bestEndpoint) { break }
+          $safeProfileName = ($profile.name -replace '[^a-zA-Z0-9_-]', '_')
+          $stdoutLog = Join-Path $workDir ('winws-' + $safeProfileName + '-stdout.log')
+          $stderrLog = Join-Path $workDir ('winws-' + $safeProfileName + '-stderr.log')
+          $dpiCsvPath = Join-Path $workDir ('result-dpi-bypass-' + $safeProfileName + '.csv')
+
+          if (Test-Path $stdoutLog) { Remove-Item -Path $stdoutLog -Force -ErrorAction SilentlyContinue }
+          if (Test-Path $stderrLog) { Remove-Item -Path $stderrLog -Force -ErrorAction SilentlyContinue }
+          if (Test-Path $dpiCsvPath) { Remove-Item -Path $dpiCsvPath -Force -ErrorAction SilentlyContinue }
+
+          try {
+            Write-Host ('[DPI] Профиль: ' + $profile.name)
+            Write-Host ('[DPI] Запускаем winws: ' + $winwsExe.FullName)
+            Write-Host ('[DPI] Параметры: ' + ($profile.args -join ' '))
+            $winwsProcess = Start-Process -FilePath $winwsExe.FullName -ArgumentList $profile.args -PassThru -WindowStyle Hidden -WorkingDirectory $winwsExe.DirectoryName -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -ErrorAction Stop
+            Write-Host ('[DPI] winws запущен (PID: ' + $winwsProcess.Id + '). Ожидаем 3 сек...')
+            Start-Sleep -Seconds 3
+
+            if ($winwsProcess.HasExited) {
+              Write-Host ('[DPI] winws завершился сразу. ExitCode=' + $winwsProcess.ExitCode)
+              Write-LogTail -Path $stdoutLog -Prefix '[DPI][winws stdout]'
+              Write-LogTail -Path $stderrLog -Prefix '[DPI][winws stderr]'
+              continue
+            }
+
+            Write-Host ('[DPI] Повторный скан WARP-эндпоинтов через DPI-bypass (' + $profile.name + ')...')
+            & $exe.FullName -all -n 60 -t 5 -c $rescueC -tl 600 -tll 0 -tlr 0.5 -p $workerP -f $ipFile -o $dpiCsvPath
+
+            if (-not (Test-Path $dpiCsvPath)) {
+              Write-Host ('[DPI] CSV не создан для профиля ' + $profile.name + '.')
+              Write-LogTail -Path $stdoutLog -Prefix '[DPI][winws stdout]'
+              Write-LogTail -Path $stderrLog -Prefix '[DPI][winws stderr]'
+              continue
+            }
+
+            try {
+              $dpiRows = Import-Csv -Path $dpiCsvPath | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
+              if ($dpiRows -and $dpiRows.Count -gt 0) {
+                Write-Host ('[DPI] Профиль ' + $profile.name + ' вернул строк: ' + $dpiRows.Count)
+                $dpiNorm = foreach ($r in $dpiRows) {
+                  [PSCustomObject]@{
+                    endpoint  = $r.'IP:Port'
+                    loss      = [double](($r.Loss -replace '%','').Trim())
+                    latencyMs = [double](($r.Latency).Trim())
+                  }
+                }
+                $dpiBest = $dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 1
+                if ($dpiBest) {
+                  $bestEndpoint = $dpiBest.endpoint
+                  $topResults   = @($dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 5)
+                  $reportSource = 'windows-local-helper-dpi-bypass'
+                  Write-Host ('[DPI] Найден эндпоинт через DPI-bypass (' + $profile.name + '): ' + $bestEndpoint)
+                }
+              } else {
+                Write-Host ('[DPI] Профиль ' + $profile.name + ' не вернул эндпоинтов.')
+                Write-LogTail -Path $stdoutLog -Prefix '[DPI][winws stdout]'
+                Write-LogTail -Path $stderrLog -Prefix '[DPI][winws stderr]'
+              }
+            } catch {
+              Write-Host ('[DPI] Ошибка разбора результатов DPI-bypass (' + $profile.name + '): ' + $_.Exception.Message)
+              Write-LogTail -Path $stdoutLog -Prefix '[DPI][winws stdout]'
+              Write-LogTail -Path $stderrLog -Prefix '[DPI][winws stderr]'
+            }
+          } finally {
+            if ($winwsProcess) {
+              if (-not $winwsProcess.HasExited) {
+                Write-Host ('[DPI] Останавливаем winws (PID: ' + $winwsProcess.Id + ')...')
+                Stop-Process -Id $winwsProcess.Id -Force -ErrorAction SilentlyContinue
+              }
+              $winwsProcess = $null
+            }
           }
         }
       } catch {
         Write-Host ('[DPI] Ошибка запуска winws: ' + $_.Exception.Message)
-      } finally {
-        if ($winwsProcess -and -not $winwsProcess.HasExited) {
-          Write-Host '[DPI] Останавливаем winws...'
-          Stop-Process -Id $winwsProcess.Id -Force -ErrorAction SilentlyContinue
-        }
       }
     } else {
       Write-Host '[DPI] winws не найден. DPI-bypass недоступен.'
