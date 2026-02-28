@@ -1494,6 +1494,7 @@ function buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates 
             .filter((item) => item && net.isIP(item.host) === 4)
             .map((item) => item.host),
     );
+    const warpPortsStr = ALLOWED_WARP_PORTS.join(',');
     return `# Cloudflare WARP local endpoint speedtest helper
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -1702,6 +1703,115 @@ if ($normalized -and $normalized.Count -gt 0) {
   }
 }
 
+
+# === [DPI BYPASS] zapret/winws — автоматический обход DPI ===
+if (-not $bestEndpoint) {
+  Write-Host ''
+  Write-Host '=== [DPI] Все прямые попытки не дали эндпоинтов. Пробуем обход DPI через zapret (winws)... ==='
+  $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if (-not $isAdmin) {
+    Write-Host '[DPI] Для WinDivert нужны права администратора.'
+    Write-Host '[DPI] Закройте это окно и запустите .bat правой кнопкой -> "Запуск от имени администратора".'
+  } else {
+    $winwsProcess = $null
+    $winwsExe = $null
+    $zapretDir = Join-Path $workDir 'zapret'
+
+    # --- Шаг 1: скачать zapret2 (bol-van/zapret2) ---
+    try {
+      Write-Host '[DPI] Получаем информацию о релизе zapret2...'
+      $z2Release = Invoke-RestMethod -Uri 'https://api.github.com/repos/bol-van/zapret2/releases/latest' -ErrorAction Stop
+      $z2Asset = $z2Release.assets | Where-Object { $_.name -match 'win' -and $_.name -like '*.zip' } | Select-Object -First 1
+      if ($z2Asset) {
+        $z2Zip = Join-Path $workDir ('zapret2-' + $z2Asset.name)
+        Write-Host ('[DPI] Скачиваем ' + $z2Asset.name + '...')
+        Invoke-WebRequest -Uri $z2Asset.browser_download_url -OutFile $z2Zip -ErrorAction Stop
+        New-Item -ItemType Directory -Path $zapretDir -Force | Out-Null
+        Expand-Archive -Path $z2Zip -DestinationPath $zapretDir -Force
+        $winwsExe = Get-ChildItem -Path $zapretDir -Recurse -Filter 'winws2.exe' | Select-Object -First 1
+        if (-not $winwsExe) {
+          $winwsExe = Get-ChildItem -Path $zapretDir -Recurse -Filter 'winws.exe' | Select-Object -First 1
+        }
+        if ($winwsExe) { Write-Host ('[DPI] Найден: ' + $winwsExe.FullName) }
+      }
+    } catch {
+      Write-Host ('[DPI] zapret2 недоступен: ' + $_.Exception.Message)
+    }
+
+    # --- Шаг 2: fallback — оригинальный zapret (bol-van/zapret) ---
+    if (-not $winwsExe) {
+      try {
+        Write-Host '[DPI] Пробуем оригинальный zapret (bol-van/zapret)...'
+        $z1Release = Invoke-RestMethod -Uri 'https://api.github.com/repos/bol-van/zapret/releases/latest' -ErrorAction Stop
+        $z1Asset = $z1Release.assets | Where-Object { $_.name -match 'win' -and $_.name -like '*.zip' } | Select-Object -First 1
+        if ($z1Asset) {
+          $z1Zip = Join-Path $workDir ('zapret-' + $z1Asset.name)
+          Write-Host ('[DPI] Скачиваем ' + $z1Asset.name + '...')
+          Invoke-WebRequest -Uri $z1Asset.browser_download_url -OutFile $z1Zip -ErrorAction Stop
+          if (-not (Test-Path $zapretDir)) { New-Item -ItemType Directory -Path $zapretDir -Force | Out-Null }
+          Expand-Archive -Path $z1Zip -DestinationPath $zapretDir -Force
+          $winwsExe = Get-ChildItem -Path $zapretDir -Recurse -Filter 'winws.exe' | Select-Object -First 1
+          if ($winwsExe) { Write-Host ('[DPI] Найден: ' + $winwsExe.FullName) }
+        }
+      } catch {
+        Write-Host ('[DPI] zapret недоступен: ' + $_.Exception.Message)
+      }
+    }
+
+    # --- Шаг 3: запустить winws и повторить скан ---
+    if ($winwsExe) {
+      try {
+        $warpPorts = '${warpPortsStr}'
+        $winwsArgs = "--wf-udp=$warpPorts --udp-fake-count=6 --wf-l3=ipv4"
+        Write-Host ('[DPI] Запускаем winws: ' + $winwsExe.FullName)
+        Write-Host ('[DPI] Параметры: ' + $winwsArgs)
+        $winwsProcess = Start-Process -FilePath $winwsExe.FullName -ArgumentList $winwsArgs -PassThru -WindowStyle Hidden -ErrorAction Stop
+        Write-Host ('[DPI] winws запущен (PID: ' + $winwsProcess.Id + '). Ожидаем 3 сек...')
+        Start-Sleep -Seconds 3
+
+        Write-Host '[DPI] Повторный скан WARP-эндпоинтов через DPI-bypass...'
+        $dpiCsvPath = Join-Path $workDir 'result-dpi-bypass.csv'
+        & $exe.FullName -all -n 60 -t 5 -c $rescueC -tl 600 -tll 0 -tlr 0.5 -p $workerP -f $ipFile -o $dpiCsvPath
+
+        if (Test-Path $dpiCsvPath) {
+          try {
+            $dpiRows = Import-Csv -Path $dpiCsvPath | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
+            if ($dpiRows -and $dpiRows.Count -gt 0) {
+              $dpiNorm = foreach ($r in $dpiRows) {
+                [PSCustomObject]@{
+                  endpoint  = $r.'IP:Port'
+                  loss      = [double](($r.Loss -replace '%','').Trim())
+                  latencyMs = [double](($r.Latency).Trim())
+                }
+              }
+              $dpiBest = $dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 1
+              if ($dpiBest) {
+                $bestEndpoint = $dpiBest.endpoint
+                $topResults   = @($dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 5)
+                $reportSource = 'windows-local-helper-dpi-bypass'
+                Write-Host ('[DPI] Найден эндпоинт через DPI-bypass: ' + $bestEndpoint)
+              }
+            } else {
+              Write-Host '[DPI] DPI-bypass скан не вернул эндпоинтов.'
+            }
+          } catch {
+            Write-Host ('[DPI] Ошибка разбора результатов DPI-bypass: ' + $_.Exception.Message)
+          }
+        }
+      } catch {
+        Write-Host ('[DPI] Ошибка запуска winws: ' + $_.Exception.Message)
+      } finally {
+        if ($winwsProcess -and -not $winwsProcess.HasExited) {
+          Write-Host '[DPI] Останавливаем winws...'
+          Stop-Process -Id $winwsProcess.Id -Force -ErrorAction SilentlyContinue
+        }
+      }
+    } else {
+      Write-Host '[DPI] winws не найден. DPI-bypass недоступен.'
+    }
+  }
+}
+
 if (-not $bestEndpoint) {
   $bestEndpoint = $fallbackEndpoints | Select-Object -First 1
   $reportSource = 'windows-local-helper-fallback'
@@ -1731,17 +1841,37 @@ setlocal
 set "PS1_URL=${ps1Url}"
 set "PS1_FILE=%TEMP%\\warp-speedtest-${sessionId}.ps1"
 
-echo Downloading helper script...
+echo WARP Endpoint Speedtest
+echo ========================
+echo.
+echo [Info] Если WARP-эндпоинты заблокированы DPI, скрипт автоматически
+echo        попробует обход через zapret/winws.
+echo [Info] Для DPI-bypass нужны права администратора.
+echo        Если скрипт попросит - перезапустите .bat правой кнопкой:
+echo        "Запуск от имени администратора"
+echo.
+
+:: Проверяем, запущены ли от администратора
+net session >nul 2>&1
+if %errorLevel% equ 0 (
+  echo [OK] Запущено от имени администратора. DPI-bypass будет доступен.
+) else (
+  echo [Warning] Запущено без прав администратора.
+  echo           Если потребуется DPI-bypass, перезапустите как администратор.
+)
+echo.
+
+echo Скачиваем вспомогательный скрипт...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -Uri '%PS1_URL%' -OutFile '%PS1_FILE%'; & '%PS1_FILE%' } catch { Write-Host $_; exit 1 }"
 if errorlevel 1 (
   echo.
-  echo Failed to run local WARP speedtest helper.
+  echo Ошибка запуска WARP speedtest.
   pause
   exit /b 1
 )
 
 echo.
-echo Finished. Return to your browser page.
+echo Готово. Вернитесь на страницу сайта.
 pause
 `;
 }

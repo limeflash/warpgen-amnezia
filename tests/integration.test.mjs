@@ -157,6 +157,62 @@ test('Windows speedtest helper script contains fallback endpoint logic', async (
   assert.match(scriptText, /\$candidateHostName\s*=/);
 });
 
+test('Windows speedtest PS1 script contains DPI bypass via zapret block', async () => {
+  const sessionResp = await fetch(`${BASE}/api/speedtest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(sessionResp.status, 200);
+  const { downloadPath } = await sessionResp.json();
+
+  const scriptResp = await fetch(`${BASE}${downloadPath}`);
+  assert.equal(scriptResp.status, 200);
+  const scriptText = await scriptResp.text();
+
+  // DPI bypass block is present
+  assert.match(scriptText, /\[DPI BYPASS\] zapret\/winws/);
+  assert.match(scriptText, /bol-van\/zapret2\/releases\/latest/);
+  assert.match(scriptText, /bol-van\/zapret\/releases\/latest/);
+  assert.match(scriptText, /winws2\.exe/);
+  assert.match(scriptText, /winws\.exe/);
+  assert.match(scriptText, /udp-fake-count=6/);
+  assert.match(scriptText, /wf-udp=/);
+  assert.match(scriptText, /wf-l3=ipv4/);
+  assert.match(scriptText, /windows-local-helper-dpi-bypass/);
+  assert.match(scriptText, /result-dpi-bypass\.csv/);
+
+  // WARP ports are embedded
+  assert.match(scriptText, /500,854/);
+  assert.match(scriptText, /2408/);
+  assert.match(scriptText, /4500/);
+
+  // Admin check is present
+  assert.match(scriptText, /WindowsPrincipal/);
+  assert.match(scriptText, /WindowsBuiltInRole/);
+});
+
+test('Windows .bat script contains admin check and DPI info', async () => {
+  const sessionResp = await fetch(`${BASE}/api/speedtest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(sessionResp.status, 200);
+  const { downloadBatPath } = await sessionResp.json();
+  assert.ok(typeof downloadBatPath === 'string' && downloadBatPath.length > 0);
+
+  const batResp = await fetch(`${BASE}${downloadBatPath}`);
+  assert.equal(batResp.status, 200);
+  const batText = await batResp.text();
+
+  assert.match(batText, /@echo off/);
+  assert.match(batText, /net session/);
+  assert.match(batText, /DPI/);
+  assert.match(batText, /администратор/i);
+  assert.match(batText, /Invoke-WebRequest/);
+});
+
 test('Clash import parses WireGuard config text', async () => {
   const rawConfig = [
     '[Interface]',
