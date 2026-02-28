@@ -326,6 +326,15 @@ const WARP_ENDPOINTS = WARP_ENDPOINT_GROUPS.reduce((acc, group) => {
 
 const SPEEDTEST_SESSION_TTL_MS = 20 * 60 * 1000;
 const SPEEDTEST_SESSIONS = new Map();
+const SPEEDTEST_LAST_GOOD_BY_IP = new Map();
+const SPEEDTEST_ENDPOINT_STATS = new Map();
+const SPEEDTEST_DEFAULT_FALLBACK_ENDPOINTS = [
+    '162.159.192.5:2408',
+    '162.159.192.1:2408',
+    '162.159.195.1:1701',
+    '162.159.195.2:908',
+    '162.159.192.18:908',
+];
 const CLASH_PROFILE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CLASH_PROFILES = new Map();
 const WARP_WIREGUARD_PUBLIC_KEY = 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=';
@@ -1406,18 +1415,76 @@ function cleanupSpeedtestSessions() {
     }
 }
 
-function buildWindowsSpeedtestScript({ sessionId, reportUrl }) {
+function normalizeEndpointForStats(endpoint) {
+    const parsed = parseEndpointHostPort(endpoint);
+    if (!parsed) return null;
+    if (!isAllowedWarpPort(parsed.port)) return null;
+    const hostAllowed = isAllowedWarpResultIp(parsed.host) || isAllowedWarpResultHost(parsed.host);
+    if (!hostAllowed) return null;
+    return `${parsed.host}:${parsed.port}`;
+}
+
+function recordSpeedtestEndpointStat(clientIp, endpoint) {
+    const normalized = normalizeEndpointForStats(endpoint);
+    if (!normalized) return;
+    if (typeof clientIp === 'string' && clientIp.trim()) {
+        SPEEDTEST_LAST_GOOD_BY_IP.set(clientIp.trim(), normalized);
+    }
+    const current = SPEEDTEST_ENDPOINT_STATS.get(normalized) || { hits: 0, lastSeen: 0 };
+    current.hits += 1;
+    current.lastSeen = Date.now();
+    SPEEDTEST_ENDPOINT_STATS.set(normalized, current);
+}
+
+function getAdaptiveSpeedtestFallbackEndpoints(clientIp) {
+    const out = new Set();
+    const key = typeof clientIp === 'string' ? clientIp.trim() : '';
+    if (key && SPEEDTEST_LAST_GOOD_BY_IP.has(key)) {
+        out.add(SPEEDTEST_LAST_GOOD_BY_IP.get(key));
+    }
+
+    const rankedGlobal = Array.from(SPEEDTEST_ENDPOINT_STATS.entries())
+        .sort((a, b) => {
+            const hitsDiff = (b[1]?.hits || 0) - (a[1]?.hits || 0);
+            if (hitsDiff !== 0) return hitsDiff;
+            return (b[1]?.lastSeen || 0) - (a[1]?.lastSeen || 0);
+        })
+        .slice(0, 12)
+        .map(([endpoint]) => endpoint);
+    for (const endpoint of rankedGlobal) out.add(endpoint);
+
+    for (const endpoint of SPEEDTEST_DEFAULT_FALLBACK_ENDPOINTS) out.add(endpoint);
+    return Array.from(out).filter((endpoint) => !!normalizeEndpointForStats(endpoint));
+}
+
+function buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates = [] }) {
     const staticIps = [
         ...Array.from({ length: 20 }, (_, idx) => `162.159.192.${idx + 1}`),
         ...Array.from({ length: 10 }, (_, idx) => `162.159.195.${idx + 1}`),
     ];
     const psIpArray = staticIps.map((ip) => `'${ip}'`).join(', ');
+    const safeFallbackCandidates = Array.isArray(fallbackCandidates) && fallbackCandidates.length
+        ? fallbackCandidates
+        : SPEEDTEST_DEFAULT_FALLBACK_ENDPOINTS;
+    const fallbackEndpointsJson = JSON.stringify(safeFallbackCandidates.map((x) => String(x || '').trim()).filter(Boolean));
+    const fallbackIpJson = JSON.stringify(
+        safeFallbackCandidates
+            .map((endpoint) => parseEndpointHostPort(endpoint))
+            .filter((item) => item && net.isIP(item.host) === 4)
+            .map((item) => item.host),
+    );
     return `# Cloudflare WARP local endpoint speedtest helper
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $sessionId = '${sessionId}'
 $reportUrl = '${reportUrl}'
+$fallbackEndpoints = ConvertFrom-Json @'
+${fallbackEndpointsJson}
+'@
+$fallbackIps = ConvertFrom-Json @'
+${fallbackIpJson}
+'@
 $workDir = Join-Path $env:TEMP ('warp-speedtest-' + $sessionId)
 if (Test-Path $workDir) { Remove-Item -Recurse -Force $workDir }
 New-Item -ItemType Directory -Path $workDir | Out-Null
@@ -1476,6 +1543,80 @@ if ($rows -and $rows.Count -gt 0) {
   }
 }
 
+if (-not $normalized -or $normalized.Count -eq 0) {
+  Write-Host 'No endpoints from primary pass. Running rescue pass with relaxed thresholds...'
+  $rescueIps = ($allIps + $fallbackIps) | Sort-Object -Unique
+  $rescueFile = Join-Path $workDir 'ip-rescue.txt'
+  $rescueIps | Set-Content -Path $rescueFile -Encoding ascii
+  $rescueCsv = Join-Path $workDir 'result-rescue.csv'
+  & $exe.FullName -all -n 25 -t 3 -c 3000 -tl 1200 -tll 0 -tlr 1 -p 10 -f $rescueFile -o $rescueCsv
+
+  if (Test-Path $rescueCsv) {
+    try {
+      $rescueRows = Import-Csv -Path $rescueCsv | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
+      if ($rescueRows -and $rescueRows.Count -gt 0) {
+        $normalized = foreach ($r in $rescueRows) {
+          [PSCustomObject]@{
+            endpoint = $r.'IP:Port'
+            loss = [double](($r.Loss -replace '%', '').Trim())
+            latencyMs = [double](($r.Latency).Trim())
+          }
+        }
+      }
+    } catch {
+      Write-Host ('Failed to parse rescue speedtest CSV: ' + $_.Exception.Message)
+    }
+  }
+}
+
+if (-not $normalized -or $normalized.Count -eq 0) {
+  Write-Host 'Rescue pass returned no endpoints. Trying candidate-by-candidate check...'
+  foreach ($candidate in $fallbackEndpoints) {
+    if (-not $candidate) { continue }
+    $parts = $candidate -split ':'
+    if ($parts.Count -lt 2) { continue }
+    $candidateHost = $parts[0].Trim()
+    $candidatePort = $parts[1].Trim()
+    if (-not $candidateHost -or -not $candidatePort) { continue }
+
+    $candidateIpFile = Join-Path $workDir ('ip-candidate-' + ($candidateHost -replace '[^a-zA-Z0-9]', '_') + '.txt')
+    @($candidateHost) | Set-Content -Path $candidateIpFile -Encoding ascii
+    $candidateCsv = Join-Path $workDir ('result-candidate-' + ($candidateHost -replace '[^a-zA-Z0-9]', '_') + '.csv')
+
+    & $exe.FullName -all -n 12 -t 2 -c 1500 -tl 2000 -tll 0 -tlr 1 -p 5 -f $candidateIpFile -o $candidateCsv
+    if (-not (Test-Path $candidateCsv)) { continue }
+
+    try {
+      $candidateRows = Import-Csv -Path $candidateCsv | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
+      if (-not $candidateRows -or $candidateRows.Count -eq 0) { continue }
+
+      $candidateNorm = foreach ($r in $candidateRows) {
+        [PSCustomObject]@{
+          endpoint = $r.'IP:Port'
+          loss = [double](($r.Loss -replace '%', '').Trim())
+          latencyMs = [double](($r.Latency).Trim())
+        }
+      }
+
+      $exactMatch = $candidateNorm | Where-Object { $_.endpoint -eq $candidate } | Sort-Object loss, latencyMs | Select-Object -First 1
+      if ($exactMatch) {
+        $normalized = @($exactMatch)
+        Write-Host ('Found exact candidate endpoint: ' + $candidate)
+        break
+      }
+
+      $bestCandidateHost = $candidateNorm | Sort-Object loss, latencyMs | Select-Object -First 1
+      if ($bestCandidateHost) {
+        $normalized = @($bestCandidateHost)
+        Write-Host ('Found working endpoint on candidate host ' + $candidateHost + ': ' + $bestCandidateHost.endpoint)
+        break
+      }
+    } catch {
+      Write-Host ('Candidate check parse failed for ' + $candidate + ': ' + $_.Exception.Message)
+    }
+  }
+}
+
 $bestEndpoint = $null
 $topResults = @()
 $reportSource = 'windows-local-helper'
@@ -1488,14 +1629,7 @@ if ($normalized -and $normalized.Count -gt 0) {
 }
 
 if (-not $bestEndpoint) {
-  $fallbackCandidates = @(
-    '162.159.192.5:2408',
-    '162.159.192.1:2408',
-    '162.159.195.1:1701',
-    '162.159.195.2:908',
-    '162.159.192.18:908'
-  )
-  $bestEndpoint = $fallbackCandidates | Select-Object -First 1
+  $bestEndpoint = $fallbackEndpoints | Select-Object -First 1
   $reportSource = 'windows-local-helper-fallback'
   Write-Host ('No available endpoints from local speedtest. Using fallback endpoint: ' + $bestEndpoint)
 }
@@ -1747,7 +1881,8 @@ app.get('/api/speedtest/windows-script/:sessionId', (req, res) => {
     if (!session) return res.status(404).send('Session not found or expired.');
 
     const reportUrl = `${getRequestBaseUrl(req)}/api/speedtest/report`;
-    const script = buildWindowsSpeedtestScript({ sessionId, reportUrl });
+    const fallbackCandidates = getAdaptiveSpeedtestFallbackEndpoints(session.clientIp);
+    const script = buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates });
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="warp-speedtest-${sessionId}.ps1"`);
     res.send(script);
@@ -1786,6 +1921,7 @@ app.post('/api/speedtest/report', (req, res) => {
     const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
     const bestEndpoint = typeof req.body?.bestEndpoint === 'string' ? req.body.bestEndpoint.trim() : '';
     const topResults = Array.isArray(req.body?.topResults) ? req.body.topResults.slice(0, 10) : [];
+    const source = typeof req.body?.source === 'string' ? req.body.source.trim() : '';
     if (!sessionId || !bestEndpoint) {
         return res.status(400).json({ error: 'sessionId and bestEndpoint are required.' });
     }
@@ -1808,7 +1944,12 @@ app.post('/api/speedtest/report', (req, res) => {
         topResults,
         reportedAt: new Date().toISOString(),
         reporterIp: getClientIp(req),
+        source,
     };
+
+    if (!source.includes('fallback')) {
+        recordSpeedtestEndpointStat(session.clientIp, session.result.bestEndpoint);
+    }
 
     res.json({ ok: true, bestEndpoint: session.result.bestEndpoint });
 });
