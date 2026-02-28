@@ -328,12 +328,18 @@ const SPEEDTEST_SESSION_TTL_MS = 20 * 60 * 1000;
 const SPEEDTEST_SESSIONS = new Map();
 const SPEEDTEST_LAST_GOOD_BY_IP = new Map();
 const SPEEDTEST_ENDPOINT_STATS = new Map();
+const SPEEDTEST_FALLBACK_CURSOR_BY_IP = new Map();
 const SPEEDTEST_DEFAULT_FALLBACK_ENDPOINTS = [
+    'engage.cloudflareclient.com:2408',
+    'engage.cloudflareclient.com:1701',
+    'engage.cloudflareclient.com:908',
     '162.159.192.5:2408',
     '162.159.192.1:2408',
     '162.159.195.1:1701',
     '162.159.195.2:908',
     '162.159.192.18:908',
+    '162.159.195.1:1843',
+    '162.159.192.15:7559',
 ];
 const CLASH_PROFILE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CLASH_PROFILES = new Map();
@@ -1436,6 +1442,20 @@ function recordSpeedtestEndpointStat(clientIp, endpoint) {
     SPEEDTEST_ENDPOINT_STATS.set(normalized, current);
 }
 
+function getRotatedDefaultFallbackEndpoints(clientIp) {
+    const defaults = SPEEDTEST_DEFAULT_FALLBACK_ENDPOINTS.filter((endpoint) => !!normalizeEndpointForStats(endpoint));
+    if (!defaults.length) return [];
+
+    const key = typeof clientIp === 'string' ? clientIp.trim() : '';
+    if (!key) return defaults;
+
+    const cursor = Number.parseInt(String(SPEEDTEST_FALLBACK_CURSOR_BY_IP.get(key) || 0), 10);
+    const safeCursor = Number.isFinite(cursor) ? cursor : 0;
+    const start = ((safeCursor % defaults.length) + defaults.length) % defaults.length;
+    SPEEDTEST_FALLBACK_CURSOR_BY_IP.set(key, (start + 1) % defaults.length);
+    return defaults.slice(start).concat(defaults.slice(0, start));
+}
+
 function getAdaptiveSpeedtestFallbackEndpoints(clientIp) {
     const out = new Set();
     const key = typeof clientIp === 'string' ? clientIp.trim() : '';
@@ -1453,7 +1473,8 @@ function getAdaptiveSpeedtestFallbackEndpoints(clientIp) {
         .map(([endpoint]) => endpoint);
     for (const endpoint of rankedGlobal) out.add(endpoint);
 
-    for (const endpoint of SPEEDTEST_DEFAULT_FALLBACK_ENDPOINTS) out.add(endpoint);
+    const rotatedDefaults = getRotatedDefaultFallbackEndpoints(clientIp);
+    for (const endpoint of rotatedDefaults) out.add(endpoint);
     return Array.from(out).filter((endpoint) => !!normalizeEndpointForStats(endpoint));
 }
 
@@ -1587,8 +1608,8 @@ if ($normalized -and $normalized.Count -gt 0) {
     if (-not $candidate.endpoint) { continue }
     $candidateParts = $candidate.endpoint -split ':'
     if ($candidateParts.Count -lt 1) { continue }
-    $host = $candidateParts[0].Trim()
-    if ($host) { $qualityHosts += $host }
+    $candidateHostName = $candidateParts[0].Trim()
+    if ($candidateHostName) { $qualityHosts += $candidateHostName }
   }
   $qualityHosts = @($qualityHosts | Sort-Object -Unique)
 

@@ -153,6 +153,8 @@ test('Windows speedtest helper script contains fallback endpoint logic', async (
   assert.match(scriptText, /candidate-by-candidate check/);
   assert.match(scriptText, /windows-local-helper-fallback/);
   assert.match(scriptText, /162\.159\.192\.5:2408/);
+  assert.doesNotMatch(scriptText, /\$host\s*=/i);
+  assert.match(scriptText, /\$candidateHostName\s*=/);
 });
 
 test('Clash import parses WireGuard config text', async () => {
