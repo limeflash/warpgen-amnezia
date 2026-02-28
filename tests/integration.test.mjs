@@ -401,3 +401,82 @@ test('Clash profile URL returns YAML profile', async () => {
   assert.match(yamlText, /rules:/);
   assert.match(yamlText, /DOMAIN-SUFFIX,discord\.com,WARP Auto/);
 });
+
+test('WireSock selective with cs2 generates AllowedProcesses section', async () => {
+  const resp = await fetch(`${BASE}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      configType: 'wiresock',
+      splitMode: 'selective',
+      splitTargets: ['cs2'],
+      endpointIp: '162.159.192.5',
+      endpointPort: '2408',
+    }),
+  });
+  assert.equal(resp.status, 200);
+  const body = await resp.json();
+  assert.equal(body.configType, 'wiresock');
+  assert.equal(body.splitTunnel.mode, 'selective');
+  assert.match(body.config, /\[WireSock\]/);
+  assert.match(body.config, /AllowedProcesses\s*=.*cs2\.exe/);
+});
+
+test('Split targets API lists gaming targets with processes', async () => {
+  const resp = await fetch(`${BASE}/api/split-targets`);
+  assert.equal(resp.status, 200);
+  const body = await resp.json();
+  const byKey = Object.fromEntries(body.targets.map((t) => [t.key, t]));
+  // Gaming targets have processes
+  assert.ok(byKey.cs2.hasProcesses);
+  assert.ok(byKey.cs2.processes.includes('cs2.exe'));
+  assert.ok(byKey.steam.hasProcesses);
+  assert.ok(byKey.steam.processes.includes('steam.exe'));
+  assert.ok(byKey.faceit.hasProcesses);
+  assert.ok(byKey.faceit.processes.includes('faceit.exe'));
+  // Discord has no processes (not a game-based process target)
+  assert.ok(!byKey.discord.hasProcesses);
+});
+
+test('Split targets API lists all four AI service targets', async () => {
+  const resp = await fetch(`${BASE}/api/split-targets`);
+  assert.equal(resp.status, 200);
+  const body = await resp.json();
+  const keys = new Set(body.targets.map((t) => t.key));
+  for (const required of ['chatgpt', 'claude_ai', 'gemini', 'grok']) {
+    assert.ok(keys.has(required), `Missing AI target: ${required}`);
+  }
+  // AI targets have static CIDRs
+  const byKey = Object.fromEntries(body.targets.map((t) => [t.key, t]));
+  assert.ok(byKey.chatgpt.cidrCount > 0);
+  assert.ok(byKey.claude_ai.cidrCount > 0);
+  assert.ok(byKey.gemini.cidrCount > 0);
+  assert.ok(byKey.grok.cidrCount > 0);
+});
+
+test('Split targets API: gaming targets have correct process lists for combined gaming preset', async () => {
+  const resp = await fetch(`${BASE}/api/split-targets`);
+  assert.equal(resp.status, 200);
+  const body = await resp.json();
+  const byKey = Object.fromEntries(body.targets.map((t) => [t.key, t]));
+  // Verify all gaming targets used in combined preset have the right executables
+  assert.ok(byKey.cs2.processes.includes('cs2.exe'));
+  assert.ok(byKey.steam.processes.includes('steam.exe'));
+  assert.ok(byKey.steam.processes.includes('steamwebhelper.exe'));
+  assert.ok(byKey.faceit.processes.includes('faceit.exe'));
+  assert.ok(byKey.battle_net.processes.includes('Battle.net.exe'));
+  assert.ok(byKey.pubg.processes.includes('TslGame.exe'));
+  assert.ok(byKey.hearthstone.processes.includes('Hearthstone.exe'));
+  assert.ok(byKey.apex_legends.processes.includes('r5apex.exe'));
+  assert.ok(byKey.ea_app.processes.includes('EADesktop.exe'));
+});
+
+test('Discord target has Cloudflare CIDRs as static fallback entries', async () => {
+  const resp = await fetch(`${BASE}/api/split-targets`);
+  assert.equal(resp.status, 200);
+  const body = await resp.json();
+  const discord = body.targets.find((t) => t.key === 'discord');
+  assert.ok(discord, 'discord target must exist');
+  assert.ok(discord.cidrCount > 0, 'discord must have static CIDRs');
+  assert.ok(discord.domainCount > 10, 'discord must have many domains');
+});

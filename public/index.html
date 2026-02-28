@@ -755,6 +755,7 @@
         <div class="split-tools">
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('social')">Часто нужно</button>
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('gaming')">Игры</button>
+          <button type="button" class="split-tool-btn" onclick="applySplitPreset('ai')">AI / Нейросети</button>
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('ru_direct')">geosite:ru</button>
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('all')">Выбрать всё</button>
           <button type="button" class="split-tool-btn" onclick="applySplitPreset('clear')">Очистить</button>
@@ -784,10 +785,14 @@
           <label class="split-item"><input type="checkbox" data-split-target value="cs2"><span>CS2</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="hearthstone"><span>Hearthstone</span></label>
           <label class="split-item"><input type="checkbox" data-split-target value="pubg"><span>PUBG</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="chatgpt"><span>ChatGPT (OpenAI)</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="claude_ai"><span>Claude (Anthropic)</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="gemini"><span>Gemini (Google AI)</span></label>
+          <label class="split-item"><input type="checkbox" data-split-target value="grok"><span>Grok (xAI)</span></label>
         </div>
 
         <div class="split-note">
-          Для игровых сервисов это best effort: IP бэкендов часто меняются, иногда требуется обновить конфиг.
+          Для игровых сервисов это best effort: IP бэкендов часто меняются, иногда требуется обновить конфиг. В WireSock при выборе игр автоматически добавляется <code>AllowedProcesses</code> — трафик нужных .exe туннелируется точно, даже без полного списка IP.
         </div>
       </div>
     </div>
@@ -906,6 +911,7 @@
     const SPLIT_PRESETS = {
       social: ['discord', 'youtube', 'x_com', 'instagram', 'twitch', 'telegram', 'whatsapp', 'viber', 'tiktok', 'ipcheck_2ip', 'speedtest', 'fast_com', 'whoer'],
       gaming: ['steam', 'faceit', 'apex_legends', 'ea_app', 'battle_net', 'cs2', 'hearthstone', 'pubg'],
+      ai: ['chatgpt', 'claude_ai', 'gemini', 'grok'],
       ru_direct: ['geosite_ru'],
     };
 

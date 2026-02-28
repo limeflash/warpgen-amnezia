@@ -667,8 +667,8 @@ const SPLIT_TUNNEL_TARGETS = {
     instagram: { label: 'Instagram', domains: ['instagram.com', 'www.instagram.com', 'ig.me', 'scontent.cdninstagram.com'] },
     twitch: { label: 'Twitch', domains: ['twitch.tv', 'www.twitch.tv', 'gql.twitch.tv', 'usher.ttvnw.net', 'static-cdn.jtvnw.net'] },
     telegram: { label: 'Telegram', domains: ['telegram.org', 't.me', 'telegram.me', 'tdesktop.com'] },
-    steam: { label: 'Steam', domains: ['steampowered.com', 'store.steampowered.com', 'api.steampowered.com', 'steamcommunity.com', 'steam-chat.com', 'community.cloudflare.steamstatic.com', 'cdn.cloudflare.steamstatic.com'] },
-    faceit: { label: 'FACEIT', domains: ['faceit.com', 'www.faceit.com', 'open.faceit.com', 'api.faceit.com', 'anticheat-client.faceit.com', 'cdn.faceit.com'], cidrs: ['185.69.168.0/24', '193.41.200.0/24', '77.80.253.0/24', '77.80.254.0/24', '77.80.255.0/24', '2a05:2240::/32'] },
+    steam: { label: 'Steam', domains: ['steampowered.com', 'store.steampowered.com', 'api.steampowered.com', 'steamcommunity.com', 'steam-chat.com', 'community.cloudflare.steamstatic.com', 'cdn.cloudflare.steamstatic.com'], processes: ['steam.exe', 'steamwebhelper.exe'] },
+    faceit: { label: 'FACEIT', domains: ['faceit.com', 'www.faceit.com', 'open.faceit.com', 'api.faceit.com', 'anticheat-client.faceit.com', 'cdn.faceit.com'], cidrs: ['185.69.168.0/24', '193.41.200.0/24', '77.80.253.0/24', '77.80.254.0/24', '77.80.255.0/24', '2a05:2240::/32'], processes: ['faceit.exe', 'FaceitClient.exe'] },
     whatsapp: { label: 'WhatsApp', domains: ['whatsapp.com', 'whatsapp.net'] },
     viber: { label: 'Viber', domains: ['viber.com', 'download.cdn.viber.com', 'dl-media.viber.com'] },
     jetbrains: { label: 'JetBrains', domains: ['jetbrains.com', 'download.jetbrains.com', 'plugins.jetbrains.com', 'account.jetbrains.com'] },
@@ -687,23 +687,95 @@ const SPLIT_TUNNEL_TARGETS = {
             'nalog.gov.ru', 'mos.ru', 'moex.com', 'hh.ru', '2gis.ru', 'pikabu.ru', 'habr.com', 'yaplakal.com',
         ],
     },
-    apex_legends: { label: 'Apex Legends', domains: ['apexlegends.com', 'www.playapex.com', 'respawn.com', 'ea.com', 'www.ea.com', 'origin.com', 'accounts.ea.com', 'gateway.ea.com', 'api1.origin.com', 'download.dm.origin.com', 'origin-a.akamaihd.net'] },
-    ea_app: { label: 'EA App', domains: ['ea.com', 'www.ea.com', 'origin.com', 'accounts.ea.com', 'gateway.ea.com', 'api1.origin.com', 'download.dm.origin.com', 'origin-a.akamaihd.net', 'eaassets-a.akamaihd.net'] },
-    battle_net: { label: 'Battle.net', domains: ['battle.net', 'www.battle.net', 'blizzard.com', 'www.blizzard.com', 'us.patch.battle.net', 'eu.patch.battle.net', 'blzddist1-a.akamaihd.net'] },
-    cs2: { label: 'CS2', domains: ['steampowered.com', 'store.steampowered.com', 'api.steampowered.com', 'steamcommunity.com', 'steam-chat.com', 'community.cloudflare.steamstatic.com', 'cdn.cloudflare.steamstatic.com', 'valvesoftware.com', 'www.valvesoftware.com', 'cm0.steampowered.com'], cidrs: ['45.121.184.0/22', '63.150.138.0/24', '103.10.124.0/23', '103.28.54.0/23', '146.66.152.0/21', '155.133.224.0/19', '162.254.192.0/21', '185.25.180.0/22', '190.216.121.0/24', '190.217.33.0/24', '192.69.96.0/22', '205.196.6.0/24', '208.64.200.0/22', '208.78.164.0/22'] },
-    hearthstone: { label: 'Hearthstone', domains: ['battle.net', 'www.battle.net', 'blizzard.com', 'www.blizzard.com', 'us.patch.battle.net', 'eu.patch.battle.net', 'blzddist1-a.akamaihd.net'] },
-    pubg: { label: 'PUBG', domains: ['pubg.com', 'www.pubg.com', 'api.pubg.com', 'accounts.pubg.com', 'krafton.com', 'www.krafton.com', 'pubgmobile.com', 'www.pubgmobile.com', 'steamcdn-a.akamaihd.net'] },
+    apex_legends: { label: 'Apex Legends', domains: ['apexlegends.com', 'www.playapex.com', 'respawn.com', 'ea.com', 'www.ea.com', 'origin.com', 'accounts.ea.com', 'gateway.ea.com', 'api1.origin.com', 'download.dm.origin.com', 'origin-a.akamaihd.net'], processes: ['r5apex.exe', 'EADesktop.exe'] },
+    ea_app: { label: 'EA App', domains: ['ea.com', 'www.ea.com', 'origin.com', 'accounts.ea.com', 'gateway.ea.com', 'api1.origin.com', 'download.dm.origin.com', 'origin-a.akamaihd.net', 'eaassets-a.akamaihd.net'], processes: ['EADesktop.exe', 'EALauncher.exe', 'EADM.exe'] },
+    battle_net: { label: 'Battle.net', domains: ['battle.net', 'www.battle.net', 'blizzard.com', 'www.blizzard.com', 'us.patch.battle.net', 'eu.patch.battle.net', 'blzddist1-a.akamaihd.net'], processes: ['Battle.net.exe', 'BlizzardBrowserHelper.exe'] },
+    cs2: { label: 'CS2', domains: ['steampowered.com', 'store.steampowered.com', 'api.steampowered.com', 'steamcommunity.com', 'steam-chat.com', 'community.cloudflare.steamstatic.com', 'cdn.cloudflare.steamstatic.com', 'valvesoftware.com', 'www.valvesoftware.com', 'cm0.steampowered.com'], cidrs: ['45.121.184.0/22', '63.150.138.0/24', '103.10.124.0/23', '103.28.54.0/23', '146.66.152.0/21', '155.133.224.0/19', '162.254.192.0/21', '185.25.180.0/22', '190.216.121.0/24', '190.217.33.0/24', '192.69.96.0/22', '205.196.6.0/24', '208.64.200.0/22', '208.78.164.0/22'], processes: ['cs2.exe'] },
+    hearthstone: { label: 'Hearthstone', domains: ['battle.net', 'www.battle.net', 'blizzard.com', 'www.blizzard.com', 'us.patch.battle.net', 'eu.patch.battle.net', 'blzddist1-a.akamaihd.net'], processes: ['Hearthstone.exe'] },
+    pubg: { label: 'PUBG', domains: ['pubg.com', 'www.pubg.com', 'api.pubg.com', 'accounts.pubg.com', 'krafton.com', 'www.krafton.com', 'pubgmobile.com', 'www.pubgmobile.com', 'steamcdn-a.akamaihd.net'], processes: ['TslGame.exe', 'TslGame-EAC.exe'] },
+    chatgpt: {
+        label: 'ChatGPT (OpenAI)',
+        domains: [
+            'openai.com', 'www.openai.com', 'api.openai.com', 'auth.openai.com',
+            'cdn.openai.com', 'platform.openai.com', 'help.openai.com', 'labs.openai.com',
+            'chatgpt.com', 'chat.openai.com', 'oaistatic.com', 'oaiusercontent.com',
+            'openaiapi-site.azureedge.net', 'sora.com', 'operator.chatgpt.com',
+        ],
+        cidrs: ['104.16.0.0/13', '172.64.0.0/13', '188.114.96.0/20', '2606:4700::/32'],
+    },
+    claude_ai: {
+        label: 'Claude (Anthropic)',
+        domains: [
+            'anthropic.com', 'www.anthropic.com', 'api.anthropic.com',
+            'console.anthropic.com', 'claude.ai', 'www.claude.ai', 'userprompt.com',
+        ],
+        cidrs: ['104.16.0.0/13', '172.64.0.0/13', '188.114.96.0/20', '2606:4700::/32'],
+    },
+    gemini: {
+        label: 'Gemini (Google AI)',
+        domains: [
+            'gemini.google.com', 'aistudio.google.com', 'ai.google.dev', 'ai.google',
+            'generativelanguage.googleapis.com', 'vertexai.googleapis.com',
+            'makersuite.google.com', 'deepmind.com', 'www.deepmind.com',
+            'notebooklm.google.com', 'labs.google',
+        ],
+        cidrs: ['142.250.0.0/15', '172.217.0.0/16', '216.58.0.0/15', '74.125.0.0/16', '2607:f8b0::/32'],
+    },
+    grok: {
+        label: 'Grok (xAI)',
+        domains: ['x.ai', 'grok.com', 'api.x.ai', 'accounts.x.ai'],
+        cidrs: ['104.21.0.0/16', '172.67.0.0/16', '188.114.96.0/20', '2606:4700::/32'],
+    },
 };
 
 // Fallback CIDR database for domains that frequently return no A/AAAA (ENODATA)
 // even though app traffic still goes via known provider edge ranges.
+const CF_DISCORD_CIDRS = ['162.159.128.0/19', '162.159.136.0/22', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'];
+const CF_ONLY_CIDRS = ['104.16.0.0/13', '172.64.0.0/13', '188.114.96.0/20', '2606:4700::/32'];
+
 const STATIC_DOMAIN_FALLBACK_CIDRS = {
-    'best.discord.media': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
-    'cdn.discordapp.net': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
-    'router.discordapp.net': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
-    'discord.tools': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
-    'discord-activities.com': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
-    'discordapp.net': ['162.159.128.0/19', '188.114.96.0/20', '104.16.0.0/13', '172.64.0.0/13', '2606:4700::/32', '2a06:98c0::/29'],
+    // Discord — Cloudflare-hosted
+    'best.discord.media':               CF_DISCORD_CIDRS,
+    'cdn.discordapp.net':               CF_DISCORD_CIDRS,
+    'router.discordapp.net':            CF_DISCORD_CIDRS,
+    'discord.tools':                    CF_DISCORD_CIDRS,
+    'discord-activities.com':           CF_DISCORD_CIDRS,
+    'discordapp.net':                   CF_DISCORD_CIDRS,
+    'api.discord.gg':                   CF_DISCORD_CIDRS,
+    'voice.discord.gg':                 CF_DISCORD_CIDRS,
+    'rtc.discord.gg':                   CF_DISCORD_CIDRS,
+    'gateway.discord.gg':               CF_DISCORD_CIDRS,
+    'discordapp.io':                    CF_DISCORD_CIDRS,
+    'discordcdn.com':                   CF_DISCORD_CIDRS,
+    'discord.media':                    CF_DISCORD_CIDRS,
+    'latency.discord.media':            CF_DISCORD_CIDRS,
+    'meticulous-ingest.discord.tools':  CF_DISCORD_CIDRS,
+    'discordactivities.com':            CF_DISCORD_CIDRS,
+    'discordsays.com':                  CF_DISCORD_CIDRS,
+    // AI services — Cloudflare-hosted
+    'openai.com':                       CF_ONLY_CIDRS,
+    'www.openai.com':                   CF_ONLY_CIDRS,
+    'api.openai.com':                   CF_ONLY_CIDRS,
+    'auth.openai.com':                  CF_ONLY_CIDRS,
+    'cdn.openai.com':                   CF_ONLY_CIDRS,
+    'platform.openai.com':              CF_ONLY_CIDRS,
+    'chatgpt.com':                      CF_ONLY_CIDRS,
+    'chat.openai.com':                  CF_ONLY_CIDRS,
+    'oaistatic.com':                    CF_ONLY_CIDRS,
+    'oaiusercontent.com':               CF_ONLY_CIDRS,
+    'sora.com':                         CF_ONLY_CIDRS,
+    'operator.chatgpt.com':             CF_ONLY_CIDRS,
+    'anthropic.com':                    CF_ONLY_CIDRS,
+    'www.anthropic.com':                CF_ONLY_CIDRS,
+    'api.anthropic.com':                CF_ONLY_CIDRS,
+    'console.anthropic.com':            CF_ONLY_CIDRS,
+    'claude.ai':                        CF_ONLY_CIDRS,
+    'www.claude.ai':                    CF_ONLY_CIDRS,
+    'userprompt.com':                   CF_ONLY_CIDRS,
+    'x.ai':                             CF_ONLY_CIDRS,
+    'grok.com':                         CF_ONLY_CIDRS,
+    'api.x.ai':                         CF_ONLY_CIDRS,
+    'accounts.x.ai':                    CF_ONLY_CIDRS,
 };
 
 // Runtime cache keeps last known IPs for domains that resolved successfully.
@@ -890,6 +962,7 @@ async function resolveSplitAllowedIPs(targetKeys) {
     }
 
     const unresolvedDomains = [];
+    const fallbackDomains = [];
 
     await Promise.all(Array.from(domains).map(async (domain) => {
         const ipType = net.isIP(domain);
@@ -906,23 +979,32 @@ async function resolveSplitAllowedIPs(targetKeys) {
         let resolved = false;
 
         if (a4.status === 'fulfilled') {
-            for (const ip of a4.value) {
-                cidrs.add(`${ip}/32`);
-                resolved = true;
-            }
+            const resolved4 = a4.value.map(ip => `${ip}/32`);
+            for (const cidr of resolved4) cidrs.add(cidr);
+            cacheDomainCidrs(domain, resolved4);
+            resolved = true;
         }
         if (a6.status === 'fulfilled') {
-            for (const ip of a6.value) {
-                cidrs.add(`${ip}/128`);
-                resolved = true;
+            const resolved6 = a6.value.map(ip => `${ip}/128`);
+            for (const cidr of resolved6) cidrs.add(cidr);
+            cacheDomainCidrs(domain, resolved6);
+            resolved = true;
+        }
+        if (!resolved) {
+            const fallback = getDomainFallbackCidrs(domain);
+            if (fallback.length > 0) {
+                for (const cidr of fallback) cidrs.add(cidr);
+                fallbackDomains.push(domain);
+            } else {
+                unresolvedDomains.push(domain);
             }
         }
-        if (!resolved) unresolvedDomains.push(domain);
     }));
 
     return {
         allowedIps: Array.from(cidrs).sort((a, b) => a.localeCompare(b)),
         unresolvedDomains: unresolvedDomains.sort((a, b) => a.localeCompare(b)),
+        fallbackDomains: fallbackDomains.sort((a, b) => a.localeCompare(b)),
         sourceDomains: domains.size,
     };
 }
@@ -1495,7 +1577,7 @@ function buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates 
             .map((item) => item.host),
     );
     const warpPortsStr = ALLOWED_WARP_PORTS.join(',');
-    return `# Cloudflare WARP local endpoint speedtest helper
+    return `\uFEFF# Cloudflare WARP local endpoint speedtest helper
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -2046,6 +2128,18 @@ setInterval(cleanupClashProfiles, 10 * 60 * 1000).unref();
 
 app.get('/api/endpoints', (req, res) => {
     res.json(WARP_ENDPOINTS);
+});
+
+app.get('/api/split-targets', (req, res) => {
+    const targets = Object.entries(SPLIT_TUNNEL_TARGETS).map(([key, t]) => ({
+        key,
+        label: t.label,
+        domainCount: (t.domains || []).length,
+        cidrCount: (t.cidrs || []).length,
+        hasProcesses: Array.isArray(t.processes) && t.processes.length > 0,
+        processes: t.processes || [],
+    }));
+    res.json({ targets });
 });
 
 app.get('/api/warp-options', (req, res) => {
@@ -2629,6 +2723,7 @@ app.post('/api/generate', async (req, res) => {
             splitTunnel.selectedTargets = normalizedSplitTargets;
             splitTunnel.resolvedAllowedIps = finalAllowedIps.length;
             splitTunnel.unresolvedDomains = splitResolved.unresolvedDomains;
+            splitTunnel.fallbackDomains = splitResolved.fallbackDomains;
             splitTunnel.sourceDomains = splitResolved.sourceDomains;
         }
         if (splitMode === 'blacklist') {
@@ -2687,6 +2782,10 @@ app.post('/api/generate', async (req, res) => {
             `DNS = ${dnsLine}`,
             ...(isAmneziaConfig && i1 ? [`I1 = ${i1}`] : []),
         ];
+        const allProcesses = isWireSockConfig && splitMode === 'selective'
+            ? [...new Set(normalizedSplitTargets.flatMap(k => SPLIT_TUNNEL_TARGETS[k]?.processes || []))]
+            : [];
+
         const config = [
             ...interfaceLines,
             ...(maskEnabled ? [
@@ -2707,6 +2806,13 @@ app.post('/api/generate', async (req, res) => {
                     '',
                     '[WireSock]',
                     `DisallowedIPs = ${disallowedIpsLine}`,
+                ]
+                : []),
+            ...(isWireSockConfig && splitMode === 'selective' && allProcesses.length > 0
+                ? [
+                    '',
+                    '[WireSock]',
+                    `AllowedProcesses = ${allProcesses.join(', ')}`,
                 ]
                 : []),
         ].join('\n');
