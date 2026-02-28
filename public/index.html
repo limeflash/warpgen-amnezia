@@ -555,6 +555,9 @@
       <select id="dnsServer">
         <optgroup label="🌐 Разблокировать внешние сервисы">
           <option value="malw_link" selected>dns.malw.link — разблокировка заблокированных сайтов ✓</option>
+          <option value="xbox_dns_ru">xbox-dns.ru — разблокировка зарубежных сервисов</option>
+          <option value="dns_geohide_ru">dns.geohide.ru — разблокировка зарубежных сервисов</option>
+          <option value="dns_comss_one">dns.comss.one — разблокировка зарубежных сервисов</option>
         </optgroup>
         <optgroup label="Без фильтрации — быстрые публичные">
           <option value="cloudflare">Cloudflare 1.1.1.1 — приватный, быстрый</option>
@@ -644,6 +647,50 @@
         </optgroup>
         <option value="none">Без маскировки</option>
       </select>
+    </div>
+
+    <div class="field wiresock-only" style="display:none;">
+      <label>Protocol masking (WireSock)</label>
+      <div class="grid2">
+        <div class="field" style="margin-bottom:0;">
+          <label style="margin-top:2px;">Режим</label>
+          <select id="protocolMaskingEnabled">
+            <option value="0" selected>Выключено</option>
+            <option value="1">Включено</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label style="margin-top:2px;">Id (домен)</label>
+          <input type="text" id="protocolMaskId" value="lenta.ru" placeholder="lenta.ru">
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label style="margin-top:2px;">Ip (протокол)</label>
+          <select id="protocolMaskIp">
+            <option value="quic" selected>quic</option>
+            <option value="tls">tls</option>
+            <option value="https">https</option>
+            <option value="http2">http2</option>
+            <option value="dtls">dtls</option>
+            <option value="stun">stun</option>
+            <option value="random">random</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label style="margin-top:2px;">Ib (клиент)</label>
+          <select id="protocolMaskIb">
+            <option value="firefox" selected>firefox</option>
+            <option value="chrome">chrome</option>
+            <option value="edge">edge</option>
+            <option value="safari">safari</option>
+            <option value="android">android</option>
+            <option value="ios">ios</option>
+            <option value="random">random</option>
+          </select>
+        </div>
+      </div>
+      <div class="split-note">
+        Добавит секцию <code># Protocol masking</code> с полями <code>Id/Ip/Ib</code> в WireSock-конфиг.
+      </div>
     </div>
 
     <div class="field">
@@ -848,9 +895,14 @@
     }
 
     function updateConfigTypeVisibility() {
-      const isAmnezia = getSelectedConfigType() === 'amnezia';
+      const selectedType = getSelectedConfigType();
+      const isAmnezia = selectedType === 'amnezia';
+      const isWiresock = selectedType === 'wiresock';
       document.querySelectorAll('.amnezia-only').forEach((el) => {
         el.style.display = isAmnezia ? '' : 'none';
+      });
+      document.querySelectorAll('.wiresock-only').forEach((el) => {
+        el.style.display = isWiresock ? '' : 'none';
       });
       const connectionGrid = document.getElementById('connectionGrid');
       connectionGrid.style.gridTemplateColumns = isAmnezia ? '' : '1fr';
@@ -907,6 +959,30 @@
 
     async function downloadClientApp(app) {
       const platform = detectClientPlatform();
+      const directOpenLinks = {
+        wireguard: {
+          macos: 'https://apps.apple.com/us/app/wireguard/id1451685025',
+          ios: 'https://apps.apple.com/us/app/wireguard/id1451685025',
+          android: 'https://play.google.com/store/apps/details?id=com.wireguard.android',
+        },
+        wiresock: {
+          macos: 'https://www.wiresock.net/downloads/',
+          linux: 'https://www.wiresock.net/downloads/',
+          android: 'https://www.wiresock.net/downloads/',
+          ios: 'https://www.wiresock.net/downloads/',
+        },
+      };
+      const directUrl = directOpenLinks[app]?.[platform];
+      if (directUrl) {
+        window.open(directUrl, '_blank', 'noopener,noreferrer');
+        if (app === 'wiresock' && platform !== 'windows') {
+          setDownloadHint('WireSock в первую очередь под Windows. Открыта официальная страница загрузок.');
+        } else {
+          setDownloadHint(`Открыта официальная страница ${app} для ${platform}.`);
+        }
+        return;
+      }
+
       const url = `/api/client-download/${encodeURIComponent(app)}?platform=${encodeURIComponent(platform)}`;
       setDownloadHint(`Запрашиваю ${app} для платформы ${platform} через proxy...`);
       try {
@@ -1179,6 +1255,10 @@
             dnsServer: document.getElementById('dnsServer').value,
             splitMode: document.getElementById('splitMode').value,
             splitTargets: getSelectedSplitTargets(),
+            protocolMaskingEnabled: document.getElementById('protocolMaskingEnabled').value === '1',
+            protocolMaskId: document.getElementById('protocolMaskId').value.trim(),
+            protocolMaskIp: document.getElementById('protocolMaskIp').value,
+            protocolMaskIb: document.getElementById('protocolMaskIb').value,
           }),
         });
 
@@ -1273,6 +1353,10 @@
       document.getElementById('dnsServer').value = 'malw_link';
       document.getElementById('quicPreset').value = 'yandex';
       document.getElementById('splitMode').value = 'full';
+      document.getElementById('protocolMaskingEnabled').value = '0';
+      document.getElementById('protocolMaskId').value = 'lenta.ru';
+      document.getElementById('protocolMaskIp').value = 'quic';
+      document.getElementById('protocolMaskIb').value = 'firefox';
       lastGeneratedConfigType = 'amnezia';
       setSelectedSplitTargets([]);
       updateConfigTypeVisibility();

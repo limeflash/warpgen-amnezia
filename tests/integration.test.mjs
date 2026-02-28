@@ -241,6 +241,44 @@ test('WireSock full tunnel config generated', async () => {
   assert.match(body.config, /AllowedIPs = 0\.0\.0\.0\/0, ::\/0/);
 });
 
+test('WireSock protocol masking section is generated when enabled', async () => {
+  const resp = await fetch(`${BASE}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      configType: 'wiresock',
+      endpointIp: '162.159.192.5',
+      endpointPort: '2408',
+      splitMode: 'full',
+      protocolMaskingEnabled: true,
+      protocolMaskId: 'lenta.ru',
+      protocolMaskIp: 'quic',
+      protocolMaskIb: 'firefox',
+    }),
+  });
+  assert.equal(resp.status, 200);
+  const body = await resp.json();
+  assert.match(body.config, /# Protocol masking/);
+  assert.match(body.config, /Id = lenta\.ru/);
+  assert.match(body.config, /Ip = quic/);
+  assert.match(body.config, /Ib = firefox/);
+});
+
+test('Clash options contain extended DNS providers and transports', async () => {
+  const resp = await fetch(`${BASE}/api/clash/options`);
+  assert.equal(resp.status, 200);
+  const body = await resp.json();
+  const providerKeys = new Set((body.dnsProviders || []).map((x) => x.key));
+  assert.ok(providerKeys.has('malw_link'));
+  assert.ok(providerKeys.has('xbox_dns_ru'));
+  assert.ok(providerKeys.has('dns_geohide_ru'));
+  assert.ok(providerKeys.has('dns_comss_one'));
+  const transports = new Set(body.dnsTransports || []);
+  for (const transport of ['plain', 'doh', 'dot', 'doq', 'mixed']) {
+    assert.ok(transports.has(transport));
+  }
+});
+
 test('Clash profile URL returns YAML profile', async () => {
   const profileResp = await fetch(`${BASE}/api/clash/profile-url`, {
     method: 'POST',

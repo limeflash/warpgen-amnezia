@@ -330,6 +330,224 @@ const CLASH_PROFILE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CLASH_PROFILES = new Map();
 const WARP_WIREGUARD_PUBLIC_KEY = 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=';
 
+const DNS_SERVERS = {
+    malw_link: '84.21.189.133, 193.23.209.189, 2a12:bec4:1460:294::2, 2a01:ecc0:680:120::2',
+    cloudflare: '1.1.1.1, 2606:4700:4700::1111, 1.0.0.1, 2606:4700:4700::1001',
+    cloudflare_mal: '1.1.1.2, 2606:4700:4700::1112, 1.0.0.2, 2606:4700:4700::1002',
+    google: '8.8.8.8, 2001:4860:4860::8888, 8.8.4.4, 2001:4860:4860::8844',
+    adguard: '94.140.14.14, 2a10:50c0::ad1:ff, 94.140.15.15, 2a10:50c0::ad2:ff',
+    adguard_family: '94.140.14.15, 2a10:50c0::bad1:ff, 94.140.15.16, 2a10:50c0::bad2:ff',
+    adguard_nofilter: '94.140.14.140, 2a10:50c0::1:ff, 94.140.14.141, 2a10:50c0::2:ff',
+    yandex: '77.88.8.8, 2a02:6b8::feed:0ff, 77.88.8.1, 2a02:6b8:0:1::feed:0ff',
+    yandex_safe: '77.88.8.88, 2a02:6b8::feed:bad, 77.88.8.2, 2a02:6b8:0:1::feed:bad',
+    yandex_family: '77.88.8.7, 2a02:6b8::feed:a11, 77.88.8.3, 2a02:6b8:0:1::feed:a11',
+    quad9: '9.9.9.9, 2620:fe::fe, 149.112.112.112, 2620:fe::9',
+    quad9_ecs: '9.9.9.11, 2620:fe::11, 149.112.112.11, 2620:fe::fe:11',
+    quad9_nofilter: '9.9.9.10, 2620:fe::10, 149.112.112.10, 2620:fe::fe:10',
+    opendns: '208.67.222.222, 2620:119:35::35, 208.67.220.220, 2620:119:53::53',
+    opendns_family: '208.67.222.123, 2620:119:35::123, 208.67.220.123, 2620:119:53::123',
+    gcore: '95.85.95.85, 2a03:90c0:999d::1, 2.56.220.2, 2a03:90c0:9992::1',
+    dnssb: '185.222.222.222, 2a09::, 45.11.45.11, 2a11::',
+    dns0eu: '193.110.81.0, 2a0f:fc80::, 185.253.5.0, 2a0f:fc81::',
+    nextdns: '45.90.28.0, 2a07:a8c0::, 45.90.30.0, 2a07:a8c1::',
+    mullvad: '194.242.2.2, 2a07:e340::2',
+    xbox_dns_ru: 'xbox-dns.ru',
+    dns_geohide_ru: 'dns.geohide.ru',
+    dns_comss_one: 'dns.comss.one',
+};
+
+function splitDnsLineToList(line) {
+    return String(line || '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+}
+
+function createClashDnsProvider({ key, label, group, doh = [], dot = [], doq = [] }) {
+    return {
+        key,
+        label,
+        group,
+        plain: splitDnsLineToList(DNS_SERVERS[key] || ''),
+        doh,
+        dot,
+        doq,
+    };
+}
+
+const CLASH_DNS_PROVIDERS = [
+    createClashDnsProvider({
+        key: 'malw_link',
+        label: 'dns.malw.link — разблокировка',
+        group: 'Разблокировка внешних сервисов',
+        doh: ['https://dns.malw.link/dns-query'],
+        dot: ['tls://dns.malw.link'],
+    }),
+    createClashDnsProvider({
+        key: 'xbox_dns_ru',
+        label: 'xbox-dns.ru — разблокировка зарубежных сервисов',
+        group: 'Разблокировка внешних сервисов',
+        doh: ['https://xbox-dns.ru/dns-query'],
+        dot: ['tls://xbox-dns.ru'],
+    }),
+    createClashDnsProvider({
+        key: 'dns_geohide_ru',
+        label: 'dns.geohide.ru — разблокировка зарубежных сервисов',
+        group: 'Разблокировка внешних сервисов',
+        doh: ['https://dns.geohide.ru/dns-query'],
+        dot: ['tls://dns.geohide.ru'],
+    }),
+    createClashDnsProvider({
+        key: 'dns_comss_one',
+        label: 'dns.comss.one — разблокировка зарубежных сервисов',
+        group: 'Разблокировка внешних сервисов',
+        doh: ['https://dns.comss.one/dns-query'],
+        dot: ['tls://dns.comss.one'],
+    }),
+    createClashDnsProvider({
+        key: 'cloudflare',
+        label: 'Cloudflare',
+        group: 'Без фильтрации — быстрые публичные',
+        doh: ['https://1.1.1.1/dns-query', 'https://1.0.0.1/dns-query'],
+        dot: ['tls://1.1.1.1', 'tls://1.0.0.1'],
+        doq: ['quic://1.1.1.1', 'quic://1.0.0.1'],
+    }),
+    createClashDnsProvider({
+        key: 'google',
+        label: 'Google Public DNS',
+        group: 'Без фильтрации — быстрые публичные',
+        doh: ['https://dns.google/dns-query'],
+        dot: ['tls://dns.google'],
+    }),
+    createClashDnsProvider({
+        key: 'quad9_nofilter',
+        label: 'Quad9 No Filter',
+        group: 'Без фильтрации — быстрые публичные',
+        doh: ['https://dns10.quad9.net/dns-query'],
+        dot: ['tls://dns10.quad9.net'],
+    }),
+    createClashDnsProvider({
+        key: 'quad9_ecs',
+        label: 'Quad9 ECS',
+        group: 'Без фильтрации — быстрые публичные',
+        doh: ['https://dns11.quad9.net/dns-query'],
+        dot: ['tls://dns11.quad9.net'],
+    }),
+    createClashDnsProvider({
+        key: 'opendns',
+        label: 'OpenDNS',
+        group: 'Без фильтрации — быстрые публичные',
+        doh: ['https://doh.opendns.com/dns-query'],
+        dot: ['tls://doh.opendns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'gcore',
+        label: 'G-Core DNS',
+        group: 'Без фильтрации — быстрые публичные',
+    }),
+    createClashDnsProvider({
+        key: 'yandex',
+        label: 'Яндекс DNS',
+        group: 'Без фильтрации — быстрые публичные',
+        dot: ['tls://common.dot.dns.yandex.net'],
+    }),
+    createClashDnsProvider({
+        key: 'adguard',
+        label: 'AdGuard (ads+trackers)',
+        group: 'Блокировка рекламы и трекеров',
+        doh: ['https://dns.adguard-dns.com/dns-query'],
+        dot: ['tls://dns.adguard-dns.com'],
+        doq: ['quic://dns.adguard-dns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'adguard_nofilter',
+        label: 'AdGuard (без фильтрации)',
+        group: 'Блокировка рекламы и трекеров',
+        doh: ['https://unfiltered.adguard-dns.com/dns-query'],
+        dot: ['tls://unfiltered.adguard-dns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'nextdns',
+        label: 'NextDNS',
+        group: 'Блокировка рекламы и трекеров',
+        doh: ['https://dns.nextdns.io'],
+        dot: ['tls://dns.nextdns.io'],
+        doq: ['quic://dns.nextdns.io'],
+    }),
+    createClashDnsProvider({
+        key: 'cloudflare_mal',
+        label: 'Cloudflare Security',
+        group: 'Блокировка рекламы и трекеров',
+        doh: ['https://security.cloudflare-dns.com/dns-query'],
+        dot: ['tls://security.cloudflare-dns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'quad9',
+        label: 'Quad9 Security',
+        group: 'Блокировка рекламы и трекеров',
+        doh: ['https://dns.quad9.net/dns-query'],
+        dot: ['tls://dns.quad9.net'],
+        doq: ['quic://dns.quad9.net'],
+    }),
+    createClashDnsProvider({
+        key: 'adguard_family',
+        label: 'AdGuard Family',
+        group: 'Семейный',
+        doh: ['https://family.adguard-dns.com/dns-query'],
+        dot: ['tls://family.adguard-dns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'yandex_safe',
+        label: 'Яндекс Safe',
+        group: 'Семейный',
+    }),
+    createClashDnsProvider({
+        key: 'yandex_family',
+        label: 'Яндекс Family',
+        group: 'Семейный',
+    }),
+    createClashDnsProvider({
+        key: 'opendns_family',
+        label: 'OpenDNS Family',
+        group: 'Семейный',
+        doh: ['https://doh.familyshield.opendns.com/dns-query'],
+        dot: ['tls://doh.familyshield.opendns.com'],
+    }),
+    createClashDnsProvider({
+        key: 'mullvad',
+        label: 'Mullvad DNS',
+        group: 'Privacy / независимые',
+        doh: ['https://dns.mullvad.net/dns-query'],
+        dot: ['tls://dns.mullvad.net'],
+    }),
+    createClashDnsProvider({
+        key: 'dnssb',
+        label: 'DNS.SB',
+        group: 'Privacy / независимые',
+        doh: ['https://doh.dns.sb/dns-query'],
+        dot: ['tls://dns.sb'],
+    }),
+    createClashDnsProvider({
+        key: 'dns0eu',
+        label: 'dns0.eu',
+        group: 'Privacy / независимые',
+        doh: ['https://zero.dns0.eu/dns-query'],
+        dot: ['tls://zero.dns0.eu'],
+    }),
+];
+
+const CLASH_DNS_TRANSPORTS = ['plain', 'doh', 'dot', 'doq', 'mixed'];
+const CLASH_DNS_FALLBACK_BY_TRANSPORT = {
+    plain: ['1.1.1.1', '9.9.9.9', '8.8.8.8'],
+    doh: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query'],
+    dot: ['tls://1.1.1.1', 'tls://9.9.9.9'],
+    doq: ['quic://1.1.1.1', 'quic://dns.adguard-dns.com'],
+    mixed: ['https://1.1.1.1/dns-query', 'tls://9.9.9.9', '8.8.8.8'],
+};
+
+const PROTOCOL_MASK_IP_VALUES = new Set(['quic', 'tls', 'https', 'http2', 'dtls', 'stun', 'random']);
+const PROTOCOL_MASK_IB_VALUES = new Set(['firefox', 'chrome', 'edge', 'safari', 'android', 'ios', 'random']);
+
 const CDN_CIDRS = {
     cloudflare: ['104.16.0.0/13', '172.64.0.0/13', '188.114.96.0/20', '162.159.0.0/16', '2606:4700::/32', '2a06:98c0::/29'],
     akamai: ['23.0.0.0/12', '23.32.0.0/11', '23.64.0.0/14', '2600:1400::/24'],
@@ -413,10 +631,10 @@ const CLIENT_DOWNLOADS = {
         title: 'WireSock',
         links: {
             windows: 'https://www.wiresock.net/downloads/wiresock-secure-connect-win64-1.4.11.msi',
-            macos: 'https://www.wiresock.net/download/',
-            linux: 'https://www.wiresock.net/download/',
-            android: 'https://www.wiresock.net/download/',
-            ios: 'https://www.wiresock.net/download/',
+            macos: 'https://www.wiresock.net/downloads/',
+            linux: 'https://www.wiresock.net/downloads/',
+            android: 'https://www.wiresock.net/downloads/',
+            ios: 'https://www.wiresock.net/downloads/',
         },
     },
 };
@@ -560,6 +778,71 @@ function dnsServersToCidrs(dnsLine) {
         if (ipType === 6) cidrs.add(`${host}/128`);
     }
     return Array.from(cidrs);
+}
+
+function isDnsHostname(value) {
+    const host = String(value || '').trim();
+    if (!host) return false;
+    if (net.isIP(host)) return false;
+    return /^[a-z0-9.-]+$/i.test(host) && host.includes('.');
+}
+
+async function resolveDnsHostToIps(hostname) {
+    const host = String(hostname || '').trim();
+    if (!isDnsHostname(host)) return [];
+    const resolved = [];
+    try {
+        const v4 = await dns.resolve4(host);
+        for (const ip of v4) {
+            if (net.isIP(ip) === 4) resolved.push(ip);
+        }
+    } catch {
+        // ignore
+    }
+    try {
+        const v6 = await dns.resolve6(host);
+        for (const ip of v6) {
+            if (net.isIP(ip) === 6) resolved.push(ip);
+        }
+    } catch {
+        // ignore
+    }
+    return Array.from(new Set(resolved));
+}
+
+async function normalizeDnsLineForConfig(dnsLine) {
+    if (typeof dnsLine !== 'string' || !dnsLine.trim()) return DNS_SERVERS.malw_link;
+    const tokens = splitDnsLineToList(dnsLine);
+    const expanded = [];
+
+    for (const token of tokens) {
+        const value = token.trim();
+        if (!value) continue;
+        const ipType = net.isIP(value);
+        if (ipType === 4 || ipType === 6) {
+            expanded.push(value);
+            continue;
+        }
+        if (isDnsHostname(value)) {
+            const ips = await resolveDnsHostToIps(value);
+            if (ips.length) {
+                expanded.push(...ips.slice(0, 4));
+                continue;
+            }
+        }
+    }
+
+    const unique = Array.from(new Set(expanded));
+    if (unique.length) return unique.join(', ');
+    return DNS_SERVERS.malw_link;
+}
+
+function normalizeProtocolMaskField(rawValue, { fallback = '', maxLength = 128, allowed = null } = {}) {
+    const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+    if (!value) return fallback;
+    const normalized = value.toLowerCase();
+    if (allowed instanceof Set && !allowed.has(normalized)) return fallback;
+    return normalized.slice(0, maxLength);
 }
 
 function normalizeSplitTargets(splitTargets) {
@@ -1543,6 +1826,9 @@ app.get('/api/clash/options', (req, res) => {
         types: ['warp', 'amnezia', 'wireguard'],
         amneziaVersions: ['1.0', '1.5', '2.0'],
         dnsModes: ['fake-ip', 'redir-host'],
+        dnsTransports: CLASH_DNS_TRANSPORTS,
+        dnsProviders: CLASH_DNS_PROVIDERS,
+        dnsFallbackByTransport: CLASH_DNS_FALLBACK_BY_TRANSPORT,
         cdnProviders,
         domainPresets: CLASH_DOMAIN_PRESETS,
         ttlSec: Math.floor(CLASH_PROFILE_TTL_MS / 1000),
@@ -1775,6 +2061,10 @@ app.post('/api/generate', async (req, res) => {
             dnsServer = 'malw_link',
             splitMode = 'full',
             splitTargets = [],
+            protocolMaskingEnabled = false,
+            protocolMaskId = '',
+            protocolMaskIp = 'quic',
+            protocolMaskIb = 'firefox',
         } = req.body;
         const normalizedConfigType = typeof configType === 'string'
             ? configType.trim().toLowerCase()
@@ -1799,29 +2089,7 @@ app.post('/api/generate', async (req, res) => {
             });
         }
 
-        const DNS_SERVERS = {
-            malw_link: '84.21.189.133, 193.23.209.189, 2a12:bec4:1460:294::2, 2a01:ecc0:680:120::2',
-            cloudflare: '1.1.1.1, 2606:4700:4700::1111, 1.0.0.1, 2606:4700:4700::1001',
-            cloudflare_mal: '1.1.1.2, 2606:4700:4700::1112, 1.0.0.2, 2606:4700:4700::1002',
-            google: '8.8.8.8, 2001:4860:4860::8888, 8.8.4.4, 2001:4860:4860::8844',
-            adguard: '94.140.14.14, 2a10:50c0::ad1:ff, 94.140.15.15, 2a10:50c0::ad2:ff',
-            adguard_family: '94.140.14.15, 2a10:50c0::bad1:ff, 94.140.15.16, 2a10:50c0::bad2:ff',
-            adguard_nofilter: '94.140.14.140, 2a10:50c0::1:ff, 94.140.14.141, 2a10:50c0::2:ff',
-            yandex: '77.88.8.8, 2a02:6b8::feed:0ff, 77.88.8.1, 2a02:6b8:0:1::feed:0ff',
-            yandex_safe: '77.88.8.88, 2a02:6b8::feed:bad, 77.88.8.2, 2a02:6b8:0:1::feed:bad',
-            yandex_family: '77.88.8.7, 2a02:6b8::feed:a11, 77.88.8.3, 2a02:6b8:0:1::feed:a11',
-            quad9: '9.9.9.9, 2620:fe::fe, 149.112.112.112, 2620:fe::9',
-            quad9_ecs: '9.9.9.11, 2620:fe::11, 149.112.112.11, 2620:fe::fe:11',
-            quad9_nofilter: '9.9.9.10, 2620:fe::10, 149.112.112.10, 2620:fe::fe:10',
-            opendns: '208.67.222.222, 2620:119:35::35, 208.67.220.220, 2620:119:53::53',
-            opendns_family: '208.67.222.123, 2620:119:35::123, 208.67.220.123, 2620:119:53::123',
-            gcore: '95.85.95.85, 2a03:90c0:999d::1, 2.56.220.2, 2a03:90c0:9992::1',
-            dnssb: '185.222.222.222, 2a09::, 45.11.45.11, 2a11::',
-            dns0eu: '193.110.81.0, 2a0f:fc80::, 185.253.5.0, 2a0f:fc81::',
-            nextdns: '45.90.28.0, 2a07:a8c0::, 45.90.30.0, 2a07:a8c1::',
-            mullvad: '194.242.2.2, 2a07:e340::2',
-        };
-        const dnsLine = DNS_SERVERS[dnsServer] || DNS_SERVERS.malw_link;
+        const dnsLine = await normalizeDnsLineForConfig(DNS_SERVERS[dnsServer] || DNS_SERVERS.malw_link);
         const normalizedSplitTargets = (splitMode === 'selective' || splitMode === 'blacklist')
             ? normalizeSplitTargets(splitTargets)
             : [];
@@ -2006,6 +2274,20 @@ app.post('/api/generate', async (req, res) => {
             splitTunnel.disallowedIps = splitResolved.allowedIps.length;
         }
 
+        const maskEnabled = Boolean(protocolMaskingEnabled) && isWireSockConfig;
+        const maskIdRaw = typeof protocolMaskId === 'string' ? protocolMaskId.trim() : '';
+        const maskId = (maskIdRaw || 'lenta.ru').slice(0, 160);
+        const maskIp = normalizeProtocolMaskField(protocolMaskIp, {
+            fallback: 'quic',
+            maxLength: 32,
+            allowed: PROTOCOL_MASK_IP_VALUES,
+        });
+        const maskIb = normalizeProtocolMaskField(protocolMaskIb, {
+            fallback: 'firefox',
+            maxLength: 32,
+            allowed: PROTOCOL_MASK_IB_VALUES,
+        });
+
         const interfaceLines = [
             '[Interface]',
             `PrivateKey = ${priv}`,
@@ -2029,6 +2311,13 @@ app.post('/api/generate', async (req, res) => {
         ];
         const config = [
             ...interfaceLines,
+            ...(maskEnabled ? [
+                '',
+                '# Protocol masking',
+                `Id = ${maskId}`,
+                `Ip = ${maskIp}`,
+                `Ib = ${maskIb}`,
+            ] : []),
             '',
             '[Peer]',
             `PublicKey = ${peerPub}`,
