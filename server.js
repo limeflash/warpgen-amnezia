@@ -619,13 +619,7 @@ if (-not $exe) { throw 'CloudflareWarpSpeedTest executable not found after extra
 
 Write-Host '[2/5] Building local IP list...'
 $staticIps = @(${psIpArray})
-$engageIps = @()
-try {
-  $engageIps = Resolve-DnsName -Name 'engage.cloudflareclient.com' -Type A -ErrorAction Stop | Select-Object -ExpandProperty IPAddress -Unique
-} catch {
-  Write-Host 'engage.cloudflareclient.com DNS resolve failed, continuing with static ranges.'
-}
-$allIps = ($staticIps + $engageIps) | Sort-Object -Unique
+$allIps = $staticIps | Sort-Object -Unique
 if (-not $allIps -or $allIps.Count -eq 0) { throw 'No IPs to test' }
 $ipFile = Join-Path $workDir 'ip.txt'
 $allIps | Set-Content -Path $ipFile -Encoding ascii
