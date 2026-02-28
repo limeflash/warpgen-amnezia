@@ -291,6 +291,37 @@
       cursor: not-allowed;
     }
 
+    .speedtest-dpi-toggle {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      padding: 10px 12px;
+      background: rgba(248, 113, 113, 0.07);
+      border: 1px solid rgba(248, 113, 113, 0.2);
+      border-radius: 8px;
+    }
+
+    .speedtest-dpi-toggle input[type="checkbox"] {
+      margin-top: 2px;
+      flex-shrink: 0;
+      width: 15px;
+      height: 15px;
+      accent-color: #f87171;
+      cursor: pointer;
+    }
+
+    .speedtest-dpi-label {
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .speedtest-dpi-label strong {
+      color: #fca5a5;
+    }
+
     .speedtest-detail {
       margin-top: 10px;
       font-size: 12px;
@@ -706,14 +737,21 @@
           <div class="speedtest-step"><span class="step-num">3</span>Endpoint и порт подставятся сюда автоматически</div>
         </div>
 
+        <label class="speedtest-dpi-toggle">
+          <input type="checkbox" id="dpiFirstMode">
+          <span class="speedtest-dpi-label">
+            <strong>У меня DPI-блокировка</strong> — пропустить прямой тест, сразу запустить обход через zapret
+          </span>
+        </label>
+
         <button type="button" id="localSpeedtestBtn" class="speedtest-btn" onclick="startLocalSpeedtest()">
           ⚡ Подобрать endpoint локально
         </button>
 
         <div class="speedtest-detail">
           Только Windows. Скрипт скачивает <strong>CloudflareWarpSpeedTest</strong>, проверяет задержку и потери
-          на всех официальных WARP IP, при DPI-блокировке пробует обход через <strong>zapret/winws</strong>
-          (нужны права администратора).
+          на всех официальных WARP IP. При DPI-блокировке (или если включён чекбокс выше) — скачивает
+          <strong>zapret/winws</strong> и повторяет скан через него. Нужны права администратора.
         </div>
 
         <div class="split-note" id="localSpeedtestHint" style="margin-top:6px;"></div>
@@ -1437,8 +1475,9 @@
 
     async function startLocalSpeedtest() {
       const btn = document.getElementById('localSpeedtestBtn');
+      const dpiFirst = document.getElementById('dpiFirstMode')?.checked || false;
       btn.disabled = true;
-      btn.textContent = '⏳ Подготовка...';
+      btn.textContent = dpiFirst ? '⏳ Подготовка (DPI-режим)...' : '⏳ Подготовка...';
       try {
         if (!warpOptionsLoaded) {
           await loadWarpOptions();
@@ -1446,7 +1485,7 @@
         const sessionResp = await fetch('/api/speedtest/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ dpiFirst }),
         });
         const sessionData = await sessionResp.json();
         const useBat = typeof sessionData.downloadBatPath === 'string' && sessionData.downloadBatPath.trim();
@@ -1470,7 +1509,9 @@
         a.remove();
         URL.revokeObjectURL(url);
 
-        setLocalSpeedtestHint('✅ Файл скачан. Запустите .bat двойным кликом — endpoint подставится автоматически.');
+        setLocalSpeedtestHint(dpiFirst
+          ? '✅ Файл скачан (DPI-режим). Запустите .bat от имени администратора — сразу запустится zapret и подберёт endpoint.'
+          : '✅ Файл скачан. Запустите .bat двойным кликом — endpoint подставится автоматически.');
         await pollSpeedtestSession(sessionData.pollPath);
       } catch (err) {
         setLocalSpeedtestHint(`❌ Ошибка: ${err.message}`);

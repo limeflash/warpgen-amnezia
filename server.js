@@ -1560,7 +1560,7 @@ function getAdaptiveSpeedtestFallbackEndpoints(clientIp) {
     return Array.from(out).filter((endpoint) => !!normalizeEndpointForStats(endpoint));
 }
 
-function buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates = [] }) {
+function buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates = [], dpiFirst = false }) {
     const staticIps = [
         ...Array.from({ length: 20 }, (_, idx) => `162.159.192.${idx + 1}`),
         ...Array.from({ length: 10 }, (_, idx) => `162.159.195.${idx + 1}`),
@@ -1577,12 +1577,14 @@ function buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates 
             .map((item) => item.host),
     );
     const warpPortsStr = ALLOWED_WARP_PORTS.join(',');
+    const dpiFirstPs = dpiFirst ? '$true' : '$false';
     return `\uFEFF# Cloudflare WARP local endpoint speedtest helper
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [Console]::OutputEncoding
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+$dpiFirst = ${dpiFirstPs}
 $sessionId = '${sessionId}'
 $reportUrl = '${reportUrl}'
 $fallbackEndpoints = ConvertFrom-Json @'
@@ -1630,6 +1632,9 @@ if (-not $allIps -or $allIps.Count -eq 0) { throw 'No IPs to test' }
 $ipFile = Join-Path $workDir 'ip.txt'
 $allIps | Set-Content -Path $ipFile -Encoding ascii
 
+if ($dpiFirst) {
+  Write-Host '[3/5] DPI-first mode: skipping direct speedtest, going straight to DPI bypass...'
+} else {
 Write-Host '[3/5] Running speed test...'
 $csvPath = Join-Path $workDir 'result.csv'
 & $exe.FullName -all -n 60 -t 5 -c $primaryC -tl 450 -tll 0 -tlr 0.25 -p $workerP -f $ipFile -o $csvPath
@@ -1775,6 +1780,8 @@ if (-not $normalized -or $normalized.Count -eq 0) {
   }
 }
 
+} # end if (-not $dpiFirst)
+
 $bestEndpoint = $null
 $topResults = @()
 $reportSource = 'windows-local-helper'
@@ -1791,7 +1798,11 @@ if ($normalized -and $normalized.Count -gt 0) {
 # === [DPI BYPASS] zapret/winws — автоматический обход DPI ===
 if (-not $bestEndpoint) {
   Write-Host ''
-  Write-Host '=== [DPI] Все прямые попытки не дали эндпоинтов. Пробуем обход DPI через zapret (winws)... ==='
+  if ($dpiFirst) {
+    Write-Host '=== [DPI] Режим DPI-first: запускаем обход DPI через zapret (winws) напрямую... ==='
+  } else {
+    Write-Host '=== [DPI] Все прямые попытки не дали эндпоинтов. Пробуем обход DPI через zapret (winws)... ==='
+  }
   $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
   if (-not $isAdmin) {
     Write-Host '[DPI] Для WinDivert нужны права администратора.'
@@ -2161,6 +2172,7 @@ app.post('/api/speedtest/session', (req, res) => {
         status: 'pending',
         clientIp: getClientIp(req),
         result: null,
+        dpiFirst: Boolean(req.body?.dpiFirst),
     };
     SPEEDTEST_SESSIONS.set(sessionId, session);
 
@@ -2181,7 +2193,7 @@ app.get('/api/speedtest/windows-script/:sessionId', (req, res) => {
 
     const reportUrl = `${getRequestBaseUrl(req)}/api/speedtest/report`;
     const fallbackCandidates = getAdaptiveSpeedtestFallbackEndpoints(session.clientIp);
-    const script = buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates });
+    const script = buildWindowsSpeedtestScript({ sessionId, reportUrl, fallbackCandidates, dpiFirst: session.dpiFirst });
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="warp-speedtest-${sessionId}.ps1"`);
     res.send(script);
