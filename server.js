@@ -2727,17 +2727,34 @@ case "$ARCH" in
   *)             ARCH_TAG="amd64" ;;
 esac
 
-RELEASE_JSON="$(curl -sL 'https://api.github.com/repos/peanut996/CloudflareWarpSpeedTest/releases/latest' || true)"
-ASSET_URL="$(echo "$RELEASE_JSON" | grep -o '"browser_download_url":"[^"]*'"\${OS}-\${ARCH_TAG}"'[^"]*"' | head -1 | sed 's/"browser_download_url":"\\(.*\\)"/\\1/' || true)"
+# Strategy 1: get latest tag via redirect header (no JSON parsing)
+REPO="peanut996/CloudflareWarpSpeedTest"
+LATEST_TAG="$(curl -sI "https://github.com/$REPO/releases/latest" 2>/dev/null | grep -i '^location:' | grep -o 'v[0-9][0-9.]*' | head -1 | tr -d '\\r\\n' || true)"
 
+ASSET_URL=""
+if [ -n "$LATEST_TAG" ]; then
+  ASSET_URL="https://github.com/$REPO/releases/download/\${LATEST_TAG}/CloudflareWarpSpeedTest-\${LATEST_TAG}-\${OS}-\${ARCH_TAG}.tar.gz"
+  echo "[1/4] Found tag \${LATEST_TAG}, trying direct URL..."
+fi
+
+# Strategy 2: parse GitHub API JSON
 if [ -z "$ASSET_URL" ]; then
-  # Fallback: any darwin asset
-  ASSET_URL="$(echo "$RELEASE_JSON" | grep -o '"browser_download_url":"[^"]*darwin[^"]*"' | head -1 | sed 's/"browser_download_url":"\\(.*\\)"/\\1/' || true)"
+  echo "[1/4] Redirect method failed, querying GitHub API..."
+  RELEASE_JSON="$(curl -sL --max-time 15 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null || true)"
+  if echo "$RELEASE_JSON" | grep -q '"tag_name"'; then
+    LATEST_TAG="$(echo "$RELEASE_JSON" | grep -o '"tag_name":"[^"]*"' | head -1 | sed 's/"tag_name":"//;s/"//')"
+    ASSET_URL="$(echo "$RELEASE_JSON" | grep -o '"browser_download_url":"[^"]*'"\${OS}-\${ARCH_TAG}"'[^"]*"' | head -1 | sed 's/"browser_download_url":"//;s/"//' || true)"
+    # Fallback: construct from tag if grep didn't find it
+    if [ -z "$ASSET_URL" ] && [ -n "$LATEST_TAG" ]; then
+      ASSET_URL="https://github.com/$REPO/releases/download/\${LATEST_TAG}/CloudflareWarpSpeedTest-\${LATEST_TAG}-\${OS}-\${ARCH_TAG}.tar.gz"
+    fi
+  fi
 fi
 
 if [ -z "$ASSET_URL" ]; then
-  die "Could not find release asset for $OS/$ARCH_TAG. Check https://github.com/peanut996/CloudflareWarpSpeedTest/releases"
+  die "Could not resolve download URL for $OS/$ARCH_TAG. Check https://github.com/$REPO/releases"
 fi
+echo "[1/4] URL: \${ASSET_URL}"
 
 ARCHIVE_NAME="\${ASSET_URL##*/}"
 curl -L --progress-bar "$ASSET_URL" -o "$WORK_DIR/$ARCHIVE_NAME" || die "Download failed"
