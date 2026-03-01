@@ -212,6 +212,11 @@ test('Windows speedtest PS1 script contains DPI bypass via zapret block', async 
   assert.match(scriptText, /Strategy mode:/);
   assert.match(scriptText, /\$extendedStrategy = \$true/);
 
+  // Progress steps via Write-Step
+  assert.match(scriptText, /Write-Step '\[1\/5\]/);
+  assert.match(scriptText, /Write-Step '\[5\/5\]/);
+  assert.match(scriptText, /function Write-Step/);
+
   // WARP ports are embedded
   assert.match(scriptText, /500,854/);
   assert.match(scriptText, /2408/);
@@ -302,6 +307,31 @@ test('Windows .bat script uses forwarded https base URL and has download retries
   assert.match(batText, /if %ATTEMPT% LSS 3/);
   assert.match(batText, /timeout \/t 2 \/nobreak >nul/);
   assert.match(batText, /\?t=/);
+});
+
+test('macOS/Linux speedtest shell script downloads without error and has correct content', async () => {
+  const sessionResp = await fetch(`${BASE}/api/speedtest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(sessionResp.status, 200);
+  const sessionBody = await sessionResp.json();
+  assert.ok(typeof sessionBody.downloadShPath === 'string' && sessionBody.downloadShPath.length > 0);
+
+  const shResp = await fetch(`${BASE}${sessionBody.downloadShPath}`);
+  assert.equal(shResp.status, 200, 'macOS script endpoint must return 200 (not 500)');
+  const shText = await shResp.text();
+
+  assert.match(shText, /^#!\/usr\/bin\/env bash/, 'must start with bash shebang');
+  assert.match(shText, /WARP Endpoint Speedtest/);
+  assert.match(shText, /peanut996\/CloudflareWarpSpeedTest/);
+  // Bash variables should be present literally, not evaluated as JS
+  assert.match(shText, /\$\{OS\}_\$\{ARCH_TAG\}/, 'bash ${OS}_${ARCH_TAG} must be in output');
+  assert.match(shText, /\$\{ASSET_URL##\*\/\}/, 'bash ${ASSET_URL##*/} must be in output');
+  assert.match(shText, /\$\{TMPDIR:-\/tmp\}/, 'bash ${TMPDIR:-/tmp} must be in output');
+  assert.match(shText, /162\.159\.192\.5:2408/);
+  assert.match(shText, /\/api\/speedtest\/report/);
 });
 
 test('Clash import parses WireGuard config text', async () => {

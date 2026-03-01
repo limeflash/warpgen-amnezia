@@ -1518,6 +1518,13 @@ if (Test-Path $workDir) { Remove-Item -Recurse -Force $workDir }
 New-Item -ItemType Directory -Path $workDir | Out-Null
 Set-Location $workDir
 
+# Clean up old warp-speedtest-* dirs (older than 24h)
+try {
+  Get-ChildItem -Path $env:TEMP -Filter 'warp-speedtest-*' -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-24) } |
+    ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+} catch {}
+
 # === Persistent cache (last working endpoint + DPI profile) ===
 $cacheDir = Join-Path $env:LOCALAPPDATA 'warpgen'
 $cacheEndpointFile = Join-Path $cacheDir 'last-endpoint.txt'
@@ -1538,6 +1545,17 @@ function Save-Cache {
     if ($Endpoint) { $Endpoint | Set-Content -Path $cacheEndpointFile -Encoding ascii }
     if ($Profile)  { $Profile  | Set-Content -Path $cacheProfileFile  -Encoding ascii }
   } catch {}
+}
+
+$scriptStart = Get-Date
+$ProgressPreference = 'Continue'
+
+function Write-Step {
+  param([string]$Step, [string]$Msg = '')
+  $elapsed = [int]((Get-Date) - $scriptStart).TotalSeconds
+  Write-Host ''
+  Write-Host ('─── ' + $Step + ' ── ' + $elapsed + 's ───────────────────────')
+  if ($Msg) { Write-Host $Msg }
 }
 
 function Get-FileSha256Hex {
@@ -1849,7 +1867,7 @@ $candidateC = [Math]::Max(400, [Math]::Min(2200, [int]($rescueC / 2)))
 Write-Host ('Adaptive engine: CPU=' + $cpu + ', p=' + $workerP + ', c=' + $primaryC + '/' + $rescueC + '/' + $qualityC)
 Write-Host ('Strategy mode: ' + ($(if ($extendedStrategy) { 'extended' } else { 'basic' })))
 
-Write-Host '[1/5] Downloading CloudflareWarpSpeedTest...'
+Write-Step '[1/5] Download CloudflareWarpSpeedTest'
 $arch = if ([Environment]::Is64BitOperatingSystem) { 'amd64' } else { '386' }
 $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/peanut996/CloudflareWarpSpeedTest/releases/latest'
 $asset = $release.assets | Where-Object { $_.name -like ('*windows-' + $arch + '.zip') } | Select-Object -First 1
@@ -1867,7 +1885,7 @@ $exe = Get-ChildItem -Path $workDir -Recurse -Filter '*.exe' | Where-Object { $_
 if (-not $exe) { throw 'CloudflareWarpSpeedTest executable not found after extraction' }
 Report-AuthenticodeStatus -FilePath $exe.FullName -Label 'CloudflareWarpSpeedTest' | Out-Null
 
-Write-Host '[2/5] Building local IP list...'
+Write-Step '[2/5] Build IP list'
 $staticIps = @(${psIpArray})
 $engageIps = @()
 try {
@@ -1916,15 +1934,15 @@ if ($cachedEndpoint -and -not $dpiFirst) {
 }
 
 if ($dpiFirst) {
-  Write-Host '[3/5] DPI-first mode: skipping direct speedtest, going straight to DPI bypass...'
+  Write-Step '[3/5] Speedtest' 'DPI-first mode: skipping direct speedtest, going straight to DPI bypass...'
 } elseif ($normalized -and $normalized.Count -gt 0) {
-  Write-Host '[3/5] Using cached endpoint, skipping full speedtest.'
+  Write-Step '[3/5] Speedtest' 'Using cached endpoint, skipping full speedtest.'
 } else {
-Write-Host '[3/5] Running speed test...'
+Write-Step '[3/5] Speedtest'
 $csvPath = Join-Path $workDir 'result.csv'
 & $exe.FullName -all -n 60 -t 5 -c $primaryC -tl 450 -tll 0 -tlr 0.25 -p $workerP -f $ipFile -o $csvPath
 
-Write-Host '[4/5] Selecting best endpoint...'
+Write-Step '[4/5] Select best endpoint'
 $rows = @()
 if (Test-Path $csvPath) {
   try {
@@ -2592,7 +2610,7 @@ if (-not $bestEndpoint) {
   Write-Host ('No available endpoints from local speedtest. Using fallback endpoint: ' + $bestEndpoint)
 }
 
-Write-Host '[5/5] Reporting to site...'
+Write-Step '[5/5] Report to site'
 $payload = @{
   sessionId = $sessionId
   bestEndpoint = $bestEndpoint
@@ -2606,6 +2624,13 @@ try { Set-Clipboard -Value $bestEndpoint } catch {}
 Write-Host ''
 Write-Host ('Best endpoint: ' + $bestEndpoint)
 Write-Host 'Done. You can return to the site, endpoint will be filled automatically.'
+
+# Cleanup work directory
+try {
+  Set-Location $env:TEMP
+  Remove-Item -Recurse -Force $workDir -ErrorAction SilentlyContinue
+  Write-Host '[Cleanup] Temporary files removed.'
+} catch {}
 `;
 }
 
@@ -2702,7 +2727,7 @@ case "$ARCH" in
 esac
 
 RELEASE_JSON="$(curl -sL 'https://api.github.com/repos/peanut996/CloudflareWarpSpeedTest/releases/latest' || true)"
-ASSET_URL="$(echo "$RELEASE_JSON" | grep -o '"browser_download_url":"[^"]*'"${OS}_${ARCH_TAG}"'[^"]*"' | head -1 | sed 's/"browser_download_url":"\\(.*\\)"/\\1/' || true)"
+ASSET_URL="$(echo "$RELEASE_JSON" | grep -o '"browser_download_url":"[^"]*'"\${OS}_\${ARCH_TAG}"'[^"]*"' | head -1 | sed 's/"browser_download_url":"\\(.*\\)"/\\1/' || true)"
 
 if [ -z "$ASSET_URL" ]; then
   # Fallback: any darwin asset

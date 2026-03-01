@@ -691,6 +691,40 @@
       color: var(--text);
     }
 
+    /* ── Config History ── */
+    #history-card {
+      display: none;
+      margin-top: 16px;
+    }
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .history-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .history-item:hover { background: rgba(255,255,255,0.07); }
+    .history-item-meta { flex: 1; min-width: 0; }
+    .history-item-title { font-weight: 600; color: var(--text); }
+    .history-item-date { color: var(--muted); margin-top: 2px; }
+    .history-item-restore {
+      font-size: 11px;
+      color: var(--accent);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
     /* ── Footer ── */
     footer {
       margin-top: 32px;
@@ -1155,6 +1189,11 @@
       <div class="dns-miss-note">Эти домены не удалось резолвить при генерации, поэтому маршруты для них не добавлены.</div>
       <ul class="dns-miss-list" id="dnsMissList"></ul>
     </details>
+  </div>
+
+  <div class="card" id="history-card">
+    <div class="card-title">История конфигов</div>
+    <div class="history-list" id="history-list"></div>
   </div>
 
   <footer>
@@ -1721,6 +1760,113 @@
       }
     }
 
+    // ── localStorage: form settings ──
+    const LS_SETTINGS_KEY = 'warpgen_form_v1';
+    const LS_HISTORY_KEY  = 'warpgen_history_v1';
+
+    function saveFormSettings() {
+      try {
+        const settings = {
+          configType: document.getElementById('configType').value,
+          obfsProfile: document.getElementById('obfsProfile').value,
+          endpointPort: document.getElementById('endpointPort').value,
+          endpointIp: document.getElementById('endpointIp').value,
+          quicPreset: document.getElementById('quicPreset').value,
+          dnsServer: document.getElementById('dnsServer').value,
+          splitMode: document.getElementById('splitMode').value,
+          splitTargets: getSelectedSplitTargets(),
+          protocolMaskingEnabled: document.getElementById('protocolMaskingEnabled').value,
+          protocolMaskId: document.getElementById('protocolMaskId').value.trim(),
+          protocolMaskIp: document.getElementById('protocolMaskIp').value,
+          protocolMaskIb: document.getElementById('protocolMaskIb').value,
+        };
+        localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings));
+      } catch (_) {}
+    }
+
+    function restoreFormSettings() {
+      try {
+        const raw = localStorage.getItem(LS_SETTINGS_KEY);
+        if (!raw) return;
+        const s = JSON.parse(raw);
+        const setVal = (id, val) => {
+          const el = document.getElementById(id);
+          if (el && val !== undefined && val !== null) el.value = val;
+        };
+        setVal('configType', s.configType);
+        setVal('obfsProfile', s.obfsProfile);
+        setVal('endpointPort', s.endpointPort);
+        setVal('endpointIp', s.endpointIp);
+        setVal('quicPreset', s.quicPreset);
+        setVal('dnsServer', s.dnsServer);
+        setVal('splitMode', s.splitMode);
+        setVal('protocolMaskingEnabled', s.protocolMaskingEnabled);
+        setVal('protocolMaskId', s.protocolMaskId);
+        setVal('protocolMaskIp', s.protocolMaskIp);
+        setVal('protocolMaskIb', s.protocolMaskIb);
+        if (Array.isArray(s.splitTargets)) setSelectedSplitTargets(s.splitTargets);
+        updateConfigTypeVisibility();
+        updateSplitTargetsVisibility();
+      } catch (_) {}
+    }
+
+    // ── localStorage: config history ──
+    function saveConfigHistory(data) {
+      try {
+        let history = [];
+        const raw = localStorage.getItem(LS_HISTORY_KEY);
+        if (raw) history = JSON.parse(raw);
+        const entry = {
+          ts: Date.now(),
+          date: new Date().toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }),
+          configType: data.configType || 'amnezia',
+          endpoint: data.endpoint || '',
+          splitMode: data.splitTunnel?.mode || 'full',
+          config: data.config || '',
+        };
+        history.unshift(entry);
+        if (history.length > 5) history = history.slice(0, 5);
+        localStorage.setItem(LS_HISTORY_KEY, JSON.stringify(history));
+        renderConfigHistory();
+      } catch (_) {}
+    }
+
+    function renderConfigHistory() {
+      try {
+        const raw = localStorage.getItem(LS_HISTORY_KEY);
+        if (!raw) return;
+        const history = JSON.parse(raw);
+        if (!history.length) return;
+        const card = document.getElementById('history-card');
+        const list = document.getElementById('history-list');
+        const typeLabels = { amnezia: 'AmneziaWG', wireguard: 'WireGuard', wiresock: 'WireSock' };
+        const splitLabels = { full: 'Full tunnel', selective: 'Split', blacklist: 'Blacklist' };
+        list.innerHTML = history.map((e, i) => `
+          <div class="history-item" onclick="applyHistoryEntry(${i})" title="Нажмите, чтобы восстановить конфиг">
+            <div class="history-item-meta">
+              <div class="history-item-title">${typeLabels[e.configType] || e.configType} · ${e.endpoint} · ${splitLabels[e.splitMode] || e.splitMode}</div>
+              <div class="history-item-date">${e.date}</div>
+            </div>
+            <div class="history-item-restore">Восстановить ↩</div>
+          </div>`).join('');
+        card.style.display = 'block';
+      } catch (_) {}
+    }
+
+    function applyHistoryEntry(index) {
+      try {
+        const raw = localStorage.getItem(LS_HISTORY_KEY);
+        if (!raw) return;
+        const history = JSON.parse(raw);
+        const entry = history[index];
+        if (!entry) return;
+        document.getElementById('config-output').value = entry.config;
+        lastGeneratedConfigType = entry.configType;
+        document.getElementById('result-card').style.display = 'block';
+        document.getElementById('result-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (_) {}
+    }
+
     // ── Generate ──
     async function generate() {
       const btn = document.getElementById('generateBtn');
@@ -1799,6 +1945,8 @@
         document.getElementById('statusPill').textContent = statusText;
         resultCard.style.display = 'block';
         resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        saveFormSettings();
+        saveConfigHistory(data);
 
       } catch (err) {
         errBox.textContent = '⚠ ' + err.message;
@@ -1861,9 +2009,10 @@
     document.getElementById('logoTrigger').addEventListener('click', handleLogoSecretTap);
     updateConfigTypeVisibility();
     updateSplitTargetsVisibility();
-    loadWarpOptions();
+    loadWarpOptions().then(() => restoreFormSettings());
     loadVersion();
     initSpeedtestPlatformUI();
+    renderConfigHistory();
 
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') generate();
@@ -1888,15 +2037,22 @@
       modal.classList.add('open');
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      try {
-        await QRCode.toCanvas(canvas, config.trim(), {
-          width: 280,
-          margin: 2,
-          errorCorrectionLevel: 'L',
-          color: { dark: '#000000', light: '#ffffff' },
-        });
-      } catch (e) {
-        errEl.textContent = `Конфиг слишком большой для QR (${config.length} байт). Попробуйте selective split с меньшим числом таргетов.`;
+      const sizes = [280, 400, 540, 700];
+      let rendered = false;
+      for (const w of sizes) {
+        try {
+          await QRCode.toCanvas(canvas, config.trim(), {
+            width: w,
+            margin: 2,
+            errorCorrectionLevel: 'L',
+            color: { dark: '#000000', light: '#ffffff' },
+          });
+          rendered = true;
+          break;
+        } catch (_) { /* try next size */ }
+      }
+      if (!rendered) {
+        errEl.textContent = `Не удалось создать QR (${config.length} байт — превышает лимит QR-кода ~2953 байта).`;
         errEl.style.display = 'block';
         canvas.width = 0;
         canvas.height = 0;
