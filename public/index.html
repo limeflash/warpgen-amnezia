@@ -715,14 +715,45 @@
       transition: background 0.15s;
     }
     .history-item:hover { background: rgba(255,255,255,0.07); }
-    .history-item-meta { flex: 1; min-width: 0; }
-    .history-item-title { font-weight: 600; color: var(--text); }
-    .history-item-date { color: var(--muted); margin-top: 2px; }
-    .history-item-restore {
+    .history-item-meta { flex: 1; min-width: 0; overflow: hidden; }
+    .history-item-title { font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .history-item-date { color: var(--muted); margin-top: 2px; font-size: 11px; }
+    .history-tag {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 4px;
+      padding: 1px 7px;
       font-size: 11px;
-      color: var(--accent);
-      white-space: nowrap;
+      font-weight: 600;
+      cursor: default;
+    }
+    .history-actions {
+      display: flex;
+      gap: 4px;
+      align-items: center;
       flex-shrink: 0;
+    }
+    .history-btn {
+      font-size: 11px;
+      padding: 3px 7px;
+      border-radius: 5px;
+      cursor: pointer;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid transparent;
+      transition: color 0.15s, background 0.15s, border-color 0.15s;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .history-btn:hover { color: var(--text); background: rgba(255,255,255,0.08); border-color: var(--border); }
+    .history-btn-restore { color: var(--accent); }
+    .history-btn-restore:hover { color: var(--accent); border-color: var(--accent); background: rgba(99,179,237,0.1); }
+    .history-btn-del:hover { color: var(--danger); border-color: var(--danger); background: rgba(220,38,38,0.1); }
+    .history-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
 
     /* ── Footer ── */
@@ -1192,7 +1223,10 @@
   </div>
 
   <div class="card" id="history-card">
-    <div class="card-title">История конфигов</div>
+    <div class="history-header">
+      <div class="card-title" style="margin:0">История конфигов</div>
+      <button class="history-btn history-btn-del" onclick="clearHistory()" style="font-size:12px; padding:4px 10px;">✕ Очистить всё</button>
+    </div>
     <div class="history-list" id="history-list"></div>
   </div>
 
@@ -1834,30 +1868,40 @@
     function renderConfigHistory() {
       try {
         const raw = localStorage.getItem(LS_HISTORY_KEY);
-        if (!raw) return;
-        const history = JSON.parse(raw);
-        if (!history.length) return;
         const card = document.getElementById('history-card');
         const list = document.getElementById('history-list');
+        if (!raw) { card.style.display = 'none'; return; }
+        const history = JSON.parse(raw);
+        if (!history.length) { card.style.display = 'none'; return; }
         const typeLabels = { amnezia: 'AmneziaWG', wireguard: 'WireGuard', wiresock: 'WireSock' };
-        const splitLabels = { full: 'Full tunnel', selective: 'Split', blacklist: 'Blacklist' };
-        list.innerHTML = history.map((e, i) => `
-          <div class="history-item" onclick="applyHistoryEntry(${i})" title="Нажмите, чтобы восстановить конфиг">
+        const splitLabels = { full: 'Full', selective: 'Split', blacklist: 'Blacklist' };
+        list.innerHTML = history.map((e, i) => {
+          const tagHtml = e.tag ? `<span class="history-tag">${escHtml(e.tag)}</span>` : '';
+          const title = `${typeLabels[e.configType] || e.configType} · ${e.endpoint} · ${splitLabels[e.splitMode] || e.splitMode}`;
+          return `
+          <div class="history-item">
             <div class="history-item-meta">
-              <div class="history-item-title">${typeLabels[e.configType] || e.configType} · ${e.endpoint} · ${splitLabels[e.splitMode] || e.splitMode}</div>
+              <div class="history-item-title">${tagHtml}<span>${escHtml(title)}</span></div>
               <div class="history-item-date">${e.date}</div>
             </div>
-            <div class="history-item-restore">Восстановить ↩</div>
-          </div>`).join('');
+            <div class="history-actions">
+              <span class="history-btn" onclick="setHistoryTag(${i})" title="Задать тег">✏</span>
+              <span class="history-btn history-btn-del" onclick="deleteHistoryEntry(${i})" title="Удалить">✕</span>
+              <span class="history-btn history-btn-restore" onclick="applyHistoryEntry(${i})">↩ Восстановить</span>
+            </div>
+          </div>`;
+        }).join('');
         card.style.display = 'block';
       } catch (_) {}
     }
 
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
     function applyHistoryEntry(index) {
       try {
-        const raw = localStorage.getItem(LS_HISTORY_KEY);
-        if (!raw) return;
-        const history = JSON.parse(raw);
+        const history = JSON.parse(localStorage.getItem(LS_HISTORY_KEY) || '[]');
         const entry = history[index];
         if (!entry) return;
         document.getElementById('config-output').value = entry.config;
@@ -1865,6 +1909,34 @@
         document.getElementById('result-card').style.display = 'block';
         document.getElementById('result-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (_) {}
+    }
+
+    function setHistoryTag(index) {
+      try {
+        const history = JSON.parse(localStorage.getItem(LS_HISTORY_KEY) || '[]');
+        if (!history[index]) return;
+        const current = history[index].tag || '';
+        const tag = prompt('Тег для этого конфига (оставьте пустым, чтобы убрать):', current);
+        if (tag === null) return; // cancelled
+        history[index].tag = tag.trim().slice(0, 32);
+        localStorage.setItem(LS_HISTORY_KEY, JSON.stringify(history));
+        renderConfigHistory();
+      } catch (_) {}
+    }
+
+    function deleteHistoryEntry(index) {
+      try {
+        const history = JSON.parse(localStorage.getItem(LS_HISTORY_KEY) || '[]');
+        history.splice(index, 1);
+        localStorage.setItem(LS_HISTORY_KEY, JSON.stringify(history));
+        renderConfigHistory();
+      } catch (_) {}
+    }
+
+    function clearHistory() {
+      if (!confirm('Очистить всю историю конфигов?')) return;
+      localStorage.removeItem(LS_HISTORY_KEY);
+      renderConfigHistory();
     }
 
     // ── Generate ──
