@@ -5,6 +5,7 @@ const net = require('net');
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
+const QRCode = require('qrcode');
 const { createCloudflareApi } = require('./lib/cloudflare');
 const { createRateLimitManager } = require('./lib/ratelimit');
 const { createOutboundUtils } = require('./lib/outbound');
@@ -2870,6 +2871,17 @@ app.get('/api/split-targets', (req, res) => {
         processes: t.processes || [],
     }));
     res.json({ targets });
+});
+
+app.post('/api/qr', express.json({ limit: '8kb' }), async (req, res) => {
+    const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    if (!text) return res.status(400).json({ error: 'No text provided' });
+    try {
+        const dataUrl = await QRCode.toDataURL(text, { errorCorrectionLevel: 'L', width: 320, margin: 2 });
+        res.json({ dataUrl });
+    } catch (err) {
+        res.status(422).json({ error: err.message });
+    }
 });
 
 app.get('/api/warp-options', (req, res) => {

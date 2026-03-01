@@ -829,7 +829,6 @@
       color: var(--muted);
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </head>
 
 <body>
@@ -2109,13 +2108,14 @@
       imgEl.style.display = 'none';
       modal.classList.add('open');
       try {
-        const dataUrl = await QRCode.toDataURL(config.trim(), {
-          width: 320,
-          margin: 2,
-          errorCorrectionLevel: 'L',
-          color: { dark: '#000000', light: '#ffffff' },
+        const resp = await fetch('/api/qr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: config.trim() }),
         });
-        imgEl.src = dataUrl;
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || `Ошибка ${resp.status}`);
+        imgEl.src = data.dataUrl;
         imgEl.style.display = 'block';
       } catch (e) {
         errEl.textContent = `Не удалось создать QR (${config.length} байт): ${e.message}`;
