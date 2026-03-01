@@ -2291,15 +2291,25 @@ if (-not $bestEndpoint) {
             [string]$Name,
             [array]$Args
           )
-          if (-not $Args -or $Args.Count -eq 0) { return }
+          if (-not $Args -or $Args.Count -eq 0) {
+            Write-Host ('[DPI][profiles] Skip empty profile args: ' + $Name)
+            return
+          }
           $joinedArgs = ($Args -join ' ').Trim()
-          if (-not $joinedArgs) { return }
+          if (-not $joinedArgs) {
+            Write-Host ('[DPI][profiles] Skip blank profile args: ' + $Name)
+            return
+          }
           $duplicate = $script:winwsProfiles | Where-Object { (($_.args -join ' ').Trim()) -eq $joinedArgs } | Select-Object -First 1
-          if ($duplicate) { return }
+          if ($duplicate) {
+            Write-Host ('[DPI][profiles] Skip duplicate args profile: ' + $Name + ' (same as ' + $duplicate.name + ')')
+            return
+          }
           $script:winwsProfiles += [PSCustomObject]@{
             name = $Name
             args = $Args
           }
+          Write-Host ('[DPI][profiles] Added: ' + $Name)
         }
 
         if ($supportsDirectionalWf) {
@@ -2392,7 +2402,7 @@ if (-not $bestEndpoint) {
           Write-Host '[DPI] Добавлен raw-профиль wireguard (windivert_part.wireguard.txt).'
         }
 
-        if ($supportsLegacyWf -or $winwsProfiles.Count -eq 0) {
+        if ($supportsLegacyWf) {
           Add-WinwsProfile -Name 'compat-legacy-wf-udp-basic' -Args @(
             "--wf-udp=$warpPorts",
             '--wf-l3=ipv4'
@@ -2420,7 +2430,7 @@ if (-not $bestEndpoint) {
             }
           }
         }
-        if ($winwsProfiles.Count -eq 0) {
+        if ($script:winwsProfiles.Count -eq 0) {
           Write-Host '[DPI][WARN] Strategy matrix is empty after capability filtering.'
           Write-Host ('[DPI][WARN] Caps snapshot: directional=' + $supportsDirectionalWf + ', legacy=' + $supportsLegacyWf + ', lua=' + ($supportsLuaDesync -and $supportsLuaInit) + ', raw=' + $supportsWfRawPart + ', fakeTtl=' + $supportsFakeTtl)
           if ($supportsDirectionalWf) {
@@ -2430,26 +2440,26 @@ if (-not $bestEndpoint) {
               '--wf-l3=ipv4'
             )
           }
-          if ($winwsProfiles.Count -eq 0 -and $supportsLegacyWf) {
+          if ($script:winwsProfiles.Count -eq 0 -and $supportsLegacyWf) {
             Add-WinwsProfile -Name 'emergency-legacy-basic' -Args @(
               "--wf-udp=$warpPorts",
               '--wf-l3=ipv4'
             )
           }
-          Write-Host ('[DPI][WARN] Emergency profiles added: ' + $winwsProfiles.Count)
+          Write-Host ('[DPI][WARN] Emergency profiles added: ' + $script:winwsProfiles.Count)
         }
         # Put cached profile first to speed up repeat runs
-        if ($cachedDpiProfile -and $winwsProfiles.Count -gt 1) {
-          $cachedFirst = @($winwsProfiles | Where-Object { $_.name -eq $cachedDpiProfile })
-          $rest = @($winwsProfiles | Where-Object { $_.name -ne $cachedDpiProfile })
+        if ($cachedDpiProfile -and $script:winwsProfiles.Count -gt 1) {
+          $cachedFirst = @($script:winwsProfiles | Where-Object { $_.name -eq $cachedDpiProfile })
+          $rest = @($script:winwsProfiles | Where-Object { $_.name -ne $cachedDpiProfile })
           if ($cachedFirst.Count -gt 0) {
-            $winwsProfiles = $cachedFirst + $rest
+            $script:winwsProfiles = $cachedFirst + $rest
             Write-Host ('[DPI] Cached profile "' + $cachedDpiProfile + '" будет проверен первым.')
           }
         }
-        Write-Host ('[DPI] Профилей обхода: ' + $winwsProfiles.Count)
+        Write-Host ('[DPI] Профилей обхода: ' + $script:winwsProfiles.Count)
 
-        foreach ($profile in $winwsProfiles) {
+        foreach ($profile in $script:winwsProfiles) {
           if ($bestEndpoint) { break }
           $safeProfileName = ($profile.name -replace '[^a-zA-Z0-9_-]', '_')
           $stdoutLog = Join-Path $workDir ('winws-' + $safeProfileName + '-stdout.log')

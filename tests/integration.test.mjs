@@ -210,6 +210,7 @@ test('Windows speedtest PS1 script contains DPI bypass via zapret block', async 
   assert.match(scriptText, /result-dpi-quality-/);
   assert.match(scriptText, /Профилей обхода/);
   assert.match(scriptText, /\$script:winwsProfiles = @\(\)/);
+  assert.match(scriptText, /foreach \(\$profile in \$script:winwsProfiles\)/);
   assert.match(scriptText, /Strategy matrix is empty after capability filtering/);
   assert.match(scriptText, /Strategy mode:/);
   assert.match(scriptText, /\$extendedStrategy = \$true/);
