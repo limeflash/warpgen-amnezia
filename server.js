@@ -2285,7 +2285,7 @@ if (-not $bestEndpoint) {
           Write-Host '[DPI] Lua поддерживается, но zapret-lib.lua / zapret-antidpi.lua не найдены.'
         }
 
-        $winwsProfiles = @()
+        $script:winwsProfiles = @()
         function Add-WinwsProfile {
           param(
             [string]$Name,
@@ -2294,9 +2294,9 @@ if (-not $bestEndpoint) {
           if (-not $Args -or $Args.Count -eq 0) { return }
           $joinedArgs = ($Args -join ' ').Trim()
           if (-not $joinedArgs) { return }
-          $duplicate = $winwsProfiles | Where-Object { (($_.args -join ' ').Trim()) -eq $joinedArgs } | Select-Object -First 1
+          $duplicate = $script:winwsProfiles | Where-Object { (($_.args -join ' ').Trim()) -eq $joinedArgs } | Select-Object -First 1
           if ($duplicate) { return }
-          $winwsProfiles += [PSCustomObject]@{
+          $script:winwsProfiles += [PSCustomObject]@{
             name = $Name
             args = $Args
           }
@@ -2419,6 +2419,24 @@ if (-not $bestEndpoint) {
               Add-WinwsProfile -Name 'compat-legacy-lua-fake-quic' -Args $legacyLuaQuic
             }
           }
+        }
+        if ($winwsProfiles.Count -eq 0) {
+          Write-Host '[DPI][WARN] Strategy matrix is empty after capability filtering.'
+          Write-Host ('[DPI][WARN] Caps snapshot: directional=' + $supportsDirectionalWf + ', legacy=' + $supportsLegacyWf + ', lua=' + ($supportsLuaDesync -and $supportsLuaInit) + ', raw=' + $supportsWfRawPart + ', fakeTtl=' + $supportsFakeTtl)
+          if ($supportsDirectionalWf) {
+            Add-WinwsProfile -Name 'emergency-inout-basic' -Args @(
+              "--wf-udp-in=$warpPorts",
+              "--wf-udp-out=$warpPorts",
+              '--wf-l3=ipv4'
+            )
+          }
+          if ($winwsProfiles.Count -eq 0 -and $supportsLegacyWf) {
+            Add-WinwsProfile -Name 'emergency-legacy-basic' -Args @(
+              "--wf-udp=$warpPorts",
+              '--wf-l3=ipv4'
+            )
+          }
+          Write-Host ('[DPI][WARN] Emergency profiles added: ' + $winwsProfiles.Count)
         }
         # Put cached profile first to speed up repeat runs
         if ($cachedDpiProfile -and $winwsProfiles.Count -gt 1) {
@@ -2713,9 +2731,27 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 cd "$WORK_DIR"
 
 die() { echo "[Error] $*" >&2; exit 1; }
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
+log_env() { echo "[Env] $*"; }
 
 echo "=== WARP Endpoint Speedtest (macOS/Linux) ==="
 echo ""
+echo "[Info] macOS/Linux helper runs direct endpoint speedtest only (no winws DPI bypass in this script)."
+log_env "OS=$(uname -s) ARCH=$(uname -m)"
+for req in curl awk sed sort head tail; do
+  if have_cmd "$req"; then
+    log_env "required tool found: $req"
+  else
+    die "Required tool not found: $req"
+  fi
+done
+for opt in dig nslookup python3 unzip pbcopy; do
+  if have_cmd "$opt"; then
+    log_env "optional tool found: $opt"
+  else
+    log_env "optional tool missing: $opt"
+  fi
+done
 
 # 1/4. Download CloudflareWarpSpeedTest
 echo "[1/4] Downloading CloudflareWarpSpeedTest..."
@@ -2726,6 +2762,7 @@ case "$ARCH" in
   x86_64)        ARCH_TAG="amd64" ;;
   *)             ARCH_TAG="amd64" ;;
 esac
+echo "[1/4] Platform mapping: os=$OS arch=$ARCH -> tag=$ARCH_TAG"
 
 # Strategy 1: get latest tag via redirect header (no JSON parsing)
 REPO="peanut996/CloudflareWarpSpeedTest"
@@ -2779,6 +2816,10 @@ printf '%s\\n' $STATIC_IPS > "$WORK_DIR/ip.txt"
 ENGAGE_IPS="$(dig +short A engage.cloudflareclient.com 2>/dev/null || nslookup engage.cloudflareclient.com 2>/dev/null | awk '/^Address:/{print $2}' | grep -v '#' || true)"
 if [ -n "$ENGAGE_IPS" ]; then
   echo "$ENGAGE_IPS" >> "$WORK_DIR/ip.txt"
+  ENGAGE_COUNT="$(printf '%s\n' "$ENGAGE_IPS" | grep -c . || true)"
+  echo "[2/4] engage.cloudflareclient.com resolved: $ENGAGE_COUNT IPs"
+else
+  echo "[2/4][Warn] engage.cloudflareclient.com did not resolve, using static ranges only."
 fi
 sort -u -o "$WORK_DIR/ip.txt" "$WORK_DIR/ip.txt"
 IP_COUNT="$(wc -l < "$WORK_DIR/ip.txt" | tr -d ' ')"
@@ -2792,11 +2833,19 @@ WORKERS=$(( WORKERS > 32 ? 32 : WORKERS ))
 WORKERS=$(( WORKERS < 4 ? 4 : WORKERS ))
 
 CSV="$WORK_DIR/result.csv"
-"$EXE" -all -n 60 -t 5 -c 1200 -tl 400 -tll 0 -tlr 0.25 -p "$WORKERS" -f "$WORK_DIR/ip.txt" -o "$CSV" || true
+"$EXE" -all -n 60 -t 5 -c 1200 -tl 400 -tll 0 -tlr 0.25 -p "$WORKERS" -f "$WORK_DIR/ip.txt" -o "$CSV"
+PRIMARY_EXIT=$?
+echo "[3/4] Primary pass exit code: $PRIMARY_EXIT"
+if [ ! -f "$CSV" ]; then
+  echo "[3/4][Warn] result.csv not created by CloudflareWarpSpeedTest."
+fi
 
 # Quality pass on top candidates
 BEST_ENDPOINT=""
 if [ -f "$CSV" ]; then
+  ROW_COUNT_RAW="$(wc -l < "$CSV" | tr -d ' ')"
+  ROW_COUNT=$(( ROW_COUNT_RAW > 0 ? ROW_COUNT_RAW - 1 : 0 ))
+  echo "[3/4] Primary pass rows: $ROW_COUNT"
   # Parse CSV (header: IP:Port,Loss,Latency,...) sort by loss*500+latency, take top 10 hosts
   TOP_HOSTS="$(tail -n +2 "$CSV" | awk -F',' '{
     gsub(/%/,"",$2); gsub(/ /,"",$2); gsub(/ /,"",$3)
@@ -2806,10 +2855,23 @@ if [ -f "$CSV" ]; then
     if (!(host in best) || score < best[host]) { best[host]=score }
   } END { for (h in best) print best[h], h }' | sort -n | head -10 | awk '{print $2}' || true)"
   if [ -n "$TOP_HOSTS" ]; then
+    TOP_HOST_COUNT="$(printf '%s\n' "$TOP_HOSTS" | grep -c . || true)"
+    echo "[3/4] Quality pass top host count: $TOP_HOST_COUNT"
     echo "$TOP_HOSTS" > "$WORK_DIR/ip-quality.txt"
     QCSV="$WORK_DIR/result-quality.csv"
-    "$EXE" -all -n 90 -t 6 -c 1500 -tl 280 -tll 0 -tlr 0.2 -p "$WORKERS" -f "$WORK_DIR/ip-quality.txt" -o "$QCSV" || true
-    [ -f "$QCSV" ] && CSV="$QCSV"
+    "$EXE" -all -n 90 -t 6 -c 1500 -tl 280 -tll 0 -tlr 0.2 -p "$WORKERS" -f "$WORK_DIR/ip-quality.txt" -o "$QCSV"
+    QUALITY_EXIT=$?
+    echo "[3/4] Quality pass exit code: $QUALITY_EXIT"
+    if [ -f "$QCSV" ]; then
+      CSV="$QCSV"
+      QROW_RAW="$(wc -l < "$QCSV" | tr -d ' ')"
+      QROW_COUNT=$(( QROW_RAW > 0 ? QROW_RAW - 1 : 0 ))
+      echo "[3/4] Quality pass rows: $QROW_COUNT"
+    else
+      echo "[3/4][Warn] quality CSV not created, keeping primary CSV."
+    fi
+  else
+    echo "[3/4][Warn] Could not compute TOP_HOSTS from primary CSV."
   fi
   # Pick best: lowest score = loss*500+latency
   BEST_ENDPOINT="$(tail -n +2 "$CSV" | awk -F',' '{
@@ -2824,6 +2886,7 @@ if [ -z "$BEST_ENDPOINT" ]; then
   echo "[Fallback] Using fallback endpoint: $BEST_ENDPOINT"
   SOURCE="macos-local-helper-fallback"
 else
+  echo "[3/4] Best endpoint selected from speedtest: $BEST_ENDPOINT"
   SOURCE="macos-local-helper"
 fi
 
@@ -2834,6 +2897,7 @@ curl -sS -X POST "$REPORT_URL" -H 'Content-Type: application/json' -d "$PAYLOAD"
 
 echo ""
 echo "Best endpoint: $BEST_ENDPOINT"
+echo "Source: $SOURCE"
 printf '%s' "$BEST_ENDPOINT" | pbcopy 2>/dev/null && echo "Copied to clipboard." || true
 echo "Done. Return to the site — endpoint will be filled automatically."
 `;

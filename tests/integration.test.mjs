@@ -209,8 +209,12 @@ test('Windows speedtest PS1 script contains DPI bypass via zapret block', async 
   assert.match(scriptText, /result-dpi-bypass-/);
   assert.match(scriptText, /result-dpi-quality-/);
   assert.match(scriptText, /Профилей обхода/);
+  assert.match(scriptText, /\$script:winwsProfiles = @\(\)/);
+  assert.match(scriptText, /Strategy matrix is empty after capability filtering/);
   assert.match(scriptText, /Strategy mode:/);
   assert.match(scriptText, /\$extendedStrategy = \$true/);
+  assert.doesNotMatch(scriptText, /--dpi-desync=/);
+  assert.doesNotMatch(scriptText, /--udp-fake-count=/);
 
   // Progress steps via Write-Step
   assert.match(scriptText, /Write-Step '\[1\/5\]/);
@@ -325,6 +329,12 @@ test('macOS/Linux speedtest shell script downloads without error and has correct
 
   assert.match(shText, /^#!\/usr\/bin\/env bash/, 'must start with bash shebang');
   assert.match(shText, /WARP Endpoint Speedtest/);
+  assert.match(shText, /direct endpoint speedtest only/);
+  assert.match(shText, /for req in curl awk sed sort head tail/);
+  assert.match(shText, /required tool found: \$req/);
+  assert.match(shText, /optional tool/);
+  assert.match(shText, /Platform mapping: os=/);
+  assert.match(shText, /Primary pass exit code:/);
   assert.match(shText, /peanut996\/CloudflareWarpSpeedTest/);
   // Bash variables should be present literally, not evaluated as JS
   assert.match(shText, /\$\{OS\}-\$\{ARCH_TAG\}/, 'bash ${OS}-${ARCH_TAG} must be in output');
