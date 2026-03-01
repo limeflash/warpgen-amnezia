@@ -2289,13 +2289,13 @@ if (-not $bestEndpoint) {
         function Add-WinwsProfile {
           param(
             [string]$Name,
-            [array]$Args
+            [array]$ProfileArgs
           )
-          if (-not $Args -or $Args.Count -eq 0) {
+          if (-not $ProfileArgs -or $ProfileArgs.Count -eq 0) {
             Write-Host ('[DPI][profiles] Skip empty profile args: ' + $Name)
             return
           }
-          $joinedArgs = ($Args -join ' ').Trim()
+          $joinedArgs = ($ProfileArgs -join ' ').Trim()
           if (-not $joinedArgs) {
             Write-Host ('[DPI][profiles] Skip blank profile args: ' + $Name)
             return
@@ -2307,7 +2307,7 @@ if (-not $bestEndpoint) {
           }
           $script:winwsProfiles += [PSCustomObject]@{
             name = $Name
-            args = $Args
+            args = $ProfileArgs
           }
           Write-Host ('[DPI][profiles] Added: ' + $Name)
         }
