@@ -2180,15 +2180,28 @@ if (-not $bestEndpoint) {
         }
 
         $winwsProfiles = @()
-        if ($supportsDirectionalWf) {
+        function Add-WinwsProfile {
+          param(
+            [string]$Name,
+            [array]$Args
+          )
+          if (-not $Args -or $Args.Count -eq 0) { return }
+          $joinedArgs = ($Args -join ' ').Trim()
+          if (-not $joinedArgs) { return }
+          $duplicate = $winwsProfiles | Where-Object { (($_.args -join ' ').Trim()) -eq $joinedArgs } | Select-Object -First 1
+          if ($duplicate) { return }
           $winwsProfiles += [PSCustomObject]@{
-            name = 'z2-inout-basic'
-            args = @(
-              "--wf-udp-in=$warpPorts",
-              "--wf-udp-out=$warpPorts",
-              '--wf-l3=ipv4'
-            )
+            name = $Name
+            args = $Args
           }
+        }
+
+        if ($supportsDirectionalWf) {
+          Add-WinwsProfile -Name 'z2-inout-basic' -Args @(
+            "--wf-udp-in=$warpPorts",
+            "--wf-udp-out=$warpPorts",
+            '--wf-l3=ipv4'
+          )
           if ($canUseLuaProfiles) {
             $z2LuaArgs = @(
               "--wf-udp-in=$warpPorts",
@@ -2200,16 +2213,25 @@ if (-not $bestEndpoint) {
             $z2LuaArgs += "--lua-init=@$($luaLib.FullName)"
             $z2LuaArgs += "--lua-init=@$($luaAntidpi.FullName)"
             $z2LuaArgs += '--lua-desync=fake:repeats=2'
-            $winwsProfiles += [PSCustomObject]@{
-              name = 'z2-inout-lua-fake'
-              args = $z2LuaArgs
-            }
+            Add-WinwsProfile -Name 'z2-inout-lua-fake' -Args $z2LuaArgs
             if ($extendedStrategy) {
               $z2LuaArgsAlt = @($z2LuaArgs | Where-Object { $_ -notmatch '^--lua-desync=' })
               $z2LuaArgsAlt += '--lua-desync=fake:repeats=3'
-              $winwsProfiles += [PSCustomObject]@{
-                name = 'z2-inout-lua-fake-r3'
-                args = $z2LuaArgsAlt
+              Add-WinwsProfile -Name 'z2-inout-lua-fake-r3' -Args $z2LuaArgsAlt
+
+              $z2LuaArgsR6 = @($z2LuaArgs | Where-Object { $_ -notmatch '^--lua-desync=' })
+              $z2LuaArgsR6 += '--lua-desync=fake:repeats=6'
+              Add-WinwsProfile -Name 'z2-inout-lua-fake-r6' -Args $z2LuaArgsR6
+
+              if ($supportsPayload) {
+                $z2LuaQuic = @($z2LuaArgs | Where-Object { $_ -notmatch '^--payload=' })
+                $z2LuaQuic += '--payload=wireguard_initiation,wireguard_response,wireguard_cookie,wireguard_keepalive,wireguard_data,quic_initial'
+                Add-WinwsProfile -Name 'z2-inout-lua-fake-quic' -Args $z2LuaQuic
+              }
+
+              if ($supportsFilterL7) {
+                $z2LuaNoFilter = @($z2LuaArgs | Where-Object { $_ -notmatch '^--filter-l7=' })
+                Add-WinwsProfile -Name 'z2-inout-lua-fake-nofilter' -Args $z2LuaNoFilter
               }
             }
           }
@@ -2227,27 +2249,23 @@ if (-not $bestEndpoint) {
             $rawArgs += "--lua-init=@$($luaLib.FullName)"
             $rawArgs += "--lua-init=@$($luaAntidpi.FullName)"
             $rawArgs += '--lua-desync=fake:repeats=2'
-            $winwsProfiles += [PSCustomObject]@{
-              name = 'raw-wireguard-lua'
-              args = $rawArgs
+            Add-WinwsProfile -Name 'raw-wireguard-lua' -Args $rawArgs
+            if ($supportsPayload) {
+              $rawArgsQuic = @($rawArgs | Where-Object { $_ -notmatch '^--payload=' })
+              $rawArgsQuic += '--payload=wireguard_initiation,wireguard_response,wireguard_cookie,wireguard_keepalive,wireguard_data,quic_initial'
+              Add-WinwsProfile -Name 'raw-wireguard-lua-quic' -Args $rawArgsQuic
             }
           } else {
-            $winwsProfiles += [PSCustomObject]@{
-              name = 'raw-wireguard-basic'
-              args = $rawArgs
-            }
+            Add-WinwsProfile -Name 'raw-wireguard-basic' -Args $rawArgs
           }
           Write-Host '[DPI] Добавлен raw-профиль wireguard (windivert_part.wireguard.txt).'
         }
 
         if ($supportsLegacyWf -or $winwsProfiles.Count -eq 0) {
-          $winwsProfiles += [PSCustomObject]@{
-            name = 'compat-legacy-wf-udp-basic'
-            args = @(
-              "--wf-udp=$warpPorts",
-              '--wf-l3=ipv4'
-            )
-          }
+          Add-WinwsProfile -Name 'compat-legacy-wf-udp-basic' -Args @(
+            "--wf-udp=$warpPorts",
+            '--wf-l3=ipv4'
+          )
           if ($extendedStrategy -and $canUseLuaProfiles) {
             $legacyLuaArgs = @(
               "--wf-udp=$warpPorts",
@@ -2258,9 +2276,16 @@ if (-not $bestEndpoint) {
             $legacyLuaArgs += "--lua-init=@$($luaLib.FullName)"
             $legacyLuaArgs += "--lua-init=@$($luaAntidpi.FullName)"
             $legacyLuaArgs += '--lua-desync=fake:repeats=2'
-            $winwsProfiles += [PSCustomObject]@{
-              name = 'compat-legacy-lua-fake'
-              args = $legacyLuaArgs
+            Add-WinwsProfile -Name 'compat-legacy-lua-fake' -Args $legacyLuaArgs
+
+            $legacyLuaR4 = @($legacyLuaArgs | Where-Object { $_ -notmatch '^--lua-desync=' })
+            $legacyLuaR4 += '--lua-desync=fake:repeats=4'
+            Add-WinwsProfile -Name 'compat-legacy-lua-fake-r4' -Args $legacyLuaR4
+
+            if ($supportsPayload) {
+              $legacyLuaQuic = @($legacyLuaArgs | Where-Object { $_ -notmatch '^--payload=' })
+              $legacyLuaQuic += '--payload=wireguard_initiation,wireguard_response,wireguard_cookie,wireguard_keepalive,wireguard_data,quic_initial'
+              Add-WinwsProfile -Name 'compat-legacy-lua-fake-quic' -Args $legacyLuaQuic
             }
           }
         }
