@@ -2727,7 +2727,7 @@ case "$ARCH" in
 esac
 
 RELEASE_JSON="$(curl -sL 'https://api.github.com/repos/peanut996/CloudflareWarpSpeedTest/releases/latest' || true)"
-ASSET_URL="$(echo "$RELEASE_JSON" | grep -o '"browser_download_url":"[^"]*'"\${OS}_\${ARCH_TAG}"'[^"]*"' | head -1 | sed 's/"browser_download_url":"\\(.*\\)"/\\1/' || true)"
+ASSET_URL="$(echo "$RELEASE_JSON" | grep -o '"browser_download_url":"[^"]*'"\${OS}-\${ARCH_TAG}"'[^"]*"' | head -1 | sed 's/"browser_download_url":"\\(.*\\)"/\\1/' || true)"
 
 if [ -z "$ASSET_URL" ]; then
   # Fallback: any darwin asset

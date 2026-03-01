@@ -1178,7 +1178,7 @@
       <div class="qr-modal-box">
         <div class="qr-modal-title">QR-код конфига</div>
         <div class="qr-modal-sub">Сканируйте в AmneziaWG или WireGuard</div>
-        <canvas id="qr-canvas"></canvas>
+        <img id="qr-img" style="display:none; border-radius:8px;" alt="QR-код конфига">
         <div id="qr-modal-error" style="display:none; color:var(--danger); font-size:12px; margin-top:10px;"></div>
         <div class="qr-modal-close" onclick="closeQrModal()">✕ Закрыть</div>
       </div>
@@ -2030,32 +2030,24 @@
         return;
       }
       const modal = document.getElementById('qr-modal');
-      const canvas = document.getElementById('qr-canvas');
+      const imgEl = document.getElementById('qr-img');
       const errEl = document.getElementById('qr-modal-error');
       errEl.style.display = 'none';
       errEl.textContent = '';
+      imgEl.style.display = 'none';
       modal.classList.add('open');
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const sizes = [280, 400, 540, 700];
-      let rendered = false;
-      for (const w of sizes) {
-        try {
-          await QRCode.toCanvas(canvas, config.trim(), {
-            width: w,
-            margin: 2,
-            errorCorrectionLevel: 'L',
-            color: { dark: '#000000', light: '#ffffff' },
-          });
-          rendered = true;
-          break;
-        } catch (_) { /* try next size */ }
-      }
-      if (!rendered) {
-        errEl.textContent = `Не удалось создать QR (${config.length} байт — превышает лимит QR-кода ~2953 байта).`;
+      try {
+        const dataUrl = await QRCode.toDataURL(config.trim(), {
+          width: 320,
+          margin: 2,
+          errorCorrectionLevel: 'L',
+          color: { dark: '#000000', light: '#ffffff' },
+        });
+        imgEl.src = dataUrl;
+        imgEl.style.display = 'block';
+      } catch (e) {
+        errEl.textContent = `Не удалось создать QR (${config.length} байт): ${e.message}`;
         errEl.style.display = 'block';
-        canvas.width = 0;
-        canvas.height = 0;
       }
     }
   </script>

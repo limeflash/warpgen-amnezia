@@ -327,7 +327,7 @@ test('macOS/Linux speedtest shell script downloads without error and has correct
   assert.match(shText, /WARP Endpoint Speedtest/);
   assert.match(shText, /peanut996\/CloudflareWarpSpeedTest/);
   // Bash variables should be present literally, not evaluated as JS
-  assert.match(shText, /\$\{OS\}_\$\{ARCH_TAG\}/, 'bash ${OS}_${ARCH_TAG} must be in output');
+  assert.match(shText, /\$\{OS\}-\$\{ARCH_TAG\}/, 'bash ${OS}-${ARCH_TAG} must be in output');
   assert.match(shText, /\$\{ASSET_URL##\*\/\}/, 'bash ${ASSET_URL##*/} must be in output');
   assert.match(shText, /\$\{TMPDIR:-\/tmp\}/, 'bash ${TMPDIR:-/tmp} must be in output');
   assert.match(shText, /162\.159\.192\.5:2408/);
