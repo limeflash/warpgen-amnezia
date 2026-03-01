@@ -1518,6 +1518,28 @@ if (Test-Path $workDir) { Remove-Item -Recurse -Force $workDir }
 New-Item -ItemType Directory -Path $workDir | Out-Null
 Set-Location $workDir
 
+# === Persistent cache (last working endpoint + DPI profile) ===
+$cacheDir = Join-Path $env:LOCALAPPDATA 'warpgen'
+$cacheEndpointFile = Join-Path $cacheDir 'last-endpoint.txt'
+$cacheProfileFile = Join-Path $cacheDir 'last-dpi-profile.txt'
+$cachedEndpoint = $null
+$cachedDpiProfile = $null
+try {
+  if (Test-Path $cacheEndpointFile) { $cachedEndpoint = (Get-Content $cacheEndpointFile -Raw -ErrorAction Stop).Trim() }
+  if (Test-Path $cacheProfileFile)  { $cachedDpiProfile = (Get-Content $cacheProfileFile -Raw -ErrorAction Stop).Trim() }
+} catch {}
+if ($cachedEndpoint) { Write-Host ('[Cache] Last known endpoint: ' + $cachedEndpoint) }
+if ($cachedDpiProfile) { Write-Host ('[Cache] Last DPI profile: ' + $cachedDpiProfile) }
+
+function Save-Cache {
+  param([string]$Endpoint, [string]$Profile)
+  try {
+    if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null }
+    if ($Endpoint) { $Endpoint | Set-Content -Path $cacheEndpointFile -Encoding ascii }
+    if ($Profile)  { $Profile  | Set-Content -Path $cacheProfileFile  -Encoding ascii }
+  } catch {}
+}
+
 function Get-FileSha256Hex {
   param([string]$Path)
   try {
@@ -1858,8 +1880,45 @@ if (-not $allIps -or $allIps.Count -eq 0) { throw 'No IPs to test' }
 $ipFile = Join-Path $workDir 'ip.txt'
 $allIps | Set-Content -Path $ipFile -Encoding ascii
 
+$normalized = @()
+
+# --- Quick cache check: probe last known endpoint before full scan ---
+if ($cachedEndpoint -and -not $dpiFirst) {
+  Write-Host ('[Cache] Quick-probing cached endpoint: ' + $cachedEndpoint + '...')
+  $cacheParts = $cachedEndpoint -split ':'
+  if ($cacheParts.Count -ge 2) {
+    $cacheHost = $cacheParts[0].Trim()
+    $cacheIpFile = Join-Path $workDir 'ip-cache.txt'
+    @($cacheHost) | Set-Content -Path $cacheIpFile -Encoding ascii
+    $cacheCsv = Join-Path $workDir 'result-cache.csv'
+    & $exe.FullName -all -n 12 -t 2 -c 200 -tl 1200 -tll 0 -tlr 1 -p 4 -f $cacheIpFile -o $cacheCsv
+    if (Test-Path $cacheCsv) {
+      try {
+        $cacheRows = Import-Csv -Path $cacheCsv | Where-Object { $_.'IP:Port' -and $_.Loss -and $_.Latency }
+        $cacheHit = $cacheRows | Where-Object { $_.'IP:Port' -eq $cachedEndpoint } | Select-Object -First 1
+        if ($cacheHit) {
+          $cacheLoss = [double](($cacheHit.Loss -replace '%','').Trim())
+          $cacheLat  = [double](($cacheHit.Latency).Trim())
+          if ($cacheLoss -lt 30 -and $cacheLat -lt 700) {
+            Write-Host ('[Cache] Hit! Endpoint still works (loss=' + $cacheLoss + '%, lat=' + $cacheLat + 'ms). Skipping full scan.')
+            $normalized = @([PSCustomObject]@{ endpoint=$cachedEndpoint; loss=$cacheLoss; latencyMs=$cacheLat })
+          } else {
+            Write-Host ('[Cache] Endpoint degraded (loss=' + $cacheLoss + '%, lat=' + $cacheLat + 'ms). Running full scan.')
+          }
+        } else {
+          Write-Host '[Cache] Cached endpoint not responding. Running full scan.'
+        }
+      } catch {
+        Write-Host ('[Cache] Parse error: ' + $_.Exception.Message)
+      }
+    }
+  }
+}
+
 if ($dpiFirst) {
   Write-Host '[3/5] DPI-first mode: skipping direct speedtest, going straight to DPI bypass...'
+} elseif ($normalized -and $normalized.Count -gt 0) {
+  Write-Host '[3/5] Using cached endpoint, skipping full speedtest.'
 } else {
 Write-Host '[3/5] Running speed test...'
 $csvPath = Join-Path $workDir 'result.csv'
@@ -1878,7 +1937,6 @@ if (Test-Path $csvPath) {
   Write-Host 'result.csv was not created by CloudflareWarpSpeedTest.'
 }
 
-$normalized = @()
 if ($rows -and $rows.Count -gt 0) {
   $normalized = foreach ($r in $rows) {
     [PSCustomObject]@{
@@ -2011,12 +2069,20 @@ if (-not $normalized -or $normalized.Count -eq 0) {
 $bestEndpoint = $null
 $topResults = @()
 $reportSource = 'windows-local-helper'
+$winningDpiProfile = $null
 if ($normalized -and $normalized.Count -gt 0) {
   $best = $normalized | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 1
   if ($best) {
     $bestEndpoint = $best.endpoint
     $topResults = @($normalized | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 5)
     if ($qualityPassUsed) { $reportSource = 'windows-local-helper-quality' }
+    Save-Cache -Endpoint $bestEndpoint -Profile ''
+    if ($best.latencyMs -gt 400) {
+      Write-Host ('[Warning] Высокая задержка лучшего эндпоинта: ' + $best.latencyMs + 'ms. WARP может работать медленнее обычного.')
+    }
+    if ($best.loss -gt 5) {
+      Write-Host ('[Warning] Потери пакетов: ' + $best.loss + '%. Возможны разрывы соединения.')
+    }
   }
 }
 
@@ -2173,6 +2239,25 @@ if (-not $bestEndpoint) {
 
         Write-Host ('[DPI] winws capabilities: directional=' + $supportsDirectionalWf + ', legacy=' + $supportsLegacyWf + ', lua=' + ($supportsLuaDesync -and $supportsLuaInit) + ', raw=' + $supportsWfRawPart + ', fakeTtl=' + $supportsFakeTtl)
 
+        # --- Auto-detect optimal fake-ttl via traceroute ---
+        $optimalFakeTtl = $null
+        if ($supportsFakeTtl) {
+          Write-Host '[DPI] Определяем оптимальный fake-ttl через traceroute...'
+          try {
+            $traceLines = @(tracert -d -h 25 -w 500 '162.159.192.5' 2>&1 | Select-String '^\s*\d+')
+            $cfLine = $traceLines | Where-Object { $_ -match '162\.159\.' } | Select-Object -First 1
+            if ($cfLine -and ($cfLine -match '^\s*(\d+)')) {
+              $hopCount = [int]$Matches[1]
+              $optimalFakeTtl = [Math]::Max(3, $hopCount - 2)
+              Write-Host ('[DPI] Хопов до Cloudflare: ' + $hopCount + ', optimal fake-ttl=' + $optimalFakeTtl)
+            } else {
+              Write-Host '[DPI] Traceroute: Cloudflare IP не найдена в маршруте, используем TTL=5,8.'
+            }
+          } catch {
+            Write-Host ('[DPI] Traceroute недоступен: ' + $_.Exception.Message)
+          }
+        }
+
         $wireguardPayload = 'wireguard_initiation,wireguard_response,wireguard_cookie,wireguard_keepalive,wireguard_data'
         $luaLib = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-lib.lua'
         $luaAntidpi = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-antidpi.lua'
@@ -2236,12 +2321,13 @@ if (-not $bestEndpoint) {
                 Add-WinwsProfile -Name 'z2-inout-lua-fake-nofilter' -Args $z2LuaNoFilter
               }
 
-              # --fake-ttl variants: make fake packets die before ISP DPI (TTL=5 for nearby DPI, TTL=8 for distant)
+              # --fake-ttl variants: auto-detected via traceroute, fallback to 5,8
               if ($supportsFakeTtl) {
-                $z2LuaTtl5 = @($z2LuaArgs) + '--fake-ttl=5'
-                Add-WinwsProfile -Name 'z2-inout-lua-fake-ttl5' -Args $z2LuaTtl5
-                $z2LuaTtl8 = @($z2LuaArgs) + '--fake-ttl=8'
-                Add-WinwsProfile -Name 'z2-inout-lua-fake-ttl8' -Args $z2LuaTtl8
+                $ttlValues = if ($optimalFakeTtl) { @($optimalFakeTtl, [Math]::Max(3, $optimalFakeTtl - 2)) } else { @(5, 8) }
+                foreach ($ttl in ($ttlValues | Sort-Object -Unique)) {
+                  $z2LuaTtlArgs = @($z2LuaArgs) + "--fake-ttl=$ttl"
+                  Add-WinwsProfile -Name ('z2-inout-lua-fake-ttl' + $ttl) -Args $z2LuaTtlArgs
+                }
               }
             }
           }
@@ -2275,8 +2361,11 @@ if (-not $bestEndpoint) {
               Add-WinwsProfile -Name 'raw-wireguard-lua-quic' -Args $rawArgsQuic
             }
             if ($supportsFakeTtl) {
-              $rawArgsTtl5 = @($rawArgs) + '--fake-ttl=5'
-              Add-WinwsProfile -Name 'raw-wireguard-lua-ttl5' -Args $rawArgsTtl5
+              $rawTtlValues = if ($optimalFakeTtl) { @($optimalFakeTtl) } else { @(5) }
+              foreach ($ttl in $rawTtlValues) {
+                $rawArgsTtl = @($rawArgs) + "--fake-ttl=$ttl"
+                Add-WinwsProfile -Name ('raw-wireguard-lua-ttl' + $ttl) -Args $rawArgsTtl
+              }
             }
           } else {
             Add-WinwsProfile -Name 'raw-wireguard-basic' -Args $rawArgs
@@ -2312,6 +2401,15 @@ if (-not $bestEndpoint) {
             }
           }
         }
+        # Put cached profile first to speed up repeat runs
+        if ($cachedDpiProfile -and $winwsProfiles.Count -gt 1) {
+          $cachedFirst = @($winwsProfiles | Where-Object { $_.name -eq $cachedDpiProfile })
+          $rest = @($winwsProfiles | Where-Object { $_.name -ne $cachedDpiProfile })
+          if ($cachedFirst.Count -gt 0) {
+            $winwsProfiles = $cachedFirst + $rest
+            Write-Host ('[DPI] Cached profile "' + $cachedDpiProfile + '" будет проверен первым.')
+          }
+        }
         Write-Host ('[DPI] Профилей обхода: ' + $winwsProfiles.Count)
 
         foreach ($profile in $winwsProfiles) {
@@ -2337,6 +2435,17 @@ if (-not $bestEndpoint) {
               Write-Host ('[DPI] winws завершился сразу. ExitCode=' + $winwsProcess.ExitCode)
               Write-LogTail -Path $stdoutLog -Prefix '[DPI][winws stdout]'
               Write-LogTail -Path $stderrLog -Prefix '[DPI][winws stderr]'
+              # Diagnose common stderr causes
+              if (Test-Path $stderrLog) {
+                $stderrText = (Get-Content $stderrLog -Raw -ErrorAction SilentlyContinue) -join ''
+                if ($stderrText -match 'access.?denied|Access.?Denied') {
+                  Write-Host '[DPI][Hint] Access Denied — запустите скрипт от имени Администратора.'
+                } elseif ($stderrText -match 'driver.?not.?load|WinDivert.?fail|cannot.?open') {
+                  Write-Host '[DPI][Hint] WinDivert driver не загружен — попробуйте перезагрузить ПК или переустановить WinDivert.'
+                } elseif ($stderrText -match 'not.?found|cannot find|no such') {
+                  Write-Host '[DPI][Hint] Файл не найден — возможно, антивирус удалил winws или WinDivert.dll.'
+                }
+              }
               continue
             }
 
@@ -2437,7 +2546,12 @@ if (-not $bestEndpoint) {
                   $bestEndpoint = $dpiBest.endpoint
                   $topResults   = @($dpiNorm | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 5)
                   $reportSource = 'windows-local-helper-dpi-bypass'
+                  $winningDpiProfile = $profile.name
                   Write-Host ('[DPI] Найден эндпоинт через DPI-bypass (' + $profile.name + '): ' + $bestEndpoint)
+                  Save-Cache -Endpoint $bestEndpoint -Profile $profile.name
+                  if ($dpiBest.latencyMs -gt 400) {
+                    Write-Host ('[Warning] DPI-bypass endpoint имеет высокую задержку: ' + $dpiBest.latencyMs + 'ms.')
+                  }
                 }
               } else {
                 Write-Host ('[DPI] Профиль ' + $profile.name + ' не вернул эндпоинтов.')
@@ -2484,6 +2598,7 @@ $payload = @{
   bestEndpoint = $bestEndpoint
   topResults = $topResults
   source = $reportSource
+  dpiProfile = $winningDpiProfile
 } | ConvertTo-Json -Depth 8
 Invoke-RestMethod -Uri $reportUrl -Method POST -ContentType 'application/json' -Body $payload | Out-Null
 
@@ -2541,6 +2656,143 @@ if errorlevel 1 (
 echo.
 echo Done. Go back to the website.
 pause
+`;
+}
+
+function buildMacosSpeedtestScript({ sessionId, reportUrl, fallbackCandidates = [] }) {
+    const staticIps = [
+        ...Array.from({ length: 20 }, (_, i) => `162.159.192.${i + 1}`),
+        ...Array.from({ length: 10 }, (_, i) => `162.159.195.${i + 1}`),
+    ];
+    const safeFallback = Array.isArray(fallbackCandidates) && fallbackCandidates.length
+        ? fallbackCandidates
+        : SPEEDTEST_DEFAULT_FALLBACK_ENDPOINTS;
+    const fallbackJson = JSON.stringify(safeFallback.map((x) => String(x || '').trim()).filter(Boolean));
+    const staticIpsStr = staticIps.join(' ');
+    const warpPortsArr = ALLOWED_WARP_PORTS.join(' ');
+
+    return `#!/usr/bin/env bash
+# Cloudflare WARP local endpoint speedtest helper (macOS/Linux)
+set -uo pipefail
+export LANG=en_US.UTF-8
+
+SESSION_ID='${sessionId}'
+REPORT_URL='${reportUrl}'
+FALLBACK_JSON='${fallbackJson}'
+STATIC_IPS="${staticIpsStr}"
+WARP_PORTS="${warpPortsArr}"
+
+WORK_DIR="$(mktemp -d "\${TMPDIR:-/tmp}/warp-speedtest-XXXXXX")"
+trap 'rm -rf "$WORK_DIR"' EXIT
+cd "$WORK_DIR"
+
+die() { echo "[Error] $*" >&2; exit 1; }
+
+echo "=== WARP Endpoint Speedtest (macOS/Linux) ==="
+echo ""
+
+# 1/4. Download CloudflareWarpSpeedTest
+echo "[1/4] Downloading CloudflareWarpSpeedTest..."
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  arm64|aarch64) ARCH_TAG="arm64" ;;
+  x86_64)        ARCH_TAG="amd64" ;;
+  *)             ARCH_TAG="amd64" ;;
+esac
+
+RELEASE_JSON="$(curl -sL 'https://api.github.com/repos/peanut996/CloudflareWarpSpeedTest/releases/latest' || true)"
+ASSET_URL="$(echo "$RELEASE_JSON" | grep -o '"browser_download_url":"[^"]*'"${OS}_${ARCH_TAG}"'[^"]*"' | head -1 | sed 's/"browser_download_url":"\\(.*\\)"/\\1/' || true)"
+
+if [ -z "$ASSET_URL" ]; then
+  # Fallback: any darwin asset
+  ASSET_URL="$(echo "$RELEASE_JSON" | grep -o '"browser_download_url":"[^"]*darwin[^"]*"' | head -1 | sed 's/"browser_download_url":"\\(.*\\)"/\\1/' || true)"
+fi
+
+if [ -z "$ASSET_URL" ]; then
+  die "Could not find release asset for $OS/$ARCH_TAG. Check https://github.com/peanut996/CloudflareWarpSpeedTest/releases"
+fi
+
+ARCHIVE_NAME="\${ASSET_URL##*/}"
+curl -L --progress-bar "$ASSET_URL" -o "$WORK_DIR/$ARCHIVE_NAME" || die "Download failed"
+
+# 1b. Extract
+if [[ "$ARCHIVE_NAME" == *.tar.gz ]] || [[ "$ARCHIVE_NAME" == *.tgz ]]; then
+  tar xzf "$WORK_DIR/$ARCHIVE_NAME" -C "$WORK_DIR"
+elif [[ "$ARCHIVE_NAME" == *.zip ]]; then
+  unzip -q "$WORK_DIR/$ARCHIVE_NAME" -d "$WORK_DIR"
+else
+  die "Unknown archive format: $ARCHIVE_NAME"
+fi
+
+EXE="$(find "$WORK_DIR" -maxdepth 4 -type f -name 'CloudflareWarpSpeedTest' | head -1)"
+[ -z "$EXE" ] && die "Executable not found after extraction"
+chmod +x "$EXE"
+echo "[1/4] Done: $EXE"
+
+# 2/4. Build IP list
+echo "[2/4] Building IP list..."
+printf '%s\\n' $STATIC_IPS > "$WORK_DIR/ip.txt"
+ENGAGE_IPS="$(dig +short A engage.cloudflareclient.com 2>/dev/null || nslookup engage.cloudflareclient.com 2>/dev/null | awk '/^Address:/{print $2}' | grep -v '#' || true)"
+if [ -n "$ENGAGE_IPS" ]; then
+  echo "$ENGAGE_IPS" >> "$WORK_DIR/ip.txt"
+fi
+sort -u -o "$WORK_DIR/ip.txt" "$WORK_DIR/ip.txt"
+IP_COUNT="$(wc -l < "$WORK_DIR/ip.txt" | tr -d ' ')"
+echo "[2/4] Testing $IP_COUNT IPs..."
+
+# 3/4. Run speedtest
+echo "[3/4] Running speedtest..."
+CPU="$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
+WORKERS=$(( CPU * 2 ))
+WORKERS=$(( WORKERS > 32 ? 32 : WORKERS ))
+WORKERS=$(( WORKERS < 4 ? 4 : WORKERS ))
+
+CSV="$WORK_DIR/result.csv"
+"$EXE" -all -n 60 -t 5 -c 1200 -tl 400 -tll 0 -tlr 0.25 -p "$WORKERS" -f "$WORK_DIR/ip.txt" -o "$CSV" || true
+
+# Quality pass on top candidates
+BEST_ENDPOINT=""
+if [ -f "$CSV" ]; then
+  # Parse CSV (header: IP:Port,Loss,Latency,...) sort by loss*500+latency, take top 10 hosts
+  TOP_HOSTS="$(tail -n +2 "$CSV" | awk -F',' '{
+    gsub(/%/,"",$2); gsub(/ /,"",$2); gsub(/ /,"",$3)
+    score = $2*500 + $3
+    split($1,a,":")
+    host=a[1]
+    if (!(host in best) || score < best[host]) { best[host]=score }
+  } END { for (h in best) print best[h], h }' | sort -n | head -10 | awk '{print $2}' || true)"
+  if [ -n "$TOP_HOSTS" ]; then
+    echo "$TOP_HOSTS" > "$WORK_DIR/ip-quality.txt"
+    QCSV="$WORK_DIR/result-quality.csv"
+    "$EXE" -all -n 90 -t 6 -c 1500 -tl 280 -tll 0 -tlr 0.2 -p "$WORKERS" -f "$WORK_DIR/ip-quality.txt" -o "$QCSV" || true
+    [ -f "$QCSV" ] && CSV="$QCSV"
+  fi
+  # Pick best: lowest score = loss*500+latency
+  BEST_ENDPOINT="$(tail -n +2 "$CSV" | awk -F',' '{
+    gsub(/%/,"",$2); gsub(/ /,"",$2); gsub(/ /,"",$3)
+    score = $2*500 + $3
+    if (best_score=="" || score+0 < best_score+0) { best_score=score; best=$1 }
+  } END { gsub(/ /,"",best); print best }' || true)"
+fi
+
+if [ -z "$BEST_ENDPOINT" ]; then
+  BEST_ENDPOINT="$(echo "$FALLBACK_JSON" | python3 -c "import sys,json; eps=json.load(sys.stdin); print(eps[0] if eps else '')" 2>/dev/null || echo '162.159.192.5:2408')"
+  echo "[Fallback] Using fallback endpoint: $BEST_ENDPOINT"
+  SOURCE="macos-local-helper-fallback"
+else
+  SOURCE="macos-local-helper"
+fi
+
+# 4/4. Report
+echo "[4/4] Reporting result to site..."
+PAYLOAD="{\\\"sessionId\\\":\\\"$SESSION_ID\\\",\\\"bestEndpoint\\\":\\\"$BEST_ENDPOINT\\\",\\\"topResults\\\":[],\\\"source\\\":\\\"$SOURCE\\\"}"
+curl -sS -X POST "$REPORT_URL" -H 'Content-Type: application/json' -d "$PAYLOAD" > /dev/null 2>&1 || true
+
+echo ""
+echo "Best endpoint: $BEST_ENDPOINT"
+printf '%s' "$BEST_ENDPOINT" | pbcopy 2>/dev/null && echo "Copied to clipboard." || true
+echo "Done. Return to the site — endpoint will be filled automatically."
 `;
 }
 
@@ -2625,6 +2877,7 @@ app.post('/api/speedtest/session', (req, res) => {
         expiresInSec: Math.floor(SPEEDTEST_SESSION_TTL_MS / 1000),
         downloadPath: `/api/speedtest/windows-script/${sessionId}`,
         downloadBatPath: `/api/speedtest/windows-bat/${sessionId}`,
+        downloadShPath: `/api/speedtest/macos-script/${sessionId}`,
         pollPath: `/api/speedtest/session/${sessionId}`,
     });
 });
@@ -2666,6 +2919,21 @@ app.get('/api/speedtest/windows-bat/:sessionId', (req, res) => {
     res.send(script);
 });
 
+app.get('/api/speedtest/macos-script/:sessionId', (req, res) => {
+    cleanupSpeedtestSessions();
+    const sessionId = String(req.params.sessionId || '').trim();
+    const session = SPEEDTEST_SESSIONS.get(sessionId);
+    if (!session) return res.status(404).send('Session not found or expired.');
+
+    const baseUrl = normalizePublicScriptBaseUrl(getRequestBaseUrl(req));
+    const reportUrl = `${baseUrl}/api/speedtest/report`;
+    const fallbackCandidates = getAdaptiveSpeedtestFallbackEndpoints(session.clientIp);
+    const script = buildMacosSpeedtestScript({ sessionId, reportUrl, fallbackCandidates });
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="warp-speedtest-${sessionId}.sh"`);
+    res.send(script);
+});
+
 app.get('/api/speedtest/session/:sessionId', (req, res) => {
     cleanupSpeedtestSessions();
     const sessionId = String(req.params.sessionId || '').trim();
@@ -2685,6 +2953,7 @@ app.post('/api/speedtest/report', (req, res) => {
     const bestEndpoint = typeof req.body?.bestEndpoint === 'string' ? req.body.bestEndpoint.trim() : '';
     const topResults = Array.isArray(req.body?.topResults) ? req.body.topResults.slice(0, 10) : [];
     const source = typeof req.body?.source === 'string' ? req.body.source.trim() : '';
+    const dpiProfile = typeof req.body?.dpiProfile === 'string' ? req.body.dpiProfile.trim().slice(0, 64) : '';
     if (!sessionId || !bestEndpoint) {
         return res.status(400).json({ error: 'sessionId and bestEndpoint are required.' });
     }
@@ -2708,6 +2977,7 @@ app.post('/api/speedtest/report', (req, res) => {
         reportedAt: new Date().toISOString(),
         reporterIp: getClientIp(req),
         source,
+        ...(dpiProfile ? { dpiProfile } : {}),
     };
 
     if (!source.includes('fallback')) {
