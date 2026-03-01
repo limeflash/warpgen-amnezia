@@ -2124,126 +2124,144 @@ if (-not $bestEndpoint) {
         $warpPorts = '${warpPortsStr}'
         $warpPortCount = ($warpPorts -split ',').Count
         Write-Host ('[DPI] Портов в тестовом наборе: ' + $warpPortCount)
-        $supportsDirectionalWf = $false
-        try {
-          $helpText = (& $winwsExe.FullName --help 2>&1 | Out-String)
-          if ($helpText -match '--wf-udp-in' -and $helpText -match '--wf-udp-out') {
-            $supportsDirectionalWf = $true
+        $helpText = ''
+        $helpProbeArgs = @(
+          @('--help'),
+          @('-h'),
+          @('/?'),
+          @()
+        )
+        foreach ($probe in $helpProbeArgs) {
+          try {
+            $probeText = ''
+            if ($probe.Count -gt 0) {
+              $probeText = (& $winwsExe.FullName @probe 2>&1 | Out-String)
+            } else {
+              $probeText = (& $winwsExe.FullName 2>&1 | Out-String)
+            }
+            if ($probeText -and $probeText.Trim().Length -gt 0) {
+              $helpText = $probeText
+              break
+            }
+          } catch {
+            # try next probe variant
           }
-        } catch {
-          Write-Host ('[DPI] Не удалось прочитать help winws: ' + $_.Exception.Message)
         }
-        Write-Host ('[DPI] winws directional filters: ' + ($(if ($supportsDirectionalWf) { 'supported' } else { 'not detected' })))
+        if (-not $helpText) {
+          Write-Host '[DPI] Не удалось получить help-текст winws, включаем совместимый авто-режим.'
+        }
+
+        $supportsDirectionalWf = $helpText -match '--wf-udp-in' -and $helpText -match '--wf-udp-out'
+        $supportsLegacyWf = $helpText -match '--wf-udp(\s|=|$)'
+        $supportsLuaDesync = $helpText -match '--lua-desync'
+        $supportsLuaInit = $helpText -match '--lua-init'
+        $supportsPayload = $helpText -match '--payload'
+        $supportsFilterL7 = $helpText -match '--filter-l7'
+        $supportsWfRawPart = $helpText -match '--wf-raw-part'
+
+        if (-not $helpText) {
+          $supportsDirectionalWf = $true
+          $supportsLegacyWf = $true
+          $supportsLuaDesync = $true
+          $supportsLuaInit = $true
+          $supportsPayload = $true
+          $supportsFilterL7 = $true
+          $supportsWfRawPart = $true
+        }
+
+        Write-Host ('[DPI] winws capabilities: directional=' + $supportsDirectionalWf + ', legacy=' + $supportsLegacyWf + ', lua=' + ($supportsLuaDesync -and $supportsLuaInit) + ', raw=' + $supportsWfRawPart)
+
+        $wireguardPayload = 'wireguard_initiation,wireguard_response,wireguard_cookie,wireguard_keepalive,wireguard_data'
+        $luaLib = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-lib.lua'
+        $luaAntidpi = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-antidpi.lua'
+        $canUseLuaProfiles = $supportsLuaDesync -and $supportsLuaInit -and $luaLib -and $luaAntidpi
+        if (($supportsLuaDesync -and $supportsLuaInit) -and (-not $canUseLuaProfiles)) {
+          Write-Host '[DPI] Lua поддерживается, но zapret-lib.lua / zapret-antidpi.lua не найдены.'
+        }
 
         $winwsProfiles = @()
-        $wgRawPart = Find-FileByName -SearchRoot $zapretDir -Name 'windivert_part.wireguard.txt'
-        if ($extendedStrategy -and $wgRawPart) {
-          $wgRawPartArg = "--wf-raw-part=@'$($wgRawPart.FullName)'"
+        if ($supportsDirectionalWf) {
           $winwsProfiles += [PSCustomObject]@{
-            name = 'raw-wireguard-fake'
+            name = 'z2-inout-basic'
             args = @(
-              $wgRawPartArg,
-              '--wf-l3=ipv4',
-              '--filter-l7=wireguard',
-              '--dpi-desync=fake',
-              '--dpi-desync-repeats=2'
+              "--wf-udp-in=$warpPorts",
+              "--wf-udp-out=$warpPorts",
+              '--wf-l3=ipv4'
             )
           }
-          Write-Host '[DPI] Добавлен профиль raw-wireguard-fake (windivert_part.wireguard.txt).'
+          if ($canUseLuaProfiles) {
+            $z2LuaArgs = @(
+              "--wf-udp-in=$warpPorts",
+              "--wf-udp-out=$warpPorts",
+              '--wf-l3=ipv4'
+            )
+            if ($supportsFilterL7) { $z2LuaArgs += '--filter-l7=wireguard' }
+            if ($supportsPayload) { $z2LuaArgs += "--payload=$wireguardPayload" }
+            $z2LuaArgs += "--lua-init=@$($luaLib.FullName)"
+            $z2LuaArgs += "--lua-init=@$($luaAntidpi.FullName)"
+            $z2LuaArgs += '--lua-desync=fake:repeats=2'
+            $winwsProfiles += [PSCustomObject]@{
+              name = 'z2-inout-lua-fake'
+              args = $z2LuaArgs
+            }
+            if ($extendedStrategy) {
+              $z2LuaArgsAlt = @($z2LuaArgs | Where-Object { $_ -notmatch '^--lua-desync=' })
+              $z2LuaArgsAlt += '--lua-desync=fake:repeats=3'
+              $winwsProfiles += [PSCustomObject]@{
+                name = 'z2-inout-lua-fake-r3'
+                args = $z2LuaArgsAlt
+              }
+            }
+          }
         }
 
-        if ($supportsDirectionalWf) {
-          $luaLib = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-lib.lua'
-          $luaAntidpi = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-antidpi.lua'
-          if ($extendedStrategy -and $luaLib -and $luaAntidpi) {
+        $wgRawPart = Find-FileByName -SearchRoot $zapretDir -Name 'windivert_part.wireguard.txt'
+        if ($extendedStrategy -and $supportsWfRawPart -and $wgRawPart) {
+          $rawArgs = @(
+            "--wf-raw-part=@'$($wgRawPart.FullName)'",
+            '--wf-l3=ipv4'
+          )
+          if ($canUseLuaProfiles) {
+            if ($supportsFilterL7) { $rawArgs += '--filter-l7=wireguard' }
+            if ($supportsPayload) { $rawArgs += "--payload=$wireguardPayload" }
+            $rawArgs += "--lua-init=@$($luaLib.FullName)"
+            $rawArgs += "--lua-init=@$($luaAntidpi.FullName)"
+            $rawArgs += '--lua-desync=fake:repeats=2'
             $winwsProfiles += [PSCustomObject]@{
-              name = 'z2-wireguard-lua'
-              args = @(
-                "--wf-udp-in=$warpPorts",
-                "--wf-udp-out=$warpPorts",
-                "--wf-l3=ipv4",
-                "--filter-l7=wireguard",
-                "--payload=wireguard_initiation,wireguard_cookie",
-                "--lua-init=@$($luaLib.FullName)",
-                "--lua-init=@$($luaAntidpi.FullName)",
-                "--lua-desync=fake:blob=0x00000000000000000000000000000000:repeats=2"
-              )
-            }
-            Write-Host '[DPI] Добавлен профиль z2-wireguard-lua (lua-файлы найдены).'
-          } elseif ($extendedStrategy) {
-            Write-Host '[DPI] Lua-файлы для wireguard-профиля не найдены, пропускаем z2-wireguard-lua.'
-          }
-
-          if ($extendedStrategy) {
-            $winwsProfiles += [PSCustomObject]@{
-              name = 'z2-inout-wireguard-fake'
-              args = @(
-                "--wf-udp-in=$warpPorts",
-                "--wf-udp-out=$warpPorts",
-                "--wf-l3=ipv4",
-                "--filter-l7=wireguard",
-                "--dpi-desync=fake",
-                "--dpi-desync-repeats=2"
-              )
-            }
-            $winwsProfiles += [PSCustomObject]@{
-              name = 'z2-inout-default'
-              args = @(
-                "--wf-udp-in=$warpPorts",
-                "--wf-udp-out=$warpPorts",
-                "--udp-fake-count=6",
-                "--wf-l3=ipv4"
-              )
-            }
-            $winwsProfiles += [PSCustomObject]@{
-              name = 'z2-inout-light'
-              args = @(
-                "--wf-udp-in=$warpPorts",
-                "--wf-udp-out=$warpPorts",
-                "--udp-fake-count=4",
-                "--wf-l3=ipv4"
-              )
+              name = 'raw-wireguard-lua'
+              args = $rawArgs
             }
           } else {
             $winwsProfiles += [PSCustomObject]@{
-              name = 'z2-inout-default'
-              args = @(
-                "--wf-udp-in=$warpPorts",
-                "--wf-udp-out=$warpPorts",
-                "--udp-fake-count=6",
-                "--wf-l3=ipv4"
-              )
+              name = 'raw-wireguard-basic'
+              args = $rawArgs
             }
           }
+          Write-Host '[DPI] Добавлен raw-профиль wireguard (windivert_part.wireguard.txt).'
         }
-        if ($extendedStrategy) {
+
+        if ($supportsLegacyWf -or $winwsProfiles.Count -eq 0) {
           $winwsProfiles += [PSCustomObject]@{
-            name = 'compat-legacy-wireguard-fake'
+            name = 'compat-legacy-wf-udp-basic'
             args = @(
               "--wf-udp=$warpPorts",
-              "--wf-l3=ipv4",
-              "--filter-l7=wireguard",
-              "--dpi-desync=fake",
-              "--dpi-desync-repeats=2"
+              '--wf-l3=ipv4'
             )
           }
-        }
-        $winwsProfiles += [PSCustomObject]@{
-          name = 'compat-legacy-wf-udp'
-          args = @(
-            "--wf-udp=$warpPorts",
-            "--udp-fake-count=6",
-            "--wf-l3=ipv4"
-          )
-        }
-        if ($extendedStrategy) {
-          $winwsProfiles += [PSCustomObject]@{
-            name = 'compat-legacy-wf-udp-light'
-            args = @(
+          if ($extendedStrategy -and $canUseLuaProfiles) {
+            $legacyLuaArgs = @(
               "--wf-udp=$warpPorts",
-              "--udp-fake-count=4",
-              "--wf-l3=ipv4"
+              '--wf-l3=ipv4'
             )
+            if ($supportsFilterL7) { $legacyLuaArgs += '--filter-l7=wireguard' }
+            if ($supportsPayload) { $legacyLuaArgs += "--payload=$wireguardPayload" }
+            $legacyLuaArgs += "--lua-init=@$($luaLib.FullName)"
+            $legacyLuaArgs += "--lua-init=@$($luaAntidpi.FullName)"
+            $legacyLuaArgs += '--lua-desync=fake:repeats=2'
+            $winwsProfiles += [PSCustomObject]@{
+              name = 'compat-legacy-lua-fake'
+              args = $legacyLuaArgs
+            }
           }
         }
         Write-Host ('[DPI] Профилей обхода: ' + $winwsProfiles.Count)
