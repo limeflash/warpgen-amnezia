@@ -322,6 +322,19 @@
       color: #fca5a5;
     }
 
+    .speedtest-mac-toggle {
+      background: rgba(96, 165, 250, 0.08);
+      border-color: rgba(96, 165, 250, 0.25);
+    }
+
+    .speedtest-mac-toggle input[type="checkbox"] {
+      accent-color: #60a5fa;
+    }
+
+    .speedtest-mac-toggle .speedtest-dpi-label strong {
+      color: #93c5fd;
+    }
+
     .speedtest-detail {
       margin-top: 10px;
       font-size: 12px;
@@ -933,6 +946,12 @@
             <strong>Extended strategy mode</strong> — больше профилей winws + ранжирование по подсетям (дольше, но надежнее)
           </span>
         </label>
+        <label class="speedtest-dpi-toggle speedtest-mac-toggle" id="macTpwsToggle" style="display:none">
+          <input type="checkbox" id="macTpwsMode" checked>
+          <span class="speedtest-dpi-label">
+            <strong>macOS tpws mode</strong> — если прямой тест не находит endpoint, скрипт попробует поднять обход через SoundAsleep192/zapret-discord-youtube-macos и повторить скан
+          </span>
+        </label>
 
         <button type="button" id="localSpeedtestBtn" class="speedtest-btn" onclick="startLocalSpeedtest()">
           ⚡ Подобрать endpoint локально
@@ -943,6 +962,7 @@
         </div>
         <div class="speedtest-detail" id="speedtest-detail-mac" style="display:none">
           macOS/Linux: скачивает <strong>CloudflareWarpSpeedTest</strong> для вашей платформы, запускает скан всех WARP IP.
+          Для macOS доступен дополнительный режим <strong>tpws</strong> как fallback после провала прямого теста.
         </div>
 
         <div class="split-note" id="localSpeedtestHint" style="margin-top:6px;"></div>
@@ -1695,6 +1715,8 @@
         'windows-local-helper-dpi-bypass': 'DPI bypass',
         'windows-local-helper-fallback': 'fallback',
         'macos-local-helper': 'прямой скан (macOS)',
+        'macos-local-helper-tpws': 'tpws retry (macOS)',
+        'macos-local-helper-tpws-fallback': 'fallback после tpws (macOS)',
         'macos-local-helper-fallback': 'fallback (macOS)',
       }[result.source] || result.source || '';
       let html = `<div class="speedtest-results-title">Топ результаты speedtest</div>`;
@@ -1728,6 +1750,7 @@
         document.getElementById('speedtest-detail-mac').style.display = '';
         document.getElementById('dpiFirstToggle').style.display = 'none';
         document.getElementById('extendedStrategyToggle').style.display = 'none';
+        document.getElementById('macTpwsToggle').style.display = '';
       }
     }
 
@@ -1736,6 +1759,7 @@
       const dpiFirst = document.getElementById('dpiFirstMode')?.checked || false;
       const extendedStrategy = document.getElementById('speedtestExtendedMode')?.checked !== false;
       const useMac = isMacOS && !isWindows;
+      const macTpwsMode = useMac ? (document.getElementById('macTpwsMode')?.checked || false) : false;
       btn.disabled = true;
       btn.textContent = '⏳ Подготовка...';
       try {
@@ -1745,7 +1769,11 @@
         const sessionResp = await fetch('/api/speedtest/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dpiFirst: useMac ? false : dpiFirst, extendedStrategy }),
+          body: JSON.stringify({
+            dpiFirst: useMac ? false : dpiFirst,
+            extendedStrategy,
+            macTpwsMode,
+          }),
         });
         const sessionData = await sessionResp.json();
         if (!sessionResp.ok || !sessionData.pollPath) {
@@ -1778,7 +1806,7 @@
         URL.revokeObjectURL(url);
 
         if (useMac) {
-          setLocalSpeedtestHint(`✅ Скрипт скачан. Откройте Терминал и выполните: bash ~/Downloads/${fileName}`);
+          setLocalSpeedtestHint(`✅ Скрипт скачан${macTpwsMode ? ' (tpws mode)' : ''}. Откройте Терминал и выполните: bash ~/Downloads/${fileName}${macTpwsMode ? ' (может запросить пароль администратора)' : ''}`);
         } else if (dpiFirst) {
           setLocalSpeedtestHint(`✅ Файл скачан (DPI-режим${extendedStrategy ? ', extended' : ''}). Запустите .bat от имени администратора.`);
         } else {

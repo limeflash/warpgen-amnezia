@@ -330,7 +330,8 @@ test('macOS/Linux speedtest shell script downloads without error and has correct
 
   assert.match(shText, /^#!\/usr\/bin\/env bash/, 'must start with bash shebang');
   assert.match(shText, /WARP Endpoint Speedtest/);
-  assert.match(shText, /direct endpoint speedtest only/);
+  assert.match(shText, /direct endpoint speedtest/);
+  assert.match(shText, /TPWS_MODE='0'/);
   assert.match(shText, /for req in curl awk sed sort head tail/);
   assert.match(shText, /required tool found: \$req/);
   assert.match(shText, /optional tool/);
@@ -343,6 +344,28 @@ test('macOS/Linux speedtest shell script downloads without error and has correct
   assert.match(shText, /\$\{TMPDIR:-\/tmp\}/, 'bash ${TMPDIR:-/tmp} must be in output');
   assert.match(shText, /162\.159\.192\.5:2408/);
   assert.match(shText, /\/api\/speedtest\/report/);
+});
+
+test('macOS speedtest session propagates macTpwsMode flag into helper script', async () => {
+  const sessionResp = await fetch(`${BASE}/api/speedtest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ macTpwsMode: true }),
+  });
+  assert.equal(sessionResp.status, 200);
+  const sessionBody = await sessionResp.json();
+  assert.ok(typeof sessionBody.downloadShPath === 'string' && sessionBody.downloadShPath.length > 0);
+
+  const shResp = await fetch(`${BASE}${sessionBody.downloadShPath}`);
+  assert.equal(shResp.status, 200);
+  const shText = await shResp.text();
+
+  assert.match(shText, /TPWS_MODE='1'/);
+  assert.match(shText, /SoundAsleep192\/zapret-discord-youtube-macos/);
+  assert.match(shText, /setup_tpws_bypass/);
+  assert.match(shText, /run_tpws_service_cmd install/);
+  assert.match(shText, /run_tpws_service_cmd start/);
+  assert.match(shText, /macos-local-helper-tpws/);
 });
 
 test('Clash import parses WireGuard config text', async () => {

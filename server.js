@@ -2713,7 +2713,7 @@ pause
 `;
 }
 
-function buildMacosSpeedtestScript({ sessionId, reportUrl, fallbackCandidates = [] }) {
+function buildMacosSpeedtestScript({ sessionId, reportUrl, fallbackCandidates = [], tpwsMode = false }) {
     const staticIps = [
         ...Array.from({ length: 20 }, (_, i) => `162.159.192.${i + 1}`),
         ...Array.from({ length: 10 }, (_, i) => `162.159.195.${i + 1}`),
@@ -2724,6 +2724,7 @@ function buildMacosSpeedtestScript({ sessionId, reportUrl, fallbackCandidates = 
     const fallbackJson = JSON.stringify(safeFallback.map((x) => String(x || '').trim()).filter(Boolean));
     const staticIpsStr = staticIps.join(' ');
     const warpPortsArr = ALLOWED_WARP_PORTS.join(' ');
+    const tpwsModeSh = tpwsMode ? '1' : '0';
 
     return `#!/usr/bin/env bash
 # Cloudflare WARP local endpoint speedtest helper (macOS/Linux)
@@ -2735,18 +2736,114 @@ REPORT_URL='${reportUrl}'
 FALLBACK_JSON='${fallbackJson}'
 STATIC_IPS="${staticIpsStr}"
 WARP_PORTS="${warpPortsArr}"
+TPWS_MODE='${tpwsModeSh}'
+TPWS_REPO_URL='https://github.com/SoundAsleep192/zapret-discord-youtube-macos'
+TPWS_ZIP_URL='https://github.com/SoundAsleep192/zapret-discord-youtube-macos/archive/refs/heads/main.zip'
 
 WORK_DIR="$(mktemp -d "\${TMPDIR:-/tmp}/warp-speedtest-XXXXXX")"
-trap 'rm -rf "$WORK_DIR"' EXIT
 cd "$WORK_DIR"
+TPWS_DIR="$WORK_DIR/zapret-discord-youtube-macos"
+TPWS_STARTED=0
+TPWS_ATTEMPTED=0
 
 die() { echo "[Error] $*" >&2; exit 1; }
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 log_env() { echo "[Env] $*"; }
+cleanup() {
+  if [ "\${TPWS_STARTED:-0}" = "1" ] && [ -x "$TPWS_DIR/service.command" ]; then
+    echo "[Cleanup] Stopping tpws service..."
+    (cd "$TPWS_DIR" && ./service.command stop >/dev/null 2>&1) || true
+  fi
+  rm -rf "$WORK_DIR"
+}
+trap cleanup EXIT
+
+pick_best_from_csv() {
+  local csv_path="$1"
+  if [ ! -f "$csv_path" ]; then
+    return 1
+  fi
+  tail -n +2 "$csv_path" | awk -F',' '{
+    gsub(/%/,"",$2); gsub(/ /,"",$2); gsub(/ /,"",$3)
+    score = $2*500 + $3
+    if (best_score=="" || score+0 < best_score+0) { best_score=score; best=$1 }
+  } END { gsub(/ /,"",best); print best }'
+}
+
+download_tpws_repo() {
+  echo "[DPI-mac] Preparing tpws helper repo..."
+  if have_cmd git; then
+    echo "[DPI-mac] git clone --depth 1 $TPWS_REPO_URL"
+    git clone --depth 1 "$TPWS_REPO_URL" "$TPWS_DIR" >/dev/null 2>&1 && return 0
+    echo "[DPI-mac][Warn] git clone failed, trying zip fallback..."
+  fi
+  if ! have_cmd unzip; then
+    echo "[DPI-mac][Warn] unzip not found, cannot extract tpws helper zip."
+    return 1
+  fi
+  local tpws_zip="$WORK_DIR/tpws-macos.zip"
+  if ! curl -L --progress-bar "$TPWS_ZIP_URL" -o "$tpws_zip"; then
+    echo "[DPI-mac][Warn] Failed to download tpws helper zip."
+    return 1
+  fi
+  if ! unzip -q "$tpws_zip" -d "$WORK_DIR"; then
+    echo "[DPI-mac][Warn] Failed to extract tpws helper zip."
+    return 1
+  fi
+  if [ -d "$WORK_DIR/zapret-discord-youtube-macos-main" ]; then
+    mv "$WORK_DIR/zapret-discord-youtube-macos-main" "$TPWS_DIR" || true
+  fi
+  [ -d "$TPWS_DIR" ]
+}
+
+run_tpws_service_cmd() {
+  local tpws_cmd="$1"
+  if [ ! -x "$TPWS_DIR/service.command" ]; then
+    return 1
+  fi
+  echo "[DPI-mac] ./service.command $tpws_cmd"
+  (cd "$TPWS_DIR" && ./service.command "$tpws_cmd")
+}
+
+setup_tpws_bypass() {
+  if [ "$OS" != "darwin" ]; then
+    echo "[DPI-mac][Warn] tpws mode is only available on macOS in this helper."
+    return 1
+  fi
+  TPWS_ATTEMPTED=1
+  if [ ! -d "$TPWS_DIR" ] && ! download_tpws_repo; then
+    echo "[DPI-mac][Warn] Could not prepare tpws helper repo."
+    return 1
+  fi
+  if [ ! -f "$TPWS_DIR/service.command" ]; then
+    echo "[DPI-mac][Warn] service.command not found in helper repo."
+    return 1
+  fi
+  chmod +x "$TPWS_DIR/service.command" >/dev/null 2>&1 || true
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "[DPI-mac] Administrator rights may be required. A password prompt can appear."
+  fi
+  if ! run_tpws_service_cmd install; then
+    echo "[DPI-mac][Warn] tpws install step failed."
+    return 1
+  fi
+  if ! run_tpws_service_cmd start; then
+    echo "[DPI-mac][Warn] tpws start step failed."
+    return 1
+  fi
+  TPWS_STARTED=1
+  run_tpws_service_cmd check || true
+  return 0
+}
 
 echo "=== WARP Endpoint Speedtest (macOS/Linux) ==="
 echo ""
-echo "[Info] macOS/Linux helper runs direct endpoint speedtest only (no winws DPI bypass in this script)."
+echo "[Info] macOS/Linux helper runs direct endpoint speedtest."
+if [ "$TPWS_MODE" = "1" ]; then
+  echo "[Info] macOS tpws mode is enabled: if direct pass fails, script will try SoundAsleep192 tpws helper and retry."
+else
+  echo "[Info] macOS tpws mode is disabled."
+fi
 log_env "OS=$(uname -s) ARCH=$(uname -m)"
 for req in curl awk sed sort head tail; do
   if have_cmd "$req"; then
@@ -2884,20 +2981,49 @@ if [ -f "$CSV" ]; then
     echo "[3/4][Warn] Could not compute TOP_HOSTS from primary CSV."
   fi
   # Pick best: lowest score = loss*500+latency
-  BEST_ENDPOINT="$(tail -n +2 "$CSV" | awk -F',' '{
-    gsub(/%/,"",$2); gsub(/ /,"",$2); gsub(/ /,"",$3)
-    score = $2*500 + $3
-    if (best_score=="" || score+0 < best_score+0) { best_score=score; best=$1 }
-  } END { gsub(/ /,"",best); print best }' || true)"
+  BEST_ENDPOINT="$(pick_best_from_csv "$CSV" || true)"
+fi
+
+SOURCE=""
+if [ -n "$BEST_ENDPOINT" ]; then
+  SOURCE="macos-local-helper"
+  echo "[3/4] Best endpoint selected from speedtest: $BEST_ENDPOINT"
+fi
+
+if [ -z "$BEST_ENDPOINT" ] && [ "$TPWS_MODE" = "1" ] && [ "$OS" = "darwin" ]; then
+  echo "[3/4] No endpoint from direct pass. Trying macOS tpws bypass..."
+  if setup_tpws_bypass; then
+    RETRY_CSV="$WORK_DIR/result-tpws.csv"
+    "$EXE" -all -n 80 -t 6 -c 1800 -tl 700 -tll 0 -tlr 0.5 -p "$WORKERS" -f "$WORK_DIR/ip.txt" -o "$RETRY_CSV"
+    TPWS_RETRY_EXIT=$?
+    echo "[3/4] tpws retry pass exit code: $TPWS_RETRY_EXIT"
+    if [ -f "$RETRY_CSV" ]; then
+      TPWS_ROWS_RAW="$(wc -l < "$RETRY_CSV" | tr -d ' ')"
+      TPWS_ROWS=$(( TPWS_ROWS_RAW > 0 ? TPWS_ROWS_RAW - 1 : 0 ))
+      echo "[3/4] tpws retry rows: $TPWS_ROWS"
+      BEST_ENDPOINT="$(pick_best_from_csv "$RETRY_CSV" || true)"
+      if [ -n "$BEST_ENDPOINT" ]; then
+        SOURCE="macos-local-helper-tpws"
+        echo "[3/4] Best endpoint selected with tpws bypass: $BEST_ENDPOINT"
+      else
+        echo "[3/4][Warn] tpws retry CSV has no valid endpoint rows."
+      fi
+    else
+      echo "[3/4][Warn] tpws retry CSV was not created."
+    fi
+  else
+    echo "[3/4][Warn] tpws bypass setup failed, continuing with fallback endpoint."
+  fi
 fi
 
 if [ -z "$BEST_ENDPOINT" ]; then
   BEST_ENDPOINT="$(echo "$FALLBACK_JSON" | python3 -c "import sys,json; eps=json.load(sys.stdin); print(eps[0] if eps else '')" 2>/dev/null || echo '162.159.192.5:2408')"
   echo "[Fallback] Using fallback endpoint: $BEST_ENDPOINT"
-  SOURCE="macos-local-helper-fallback"
-else
-  echo "[3/4] Best endpoint selected from speedtest: $BEST_ENDPOINT"
-  SOURCE="macos-local-helper"
+  if [ "\${TPWS_ATTEMPTED:-0}" = "1" ]; then
+    SOURCE="macos-local-helper-tpws-fallback"
+  else
+    SOURCE="macos-local-helper-fallback"
+  fi
 fi
 
 # 4/4. Report
@@ -2997,6 +3123,7 @@ app.post('/api/speedtest/session', (req, res) => {
         result: null,
         dpiFirst: Boolean(req.body?.dpiFirst),
         extendedStrategy,
+        macTpwsMode: Boolean(req.body?.macTpwsMode),
     };
     SPEEDTEST_SESSIONS.set(sessionId, session);
 
@@ -3056,7 +3183,12 @@ app.get('/api/speedtest/macos-script/:sessionId', (req, res) => {
     const baseUrl = normalizePublicScriptBaseUrl(getRequestBaseUrl(req));
     const reportUrl = `${baseUrl}/api/speedtest/report`;
     const fallbackCandidates = getAdaptiveSpeedtestFallbackEndpoints(session.clientIp);
-    const script = buildMacosSpeedtestScript({ sessionId, reportUrl, fallbackCandidates });
+    const script = buildMacosSpeedtestScript({
+        sessionId,
+        reportUrl,
+        fallbackCandidates,
+        tpwsMode: Boolean(session.macTpwsMode),
+    });
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="warp-speedtest-${sessionId}.sh"`);
     res.send(script);
