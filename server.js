@@ -1918,7 +1918,7 @@ if (-not $normalized -or $normalized.Count -eq 0) {
 $qualityPassUsed = $false
 if ($normalized -and $normalized.Count -gt 0) {
   Write-Host 'Primary/rescue pass returned endpoints. Running quality pass on top hosts...'
-  $topCandidates = @($normalized | Sort-Object loss, latencyMs | Select-Object -First 12)
+  $topCandidates = @($normalized | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 12)
   $qualityHosts = @()
   foreach ($candidate in $topCandidates) {
     if (-not $candidate.endpoint) { continue }
@@ -1987,14 +1987,14 @@ if (-not $normalized -or $normalized.Count -eq 0) {
         }
       }
 
-      $exactMatch = $candidateNorm | Where-Object { $_.endpoint -eq $candidate } | Sort-Object loss, latencyMs | Select-Object -First 1
+      $exactMatch = $candidateNorm | Where-Object { $_.endpoint -eq $candidate } | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 1
       if ($exactMatch) {
         $normalized = @($exactMatch)
         Write-Host ('Found exact candidate endpoint: ' + $candidate)
         break
       }
 
-      $bestCandidateHost = $candidateNorm | Sort-Object loss, latencyMs | Select-Object -First 1
+      $bestCandidateHost = $candidateNorm | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 1
       if ($bestCandidateHost) {
         $normalized = @($bestCandidateHost)
         Write-Host ('Found working endpoint on candidate host ' + $candidateHost + ': ' + $bestCandidateHost.endpoint)
@@ -2012,10 +2012,10 @@ $bestEndpoint = $null
 $topResults = @()
 $reportSource = 'windows-local-helper'
 if ($normalized -and $normalized.Count -gt 0) {
-  $best = $normalized | Sort-Object loss, latencyMs | Select-Object -First 1
+  $best = $normalized | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 1
   if ($best) {
     $bestEndpoint = $best.endpoint
-    $topResults = @($normalized | Sort-Object loss, latencyMs | Select-Object -First 5)
+    $topResults = @($normalized | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 5)
     if ($qualityPassUsed) { $reportSource = 'windows-local-helper-quality' }
   }
 }
@@ -2158,6 +2158,7 @@ if (-not $bestEndpoint) {
         $supportsPayload = $helpText -match '--payload'
         $supportsFilterL7 = $helpText -match '--filter-l7'
         $supportsWfRawPart = $helpText -match '--wf-raw-part'
+        $supportsFakeTtl = $helpText -match '--fake-ttl'
 
         if (-not $helpText) {
           $supportsDirectionalWf = $true
@@ -2167,9 +2168,10 @@ if (-not $bestEndpoint) {
           $supportsPayload = $true
           $supportsFilterL7 = $true
           $supportsWfRawPart = $true
+          $supportsFakeTtl = $true
         }
 
-        Write-Host ('[DPI] winws capabilities: directional=' + $supportsDirectionalWf + ', legacy=' + $supportsLegacyWf + ', lua=' + ($supportsLuaDesync -and $supportsLuaInit) + ', raw=' + $supportsWfRawPart)
+        Write-Host ('[DPI] winws capabilities: directional=' + $supportsDirectionalWf + ', legacy=' + $supportsLegacyWf + ', lua=' + ($supportsLuaDesync -and $supportsLuaInit) + ', raw=' + $supportsWfRawPart + ', fakeTtl=' + $supportsFakeTtl)
 
         $wireguardPayload = 'wireguard_initiation,wireguard_response,wireguard_cookie,wireguard_keepalive,wireguard_data'
         $luaLib = Find-FileByName -SearchRoot $zapretDir -Name 'zapret-lib.lua'
@@ -2233,7 +2235,24 @@ if (-not $bestEndpoint) {
                 $z2LuaNoFilter = @($z2LuaArgs | Where-Object { $_ -notmatch '^--filter-l7=' })
                 Add-WinwsProfile -Name 'z2-inout-lua-fake-nofilter' -Args $z2LuaNoFilter
               }
+
+              # --fake-ttl variants: make fake packets die before ISP DPI (TTL=5 for nearby DPI, TTL=8 for distant)
+              if ($supportsFakeTtl) {
+                $z2LuaTtl5 = @($z2LuaArgs) + '--fake-ttl=5'
+                Add-WinwsProfile -Name 'z2-inout-lua-fake-ttl5' -Args $z2LuaTtl5
+                $z2LuaTtl8 = @($z2LuaArgs) + '--fake-ttl=8'
+                Add-WinwsProfile -Name 'z2-inout-lua-fake-ttl8' -Args $z2LuaTtl8
+              }
             }
+          }
+
+          # IPv6-capable profile for users with WARP IPv6 endpoints
+          if ($extendedStrategy) {
+            Add-WinwsProfile -Name 'z2-inout-basic-ipv6' -Args @(
+              "--wf-udp-in=$warpPorts",
+              "--wf-udp-out=$warpPorts",
+              '--wf-l3=ipv4,ipv6'
+            )
           }
         }
 
@@ -2254,6 +2273,10 @@ if (-not $bestEndpoint) {
               $rawArgsQuic = @($rawArgs | Where-Object { $_ -notmatch '^--payload=' })
               $rawArgsQuic += '--payload=wireguard_initiation,wireguard_response,wireguard_cookie,wireguard_keepalive,wireguard_data,quic_initial'
               Add-WinwsProfile -Name 'raw-wireguard-lua-quic' -Args $rawArgsQuic
+            }
+            if ($supportsFakeTtl) {
+              $rawArgsTtl5 = @($rawArgs) + '--fake-ttl=5'
+              Add-WinwsProfile -Name 'raw-wireguard-lua-ttl5' -Args $rawArgsTtl5
             }
           } else {
             Add-WinwsProfile -Name 'raw-wireguard-basic' -Args $rawArgs
@@ -2339,7 +2362,7 @@ if (-not $bestEndpoint) {
                   }
                 }
                 if ($extendedStrategy -and $dpiNorm -and $dpiNorm.Count -gt 0) {
-                  $topForRank = @($dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 160)
+                  $topForRank = @($dpiNorm | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 160)
                   $hostStats = @{}
                   $subnetStats = @{}
                   foreach ($item in $topForRank) {
@@ -2352,33 +2375,34 @@ if (-not $bestEndpoint) {
                     if ($endpointHost -match '^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$') {
                       $subnet = $Matches[1] + '.0/24'
                     }
+                    $itemScore = [double]$item.loss * 500 + [double]$item.latencyMs
                     if (-not $hostStats.ContainsKey($endpointHost)) {
                       $hostStats[$endpointHost] = @{
-                        score = 0
-                        best = 999999.0
+                        count = 0
+                        bestScore = 999999.0
                       }
                     }
                     $hostState = $hostStats[$endpointHost]
-                    $hostState.score = [int]$hostState.score + 1
-                    if ($item.latencyMs -lt [double]$hostState.best) { $hostState.best = [double]$item.latencyMs }
+                    $hostState.count = [int]$hostState.count + 1
+                    if ($itemScore -lt [double]$hostState.bestScore) { $hostState.bestScore = $itemScore }
                     $hostStats[$endpointHost] = $hostState
 
-                    if (-not $subnetStats.ContainsKey($subnet)) { $subnetStats[$subnet] = 0 }
-                    $subnetStats[$subnet] = [int]$subnetStats[$subnet] + 1
+                    if (-not $subnetStats.ContainsKey($subnet)) { $subnetStats[$subnet] = @{count=0; scoreSum=0.0} }
+                    $subnetStats[$subnet] = @{count=$subnetStats[$subnet].count+1; scoreSum=$subnetStats[$subnet].scoreSum+$itemScore}
                   }
 
                   $rankedHosts = @(
                     $hostStats.GetEnumerator() |
-                      Sort-Object @{ Expression = { $_.Value.score }; Descending = $true }, @{ Expression = { $_.Value.best }; Descending = $false } |
+                      Sort-Object @{ Expression = { $_.Value.bestScore }; Descending = $false }, @{ Expression = { $_.Value.count }; Descending = $true } |
                       Select-Object -First 12 |
                       ForEach-Object { $_.Key }
                   )
                   if ($rankedHosts.Count -gt 0) {
                     $rankedSubnets = @(
                       $subnetStats.GetEnumerator() |
-                        Sort-Object @{ Expression = { $_.Value }; Descending = $true }, @{ Expression = { $_.Key }; Descending = $false } |
+                        Sort-Object @{ Expression = { $_.Value.scoreSum / [Math]::Max(1,$_.Value.count) }; Descending = $false }, @{ Expression = { $_.Value.count }; Descending = $true } |
                         Select-Object -First 6 |
-                        ForEach-Object { $_.Key + ' x' + $_.Value }
+                        ForEach-Object { $_.Key + ' x' + $_.Value.count + ' avg' + [int]($_.Value.scoreSum / [Math]::Max(1,$_.Value.count)) }
                     )
                     if ($rankedSubnets.Count -gt 0) {
                       Write-Host ('[DPI] Extended ranking subnets: ' + ($rankedSubnets -join ', '))
@@ -2408,10 +2432,10 @@ if (-not $bestEndpoint) {
                     }
                   }
                 }
-                $dpiBest = $dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 1
+                $dpiBest = $dpiNorm | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 1
                 if ($dpiBest) {
                   $bestEndpoint = $dpiBest.endpoint
-                  $topResults   = @($dpiNorm | Sort-Object loss, latencyMs | Select-Object -First 5)
+                  $topResults   = @($dpiNorm | Sort-Object @{Expression={[double]$_.loss * 500 + [double]$_.latencyMs}} | Select-Object -First 5)
                   $reportSource = 'windows-local-helper-dpi-bypass'
                   Write-Host ('[DPI] Найден эндпоинт через DPI-bypass (' + $profile.name + '): ' + $bestEndpoint)
                 }
