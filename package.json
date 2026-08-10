@@ -1,14 +1,29 @@
 {
-  "name": "warpgen-web",
-  "version": "1.0.0",
-  "description": "Cloudflare WARP config generator for AmneziaWG 2.0",
-  "main": "server.js",
+  "name": "warpgen",
+  "version": "2.0.0",
+  "description": "Cloudflare WARP config generator for AmneziaWG 2.x — Tauri desktop app with the warpscout endpoint scanner",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "vite",
+    "build": "tsgo --noEmit && vite build",
+    "typecheck": "tsgo --noEmit",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build",
+    "fetch:warpscout": "node scripts/fetch-warpscout.mjs",
+    "gen:icon": "node scripts/gen-icon.mjs && tauri icon src-tauri/icon-source.png"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "node-fetch": "^2.7.0"
+    "@noble/curves": "^1.9.1",
+    "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-fs": "^2.2.0",
+    "@tauri-apps/plugin-http": "^2.4.0",
+    "@tauri-apps/plugin-shell": "^2.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "vite": "^6.3.5"
   }
 }

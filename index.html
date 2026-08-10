@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WarpGen — AmneziaWG 2.x</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0d14;
+      --surface: rgba(255, 255, 255, 0.04);
+      --surface-2: rgba(255, 255, 255, 0.03);
+      --border: rgba(255, 255, 255, 0.08);
+      --accent: #7c6bdb;
+      --accent2: #4fc3f7;
+      --success: #4ade80;
+      --danger: #f87171;
+      --warn: #f59e0b;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --radius: 14px;
+      --mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: system-ui, "Segoe UI", Inter, Roboto, sans-serif;
+    }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px 80px;
+      background-image:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124, 107, 219, 0.18) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(79, 195, 247, 0.08) 0%, transparent 60%);
+    }
+
+    header { text-align: center; margin-bottom: 28px; }
+    .logo { display: inline-flex; align-items: center; gap: 10px; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; cursor: pointer; user-select: none; }
+    .logo svg { width: 36px; height: 36px; }
+    .logo-accent { color: var(--accent); }
+    header p { color: var(--muted); margin-top: 8px; font-size: 14px; }
+
+    .card {
+      width: 100%; max-width: 660px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      backdrop-filter: blur(20px); padding: 24px 26px; margin-bottom: 16px;
+    }
+    .card-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); margin-bottom: 16px; }
+
+    .field { margin-bottom: 18px; }
+    label { display: block; font-size: 13px; font-weight: 500; color: #94a3b8; margin-bottom: 7px; }
+
+    input[type="text"], input[type="number"], select {
+      width: 100%; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border);
+      border-radius: 9px; color: var(--text); font-family: inherit; font-size: 14px;
+      padding: 11px 14px; outline: none; transition: border-color .2s, box-shadow .2s;
+    }
+    input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 107, 219, 0.15); }
+    input::placeholder { color: var(--muted); }
+    select { appearance: none; cursor: pointer; }
+    select option { background: #1a1f2e; color: var(--text); }
+    select optgroup { background: #0f1320; color: var(--muted); font-style: normal; font-size: 11px; }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media(max-width:480px) { .grid2 { grid-template-columns: 1fr; } }
+
+    .hint { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .hidden { display: none !important; }
+
+    /* Split targets */
+    .split-box { margin-top: 10px; padding: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
+    .split-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .chip-btn { padding: 7px 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: inherit; font-size: 12px; cursor: pointer; transition: background .2s; }
+    .chip-btn:hover { background: rgba(255,255,255,0.1); }
+    .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    @media(max-width:560px) { .split-grid { grid-template-columns: 1fr; } }
+    .split-item { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); font-size: 13px; cursor: pointer; transition: background .2s, border-color .2s; }
+    .split-item:hover { background: rgba(255,255,255,0.08); border-color: rgba(124,107,219,0.45); }
+    .split-item input { width: 15px; height: 15px; accent-color: var(--accent); flex-shrink: 0; }
+
+    /* Buttons */
+    .btn { width: 100%; padding: 14px; background: linear-gradient(135deg, var(--accent), #5b4fcf); border: none; border-radius: 10px; color: #fff; font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity .2s, transform .15s, box-shadow .2s; box-shadow: 0 4px 24px rgba(124,107,219,0.3); }
+    .btn:hover:not(:disabled) { opacity: .92; transform: translateY(-1px); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .btn-sec { background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text); box-shadow: none; font-size: 14px; }
+    .btn-sec:hover:not(:disabled) { background: rgba(255,255,255,0.09); }
+    .btn-danger { background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.25); color: var(--danger); box-shadow: none; }
+    .btn-danger:hover:not(:disabled) { background: rgba(248,113,113,0.2); }
+    .btn-ok { background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.2); color: var(--success); box-shadow: none; }
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn-row > * { flex: 1; min-width: 130px; }
+
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .badge { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 99px; text-transform: uppercase; letter-spacing: .8px; }
+    .badge-plus { background: rgba(250,204,21,0.15); color: #fbbf24; }
+    .badge-free { background: rgba(100,116,139,0.2); color: var(--muted); }
+
+    .result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+    textarea { width: 100%; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: #94a3b8; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 10px; padding: 14px; resize: vertical; outline: none; }
+    #configOutput { min-height: 300px; }
+
+    .errbox { display: none; padding: 12px 14px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2); border-radius: 9px; color: var(--danger); font-size: 13px; margin-top: 12px; }
+    .status { font-size: 12px; color: var(--muted); margin-top: 12px; }
+
+    .log { height: 150px; overflow-y: auto; background: rgba(0,0,0,0.35); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; font-family: var(--mono); font-size: 11px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+    .progress { height: 6px; background: rgba(255,255,255,0.08); border-radius: 99px; overflow: hidden; margin-top: 6px; }
+    .progress > div { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--success)); transition: width .25s; border-radius: 99px; }
+
+    .divider { height: 1px; background: var(--border); margin: 20px 0; }
+    footer { margin-top: 28px; text-align: center; font-size: 12px; color: var(--muted); }
+    footer a { color: var(--accent2); text-decoration: none; }
+    .version-line { margin-top: 8px; font-size: 11px; color: rgba(255,255,255,0.55); font-family: var(--mono); }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="logo" id="logoTrigger" title="WarpGen">
+      <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="18" cy="18" r="17" stroke="url(#g1)" stroke-width="2" />
+        <path d="M11 18 C11 13 15 10 18 10 C21 10 25 13 25 18 C25 23 21 26 18 26 C16 26 14 25 13 23" stroke="url(#g2)" stroke-width="2.2" stroke-linecap="round" />
+        <circle cx="18" cy="18" r="4" fill="url(#g1)" />
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse"><stop stop-color="#7c6bdb" /><stop offset="1" stop-color="#4fc3f7" /></linearGradient>
+          <linearGradient id="g2" x1="10" y1="10" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#7c6bdb" /><stop offset="1" stop-color="#4fc3f7" /></linearGradient>
+        </defs>
+      </svg>
+      <span>Warp<span class="logo-accent">Gen</span></span>
+    </div>
+    <p>Генератор конфигов Cloudflare WARP для <strong>AmneziaWG 2.x</strong> и <strong>WireGuard</strong></p>
+  </header>
+
+  <!-- ── Config settings ── -->
+  <div class="card">
+    <div class="card-title">Настройки конфига</div>
+
+    <div class="field">
+      <label>Ключ WARP+ (опционально)</label>
+      <input type="text" id="licenseKey" placeholder="xxxxxxxx-xxxxxxxx-xxxxxxxx (пусто = бесплатный)" spellcheck="false" />
+    </div>
+
+    <div class="field">
+      <label>Тип конфига</label>
+      <select id="configType">
+        <option value="amnezia" selected>AmneziaWG / AmneziaVPN (S/J/H/I1)</option>
+        <option value="wireguard">WireGuard (vanilla)</option>
+      </select>
+      <div class="hint">Если на macOS Amnezia-формат нестабилен — попробуйте WireGuard (vanilla).</div>
+    </div>
+
+    <div class="grid2" id="connectionGrid">
+      <div class="field amnezia-only">
+        <label>Профиль обфускации</label>
+        <select id="obfsProfile">
+          <option value="1" selected>Jc=4, Jmin=40, Jmax=70 — стабильный ✓</option>
+          <option value="2">Jc=120, Jmin=23, Jmax=911 — стандартный</option>
+          <option value="3">Jc=10, Jmin=100, Jmax=300 — агрессивный DPI</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Порт Endpoint</label>
+        <select id="endpointPort">
+          <option value="2408" selected>2408 — рекомендуется</option>
+          <option value="500">500 — IPSec</option>
+          <option value="4500">4500 — стандартный WARP</option>
+          <option value="1701">1701 — L2TP</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Endpoint IP</label>
+      <select id="endpointIp">
+        <option value="auto" selected>Авто (из API Cloudflare)</option>
+        <optgroup label="✓ Официальный WireGuard ingress (162.159.193.0/24)">
+          <option value="162.159.193.1">162.159.193.1</option>
+          <option value="162.159.193.2">162.159.193.2</option>
+          <option value="162.159.193.5">162.159.193.5</option>
+          <option value="162.159.193.10">162.159.193.10</option>
+        </optgroup>
+        <optgroup label="Consumer WARP (162.159.192.0/24)">
+          <option value="162.159.192.1">162.159.192.1</option>
+          <option value="162.159.192.2">162.159.192.2</option>
+          <option value="162.159.192.5">162.159.192.5</option>
+        </optgroup>
+        <optgroup label="Community (ситуативно)">
+          <option value="162.159.195.1">162.159.195.1</option>
+          <option value="162.159.195.4">162.159.195.4 ✓</option>
+          <option value="188.114.96.1">188.114.96.1</option>
+          <option value="188.114.98.1">188.114.98.1</option>
+        </optgroup>
+      </select>
+      <div class="hint">Или нажмите «Найти лучший endpoint» ниже — warpscout просканирует сеть.</div>
+    </div>
+
+    <div class="field">
+      <label>DNS сервер</label>
+      <select id="dnsServer">
+        <optgroup label="🌐 Разблокировать внешние сервисы">
+          <option value="malw_link" selected>dns.malw.link — разблокировка сайтов ✓</option>
+        </optgroup>
+        <optgroup label="Без фильтрации — быстрые публичные">
+          <option value="cloudflare">Cloudflare 1.1.1.1</option>
+          <option value="google">Google 8.8.8.8</option>
+          <option value="quad9_nofilter">Quad9 9.9.9.10 — без фильтрации</option>
+          <option value="opendns">OpenDNS 208.67.222.222</option>
+          <option value="gcore">G-Core 95.85.95.85</option>
+          <option value="yandex">Яндекс 77.88.8.8</option>
+        </optgroup>
+        <optgroup label="🛡 Блокировка рекламы / малвари">
+          <option value="adguard">AdGuard DNS</option>
+          <option value="nextdns">NextDNS</option>
+          <option value="cloudflare_mal">Cloudflare 1.1.1.2 — малварь</option>
+          <option value="quad9">Quad9 9.9.9.9</option>
+        </optgroup>
+        <optgroup label="👨‍👩‍👧 Семейный">
+          <option value="adguard_family">AdGuard Family</option>
+          <option value="yandex_family">Яндекс Family</option>
+          <option value="opendns_family">OpenDNS Family Shield</option>
+        </optgroup>
+        <optgroup label="🔒 Privacy">
+          <option value="mullvad">Mullvad</option>
+          <option value="dnssb">DNS.SB</option>
+          <option value="dns0eu">dns0.eu</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <div class="field amnezia-only">
+      <label>Маскировка трафика (I1)</label>
+      <select id="i1Preset"></select>
+      <input type="text" id="customI1Domain" class="hidden" placeholder="Домен для QUIC-маски (например, google.com)" spellcheck="false" style="margin-top:8px;" />
+      <div class="hint">I1 — валидный первый пакет (QUIC/DNS/…), под который маскируется хендшейк. «Свой домен» генерирует настоящий QUIC Initial.</div>
+    </div>
+
+    <!-- Advanced -->
+    <div class="field">
+      <button type="button" id="advToggle" class="chip-btn">Дополнительные настройки ▾</button>
+      <div id="advBox" class="split-box hidden">
+        <div class="grid2">
+          <div class="field" style="margin:0;">
+            <label>MTU</label>
+            <input type="number" id="mtu" value="1280" min="1200" max="1500" />
+          </div>
+          <div class="field" style="margin:0;">
+            <label>PersistentKeepalive (0 = выкл)</label>
+            <input type="number" id="keepalive" value="25" min="0" max="65535" />
+          </div>
+        </div>
+        <label class="split-item" style="margin-top:10px;">
+          <input type="checkbox" id="includeIpv6" checked /> <span>Включить IPv6 (Address + DNS + маршруты)</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Маршрутизация трафика</label>
+      <select id="splitMode">
+        <option value="full" selected>Весь трафик через VPN (Full Tunnel)</option>
+        <option value="selective">Только выбранные сервисы (Split Tunnel)</option>
+      </select>
+      <div class="hint">Split-tunnel работает по IP/подсетям: домены резолвятся при генерации (DoH).</div>
+      <div id="splitBox" class="split-box hidden">
+        <div class="split-tools">
+          <button type="button" class="chip-btn" data-preset="social">Часто нужно</button>
+          <button type="button" class="chip-btn" data-preset="gaming">Игры</button>
+          <button type="button" class="chip-btn" data-preset="all">Выбрать всё</button>
+          <button type="button" class="chip-btn" data-preset="clear">Очистить</button>
+        </div>
+        <div class="split-grid" id="splitGrid"></div>
+        <div class="hint">Для игр это best-effort: IP бэкендов меняются, иногда нужно обновить конфиг.</div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" id="generateBtn" style="flex:3;">Сгенерировать конфиг</button>
+      <button class="btn btn-sec" id="resetBtn" style="flex:1;" title="Сбросить">↺ Сброс</button>
+    </div>
+    <div class="errbox" id="errorBox"></div>
+  </div>
+
+  <!-- ── warpscout ── -->
+  <div class="card">
+    <div class="card-title">🛰 warpscout — поиск рабочего endpoint</div>
+    <div class="grid2">
+      <div class="field" style="margin-bottom:12px;">
+        <label>Протокол</label>
+        <select id="wsProto">
+          <option value="awg" selected>AmneziaWG (awg)</option>
+          <option value="wg">WireGuard (wg)</option>
+          <option value="masque">MASQUE</option>
+          <option value="masque-h2">MASQUE-H2</option>
+        </select>
+      </div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>Страна / нода (опц.)</label>
+        <input type="text" id="wsFilter" placeholder="напр. DE,NL или нода HEL" spellcheck="false" />
+      </div>
+    </div>
+    <div class="btn-row" style="margin-bottom:10px;">
+      <button class="btn" id="wsScanBtn" style="flex:2;">Найти лучший endpoint</button>
+      <button class="btn btn-sec" id="wsImportBtn">Импортировать конфиг</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-sec" id="wsJunkBtn">find-junk</button>
+      <button class="btn btn-sec" id="wsSniBtn">find-sni</button>
+      <button class="btn btn-danger" id="wsStopBtn" disabled style="flex:0.6;">⏹ Стоп</button>
+    </div>
+    <div class="status" id="wsStatus"></div>
+    <div id="wsLog" class="log hidden" style="margin-top:10px;"></div>
+    <div class="hint" id="wsMissing" style="display:none; color:var(--warn);">
+      Бинарник warpscout не найден. Запустите <code>npm run fetch:warpscout</code> (или он подтянется при сборке).
+    </div>
+  </div>
+
+  <!-- ── Result ── -->
+  <div class="card hidden" id="resultCard">
+    <div class="result-header">
+      <div class="card-title" style="margin:0;">Готовый конфиг</div>
+      <span class="badge" id="accountBadge"></span>
+    </div>
+    <textarea id="configOutput" readonly spellcheck="false"></textarea>
+    <div class="btn-row" style="margin-top:14px;">
+      <button class="btn btn-ok" id="downloadBtn">⬇ Скачать .conf</button>
+      <button class="btn btn-sec" id="copyBtn">⎘ Копировать</button>
+    </div>
+    <div class="status" id="resultStatus"></div>
+  </div>
+
+  <!-- ── Secret tools ── -->
+  <div class="card hidden" id="secretCard">
+    <div class="card-title">🔑 Секретные инструменты</div>
+
+    <div class="field">
+      <label>Проверка WARP+ ключа</label>
+      <div class="btn-row">
+        <input type="text" id="secretKey" placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX" spellcheck="false" style="flex:2;" />
+        <button class="btn btn-sec" id="genTestBtn">Сген. TEST ключ</button>
+      </div>
+    </div>
+    <button class="btn" id="checkKeyBtn">Проверить ключ</button>
+    <div class="status" id="secretStatus"></div>
+
+    <div class="divider"></div>
+    <div class="card-title" style="font-size:14px;">🎲 Генератор и чекер ключей</div>
+    <div class="grid2">
+      <div class="field"><label>Количество ключей</label><input type="number" id="bfCount" value="100" min="1" max="10000" /></div>
+      <div class="field"><label>Потоки: <span id="bfThreadsVal">30</span></label><input type="range" id="bfThreads" min="1" max="100" value="30" style="accent-color:var(--accent); margin-top:14px;" /></div>
+    </div>
+    <div class="field">
+      <label>Прокси (IP:PORT / socks5://… / user:pass@…)</label>
+      <div class="split-tools">
+        <button type="button" class="chip-btn" data-proxy="mono_http">🌐 HTTP</button>
+        <button type="button" class="chip-btn" data-proxy="mono_socks5">🧅 SOCKS5</button>
+        <button type="button" class="chip-btn" data-proxy="speedx_socks4">🔌 SOCKS4</button>
+        <button type="button" class="chip-btn" data-proxy="all">⚡ Все источники</button>
+        <button type="button" class="chip-btn" id="proxyClearBtn">🗑 Очистить</button>
+        <span class="hint" id="proxyLoadStatus" style="margin:0; align-self:center;"></span>
+      </div>
+      <textarea id="bfProxies" style="height:80px;" placeholder="1.2.3.4:8080&#10;socks5://9.10.11.12:1080"></textarea>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-sec" id="proxyCheckBtn">🔍 Проверить прокси</button>
+        <button class="btn btn-danger" id="proxyStopBtn" disabled style="flex:0.6;">⏹</button>
+      </div>
+      <div class="progress" id="proxyProgress" style="display:none;"><div></div></div>
+      <div class="hint" id="proxyCheckStatus"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="bfStartBtn" style="flex:2;">⚡ Сгенерировать и проверить</button>
+      <button class="btn btn-danger" id="bfStopBtn" disabled style="flex:0.6;">⏹</button>
+    </div>
+    <div class="progress" id="bfProgress" style="display:none;"><div></div></div>
+    <div class="hint" id="bfCounters"></div>
+    <div id="bfLog" class="log hidden" style="margin-top:8px;"></div>
+    <div class="field hidden" id="bfValidWrap" style="margin-top:12px;">
+      <label style="color:var(--success);">✅ Найденные WARP+ ключи</label>
+      <textarea id="bfValidKeys" readonly style="height:90px; color:var(--success); background:rgba(74,222,128,0.05); border-color:rgba(74,222,128,0.2);"></textarea>
+      <button class="btn btn-sec" id="copyBfBtn" style="margin-top:8px;">⎘ Копировать ключи</button>
+    </div>
+  </div>
+
+  <footer>
+    Импортируйте <code>.conf</code> в <a href="https://amnezia.org" target="_blank" rel="noreferrer">AmneziaVPN</a> / AmneziaWG или WireGuard.
+    <div class="version-line">Версия: <span id="siteVersion">…</span></div>
+  </footer>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>

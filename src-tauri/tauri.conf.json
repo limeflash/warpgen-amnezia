@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "WarpGen",
+  "version": "2.0.0",
+  "identifier": "pro.simg.warpgen",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "WarpGen — AmneziaWG 2.x",
+        "width": 900,
+        "height": 840,
+        "minWidth": 420,
+        "minHeight": 600,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["binaries/warpscout"],
+    "resources": [],
+    "category": "Utility",
+    "shortDescription": "Cloudflare WARP config generator for AmneziaWG",
+    "longDescription": "Generates Cloudflare WARP configs for AmneziaWG 2.x / WireGuard and finds the best endpoint with the bundled warpscout scanner."
+  }
+}

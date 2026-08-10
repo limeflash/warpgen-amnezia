@@ -1,6 +1,7 @@
 # Node
 node_modules/
 npm-debug.log*
+dist/
 
 # Env
 .env
@@ -10,5 +11,17 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
+# Tooling caches
+.serena/
+
 # Generated configs (don't commit personal keys)
 *.conf
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Bundled sidecar binaries (fetched via scripts/fetch-warpscout.mjs)
+src-tauri/binaries/
+# Generated icon set + source
+src-tauri/icon-source.png
