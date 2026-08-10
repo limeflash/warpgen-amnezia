@@ -516,6 +516,40 @@ function applyEndpoint(endpoint: string): void {
   setGroup("endpointPort", m[2]);
 }
 
+/** find-junk result card: the measured junk parameters, as the design shows them. */
+function renderJunkResult(
+  junk: { jc: number; jmin: number; jmax: number },
+  handshakeMs?: string,
+  packets?: string,
+  attempts?: string,
+): void {
+  const box = ensureBox("wsJunkResult", hostCard("scan").parentElement ?? screenEl("scan"));
+  placeAfterCard("scan", box);
+  box.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:16px 18px;margin-bottom:14px";
+  const tile = (label: string, value: string) =>
+    `<div style="padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)">` +
+    `<div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">${esc(label)}</div>` +
+    `<div style="font-size:15px;font-weight:650;margin-top:2px">${esc(value)}</div></div>`;
+
+  box.innerHTML =
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">` +
+    `<b style="font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">find-junk · параметры обфускации</b>` +
+    `<span style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-2)">` +
+    `<i style="width:6px;height:6px;border-radius:99px;background:var(--ok)"></i>подставлено в Architect</span></div>` +
+    `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:9px">` +
+    tile("Jc", String(junk.jc)) + tile("Jmin", String(junk.jmin)) + tile("Jmax", String(junk.jmax)) +
+    tile("Handshake", handshakeMs ? `${handshakeMs} ms` : "—") +
+    `</div>` +
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding-top:13px;border-top:1px solid var(--line)">` +
+    `<span style="font-size:11.5px;color:var(--text-3)">Профиль обфускации переключён на Custom${packets ? ` · ${packets} пакетов` : ""}${attempts ? `, ${attempts} попытки` : ""}</span>` +
+    `<div id="openArchitect" style="padding:9px 15px;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:12.5px;font-weight:600;cursor:pointer">Открыть в Architect →</div></div>`;
+
+  onClick("openArchitect", () => {
+    showView("generate");
+    document.querySelector('[data-group="archProfile"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
+
 function renderScanRows(rows: ws.ScanRow[]): void {
   const box = ensureBox("wsResults", hostCard("scan").parentElement ?? screenEl("scan"));
   const cols = "minmax(0,1.5fr) 76px minmax(0,1fr) 70px minmax(0,1fr)";
@@ -619,7 +653,13 @@ async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
       const m = out.match(/jc\s*=?\s*(\d+).*?jmin\s*=?\s*(\d+).*?jmax\s*=?\s*(\d+)/is);
       if (m) {
         architect = { junk: { jc: +m[1], jmin: +m[2], jmax: +m[3] }, profile: architect?.profile ?? "quic_initial", obfuscation: architect?.obfuscation ?? {} };
-        wsStatus(`find-junk: Jc ${m[1]} · Jmin ${m[2]} · Jmax ${m[3]} — применено к генератору.`);
+        renderJunkResult(
+          { jc: +m[1], jmin: +m[2], jmax: +m[3] },
+          out.match(/(\d+(?:\.\d+)?)\s*ms/i)?.[1],
+          out.match(/(\d+)\s*(?:packets|пакет)/i)?.[1],
+          out.match(/(\d+)\s*(?:attempts?|попыт)/i)?.[1],
+        );
+        status("scan", "");
       } else wsStatus("find-junk завершён.");
     } else {
       const out = await ws.findSni({ proto, signal: wsAbort.signal });
