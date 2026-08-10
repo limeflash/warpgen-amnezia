@@ -5,6 +5,7 @@ import { dnsLine, dnsLineIPv4Only, dnsLineToCidrs, resolve4, DEFAULT_DNS_ID } fr
 import { normalizeSplitTargets, resolveSplitAllowedIPs } from "./split";
 import { isIP, normalizeInterfaceAddress } from "./ip";
 import { clashFromWarp, WARP_PUBLIC_KEY } from "./clash";
+import { buildObfuscationLines, JUNK_PRESETS, DEFAULT_VERSION, type AwgVersion, type ObfuscationOptions } from "./obfuscation";
 
 export type ConfigType = "amnezia" | "wireguard" | "clash";
 export type SplitMode = "full" | "selective";
@@ -23,6 +24,12 @@ export interface GenerateOptions {
   mtu?: number;
   persistentKeepalive?: number | null;
   includeIpv6?: boolean;
+  /** Explicit junk params (obfsProfile === "custom"), e.g. from warpscout find-junk. */
+  customJunk?: { jc: number; jmin: number; jmax: number };
+  /** AmneziaWG generation to target (1.0 / 1.5 / 2.0 / 3.0). Default 1.5. */
+  awgVersion?: AwgVersion;
+  /** Advanced obfuscation overrides (S1–S4, H1–H4, I2–I5, AWG 3.0 fields). */
+  obfuscation?: Omit<ObfuscationOptions, "version" | "junk" | "i1">;
 }
 
 export interface SplitTunnelInfo {
@@ -43,12 +50,6 @@ export interface GenerateResult {
 }
 
 export class GenerateError extends Error {}
-
-const OBFS_PROFILES: Record<string, { jc: number; jmin: number; jmax: number }> = {
-  "1": { jc: 4, jmin: 40, jmax: 70 },
-  "2": { jc: 120, jmin: 23, jmax: 911 },
-  "3": { jc: 10, jmin: 100, jmax: 300 },
-};
 
 async function resolveHost(host: string): Promise<string> {
   if (!host || isIP(host)) return host || "162.159.192.1";
@@ -76,7 +77,8 @@ export async function generateConfig(opts: GenerateOptions): Promise<GenerateRes
   const rawDnsLine = dnsLine(dnsId);
   const finalDnsLine = includeIpv6 ? rawDnsLine : dnsLineIPv4Only(rawDnsLine);
 
-  const { jc, jmin, jmax } = OBFS_PROFILES[opts.obfsProfile ?? "1"] || OBFS_PROFILES["1"];
+  const awgVersion: AwgVersion = opts.awgVersion ?? DEFAULT_VERSION;
+  const junk = opts.customJunk ?? JUNK_PRESETS[opts.obfsProfile ?? "1"] ?? JUNK_PRESETS["1"];
 
   // Resolve the I1 mask (valid QUIC / capture / DNS / STUN…) before touching CF.
   const i1 = isAmnezia ? await resolveI1(opts.i1Preset || DEFAULT_I1_KEY, opts.customI1Domain) : "";
@@ -212,20 +214,9 @@ export async function generateConfig(opts: GenerateOptions): Promise<GenerateRes
   // 5. Assemble the config text.
   const interfaceLines: string[] = ["[Interface]", `PrivateKey = ${priv}`];
   if (isAmnezia) {
-    interfaceLines.push(
-      "S1 = 0",
-      "S2 = 0",
-      `Jc = ${jc}`,
-      `Jmin = ${jmin}`,
-      `Jmax = ${jmax}`,
-      "H1 = 1",
-      "H2 = 2",
-      "H3 = 3",
-      "H4 = 4",
-    );
+    interfaceLines.push(...buildObfuscationLines({ ...opts.obfuscation, version: awgVersion, junk, i1 }));
   }
   interfaceLines.push(`MTU = ${mtu}`, `Address = ${address}`, `DNS = ${finalDnsLine}`);
-  if (isAmnezia && i1) interfaceLines.push(`I1 = ${i1}`);
 
   const peerLines = ["[Peer]", `PublicKey = ${peerPub}`, `AllowedIPs = ${allowedIpsLine}`, `Endpoint = ${endpoint}`];
   const keepalive = normalizeKeepalive(opts.persistentKeepalive);

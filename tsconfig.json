@@ -18,5 +18,8 @@
     "useDefineForClassFields": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"],
+  // *.test.ts run under Node (`node --experimental-strip-types`), not in the
+  // webview bundle — they use node: imports and .ts specifiers.
+  "exclude": ["src/**/*.test.ts"]
 }

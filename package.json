@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsgo --noEmit && vite build",
     "typecheck": "tsgo --noEmit",
+    "test": "node --experimental-strip-types src/core/analyzer.test.ts && node --experimental-strip-types src/core/obfuscation.test.ts",
     "preview": "vite preview",
     "tauri": "tauri",
     "app:dev": "tauri dev",

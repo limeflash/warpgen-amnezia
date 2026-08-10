@@ -339,22 +339,35 @@ function renderScanTable(rows: ws.ScanRow[]): void {
   box.append(head, scroll);
 }
 
+// Turn warpscout's raw phase lines into a clean Russian status (no log spam).
+function scanPhase(line: string): string | null {
+  const count = line.match(/(\d+)\s*\.\.\./);
+  const n = count ? ` — ${count[1]}` : "";
+  if (/reachable ports|probing reachable/i.test(line)) return "Проверка доступных портов…";
+  if (/verifying tunnels/i.test(line)) return `Проверка туннелей…${n}`;
+  if (/speedtest|measuring/i.test(line)) return `Замер скорости endpoint'ов…${n}`;
+  return null;
+}
+function wsProgress(text: string): void {
+  $("wsStatus").innerHTML = `<span class="spinner" style="vertical-align:middle;margin-right:8px"></span>${esc(text)}`;
+}
+
 async function onScan(): Promise<void> {
   if (wsAbort) return;
   wsAbort = new AbortController();
   wsBusy(true);
   show($("wsResults"), false);
   show($("wsLog"), false);
-  setText("wsStatus", "Сканирование сети… (до ~минуты)");
+  wsProgress("Сканирование сети…");
   try {
     const { rows } = await ws.scanEndpoints({
       proto: val("wsProto") as ws.Proto,
       ...wsFilters(),
       speed: $<HTMLInputElement>("wsSpeed").checked,
       tunPing: $<HTMLInputElement>("wsTunPing").checked,
-      // Show only progress phases in the status line — the table is the result.
       onLine: (line) => {
-        if (/phase|probing|verifying|reachable/i.test(line)) setText("wsStatus", line.trim());
+        const p = scanPhase(line);
+        if (p) wsProgress(p);
       },
       signal: wsAbort.signal,
     });
