@@ -467,9 +467,47 @@ function toggleQr(): void {
 // ─────────────── warpscout ───────────────
 let wsAbort: AbortController | null = null;
 
+// ── scan progress card (design: title + percent + bar + three step chips) ──
+type ScanStep = "ports" | "tunnels" | "speed";
+const STEP_INFO: Array<[ScanStep, string, string]> = [
+  ["ports", "Порты", "reachable"],
+  ["tunnels", "Туннели", "handshake"],
+  ["speed", "Скорость", "download"],
+];
+
+function scanProgress(title: string, percent: number, active: ScanStep | null, note?: Partial<Record<ScanStep, string>>): void {
+  const box = ensureBox("wsProgress", hostCard("scan").parentElement ?? screenEl("scan"));
+  placeAfterCard("scan", box);
+  box.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:16px 18px;margin-bottom:14px";
+  const done = (s: ScanStep) => STEP_INFO.findIndex(([k]) => k === s) < STEP_INFO.findIndex(([k]) => k === active);
+  box.innerHTML =
+    `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px">` +
+    `<b style="font-size:13px">${esc(title)}</b>` +
+    `<span style="font-size:11.5px;color:var(--text-3);font-family:ui-monospace,monospace">${percent}%</span></div>` +
+    `<div style="height:7px;border-radius:99px;background:var(--panel-3);overflow:hidden;margin-bottom:12px">` +
+    `<div style="height:100%;width:${percent}%;border-radius:99px;background:var(--accent);transition:width .3s"></div></div>` +
+    `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px">` +
+    STEP_INFO.map(([key, label, sub]) => {
+      const on = key === active || done(key);
+      return `<div style="padding:9px 12px;border-radius:11px;border:1px solid ${on ? "var(--accent)" : "var(--line)"};background:${on ? "var(--sel)" : "var(--panel-2)"}">` +
+        `<div style="font-size:12.5px;font-weight:600;color:${on ? "var(--accent)" : "var(--text-3)"}">${esc(label)}</div>` +
+        `<div style="font-size:10.5px;color:var(--text-3);margin-top:1px">${esc(note?.[key] ?? sub)}</div></div>`;
+    }).join("") +
+    `</div>`;
+}
+
 function wsStatus(text: string, spin = false): void {
   status("scan", spin ? `<span class="spinner"></span> ${esc(text)}` : esc(text));
 }
+
+/** Country code → Russian name, as the design spells them out. */
+const COUNTRY: Record<string, string> = {
+  NL: "Нидерланды", DE: "Германия", FI: "Финляндия", SE: "Швеция", PL: "Польша", FR: "Франция",
+  GB: "Великобритания", US: "США", TR: "Турция", LV: "Латвия", LT: "Литва", EE: "Эстония",
+  RU: "Россия", UA: "Украина", CZ: "Чехия", AT: "Австрия", CH: "Швейцария", ES: "Испания",
+  IT: "Италия", NO: "Норвегия", DK: "Дания", IE: "Ирландия", BE: "Бельгия", CA: "Канада",
+  JP: "Япония", SG: "Сингапур", HK: "Гонконг", AE: "ОАЭ", IL: "Израиль", KZ: "Казахстан",
+};
 
 function applyEndpoint(endpoint: string): void {
   const m = endpoint.match(/^(.+):(\d+)$/);
@@ -479,45 +517,43 @@ function applyEndpoint(endpoint: string): void {
 }
 
 function renderScanRows(rows: ws.ScanRow[]): void {
-  const box = ensureBox("wsResults", screenEl("scan"));
-  const cols = "1.4fr 74px 62px 58px 1fr";
-  box.style.cssText = "border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:14px";
+  const box = ensureBox("wsResults", hostCard("scan").parentElement ?? screenEl("scan"));
+  const cols = "minmax(0,1.5fr) 76px minmax(0,1fr) 70px minmax(0,1fr)";
+  box.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:15px;overflow:hidden;margin-bottom:14px";
   box.innerHTML =
-    `<div style="display:grid;grid-template-columns:${cols};gap:12px;padding:11px 15px;background:var(--panel-2);border-bottom:1px solid var(--line);font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)">` +
-    `<span>Endpoint</span><span style="text-align:right">Ping</span><span>Страна</span><span>Нода</span><span>Локация</span></div>` +
-    `<div id="wsRows" style="max-height:360px;overflow-y:auto"></div>`;
+    `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:14px 18px 12px">` +
+    `<b style="font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">Результаты</b>` +
+    `<span style="font-size:11px;color:var(--text-3)">клик по строке — подставить endpoint в генератор</span></div>` +
+    `<div style="display:grid;grid-template-columns:${cols};gap:12px;padding:9px 18px;background:var(--panel-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)">` +
+    `<span>Endpoint</span><span>Ping</span><span>Страна</span><span>Нода</span><span>Локация</span></div>` +
+    `<div id="wsRows" style="max-height:340px;overflow-y:auto"></div>`;
+
   const list = must("wsRows");
+  const rowStyle = (sel: boolean) =>
+    `display:grid;grid-template-columns:${cols};gap:12px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer;background:${sel ? "var(--sel)" : "transparent"}`;
+
   rows.forEach((r, i) => {
+    const tier = r.ping < 30 ? "var(--ok)" : r.ping < 70 ? "var(--accent)" : "var(--warn)";
     const row = document.createElement("div");
-    const color = r.ping < 60 ? "var(--ok)" : r.ping < 150 ? "var(--warn)" : "var(--err)";
-    row.style.cssText = `display:grid;grid-template-columns:${cols};gap:12px;align-items:center;padding:10px 15px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer${i === 0 ? ";background:var(--sel);box-shadow:inset 3px 0 0 var(--accent)" : ""}`;
+    row.style.cssText = rowStyle(i === 0);
     row.innerHTML =
-      `<span style="font-family:ui-monospace,monospace">${esc(r.endpoint)}</span>` +
-      `<span style="text-align:right;font-weight:700;color:${color}">${r.ping} ms</span>` +
-      `<span>${esc(r.country)}</span><span>${esc(r.node)}</span><span style="color:var(--text-3)">${esc(r.location)}</span>`;
+      `<span style="display:flex;align-items:center;gap:8px;min-width:0">` +
+      `<i style="width:6px;height:6px;border-radius:99px;background:${tier};flex:0 0 6px"></i>` +
+      `<span style="font-family:ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis">${esc(r.endpoint)}</span></span>` +
+      `<span style="font-family:ui-monospace,monospace;font-weight:600;color:${r.ping < 70 ? "var(--ok)" : "var(--text)"}">${r.ping} ms</span>` +
+      `<span>${esc(COUNTRY[r.country] ?? r.country)}</span>` +
+      `<span style="font-family:ui-monospace,monospace;font-size:11.5px;color:var(--text-2)">${esc(r.node)}</span>` +
+      `<span style="color:var(--text-3);overflow:hidden;text-overflow:ellipsis">${esc(r.location.split(",")[0])}</span>`;
     row.addEventListener("click", () => {
-      list.querySelectorAll<HTMLElement>("div").forEach((d) => {
-        d.style.background = "";
-        d.style.boxShadow = "";
-      });
-      row.style.background = "var(--sel)";
-      row.style.boxShadow = "inset 3px 0 0 var(--accent)";
+      [...list.children].forEach((d, j) => ((d as HTMLElement).style.cssText = rowStyle(false) + (j === rows.length - 1 ? ";border-bottom:0" : "")));
+      row.style.cssText = rowStyle(true);
       applyEndpoint(r.endpoint);
-      wsStatus(`Выбран ${r.endpoint} · ${r.ping} ms · ${r.location} — подставлен в «Генератор».`);
     });
     list.appendChild(row);
   });
+  (list.lastElementChild as HTMLElement | null)?.style.setProperty("border-bottom", "0");
   placeAfterCard("scan", box);
 }
-
-const scanPhase = (line: string): string | null => {
-  const n = line.match(/(\d+)\s*\.\.\./)?.[1];
-  const t = n ? ` — ${n}` : "";
-  if (/reachable ports|probing reachable/i.test(line)) return "Проверка доступных портов…";
-  if (/verifying tunnels/i.test(line)) return `Проверка туннелей…${t}`;
-  if (/speedtest|measuring/i.test(line)) return `Замер скорости…${t}`;
-  return null;
-};
 
 const wsFilters = () => {
   const f = inputValue("wsFilter").trim();
@@ -529,7 +565,9 @@ async function onScan(): Promise<void> {
   if (wsAbort) return;
   wsAbort = new AbortController();
   $("wsResults")?.remove();
-  wsStatus("Сканирование сети…", true);
+  status("scan", "");
+  scanProgress("Проверка доступных портов…", 8, "ports");
+  const note: Partial<Record<ScanStep, string>> = {};
   try {
     const { rows } = await ws.scanEndpoints({
       proto: (groupValue("wsProto") || "awg") as ws.Proto,
@@ -537,16 +575,29 @@ async function onScan(): Promise<void> {
       speed: toggleValue("wsSpeed"),
       tunPing: toggleValue("wsTunPing"),
       onLine: (l) => {
-        const p = scanPhase(l);
-        if (p) wsStatus(p, true);
+        const ports = l.match(/reachable ports \[([^\]]+)\]/)?.[1];
+        if (ports) note.ports = `${ports.trim().split(/\s+/).length} порта`;
+        const n = l.match(/(\d+)\s*\.\.\./)?.[1];
+        if (/probing reachable|reachable ports/i.test(l)) scanProgress("Проверка доступных портов…", 20, "ports", note);
+        else if (/verifying tunnels/i.test(l)) {
+          if (n) note.tunnels = `${n} проверено`;
+          scanProgress("Проверка туннелей…", 66, "tunnels", note);
+        } else if (/speedtest|measuring/i.test(l)) {
+          if (n) note.speed = `${n} замерено`;
+          scanProgress("Замер скорости…", 85, "speed", note);
+        }
       },
       signal: wsAbort.signal,
     });
-    if (!rows.length) return wsStatus("Рабочих endpoint'ов не найдено.");
+    if (!rows.length) {
+      scanProgress("Рабочих endpoint'ов не найдено", 100, null, note);
+      return;
+    }
+    scanProgress(`Найдено ${rows.length} рабочих endpoint · быстрейший подставлен в генератор`, 100, null, note);
     renderScanRows(rows);
     applyEndpoint(rows[0].endpoint);
-    wsStatus(`Найдено ${rows.length}. Быстрейший ${rows[0].endpoint} (${rows[0].ping} ms) подставлен в «Генератор».`);
   } catch (err) {
+    $("wsProgress")?.remove();
     wsStatus(wsAbort?.signal.aborted ? "Остановлено." : `⚠ ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     wsAbort = null;
