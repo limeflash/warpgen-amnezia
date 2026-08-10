@@ -16,7 +16,7 @@ import { loadJson, saveJson, addHistory, loadHistory, deleteHistory, clearHistor
 import { generateSignature, MIMIC_PROFILES, type GeneratedSignature } from "./core/signature.ts";
 import { PROTOCOL_INFO, calcChainSize, CPS_MAX_BYTES } from "./core/awg-meta.ts";
 import { type AwgVersion, compatWarning, recommendedMtu } from "./core/obfuscation.ts";
-import { analyzeConfig, type AnalysisResult } from "./core/analyzer.ts";
+import { analyzeConfig, parseI1, type AnalysisResult } from "./core/analyzer.ts";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { downloadDir, join } from "@tauri-apps/api/path";
@@ -313,6 +313,19 @@ function repairHooks(): void {
 
   // Only the result screen's empty state was captured, so tag the places its
   // config branch has to be rebuilt into.
+  // analyzer header: subtitle is live, the actions container hosts «Применить»,
+  // and #analyzerBtn must be only the «Анализировать» button (not the container)
+  const anBar = screenEl("analyzer").querySelector<HTMLElement>('[style*="position: sticky"]');
+  if (anBar) {
+    anBar.children[0]?.children[1]?.setAttribute("id", "anSub");
+    const actions = anBar.children[1] as HTMLElement | undefined;
+    if (actions) {
+      $("analyzerBtn")?.removeAttribute("id");
+      actions.id = "analyzerActions";
+      (actions.children[actions.children.length - 1] as HTMLElement | undefined)?.setAttribute("id", "analyzerBtn");
+    }
+  }
+
   const res = screenEl("result");
   // the empty-state "Взять из истории" subtitle carries a live saved-config count
   [...res.querySelectorAll<HTMLElement>("div")].find((d) => !d.children.length && /сохранённ\w* конфиг/.test(d.textContent || ""))?.setAttribute("id", "resultEmptyCount");
@@ -1604,101 +1617,164 @@ const AWG_SCALE = ["WireGuard", "1.0", "1.5", "2.0", "3.0"];
 function renderAnalysis(a: AnalysisResult): void {
   const box = must("analyzerReport");
   box.removeAttribute("style");
-  const camoColor = a.camouflage === "HIGH" ? "var(--ok)" : a.camouflage === "MEDIUM" ? "var(--warn)" : "var(--err)";
+  const grade = a.camouflage; // HIGH / MEDIUM / LOW
+  const ringFg = grade === "HIGH" ? "var(--ok)" : grade === "MEDIUM" ? "var(--accent-2)" : "var(--err)";
   const verKey = a.version.ver === "WireGuard" ? "WireGuard" : a.version.ver.replace("AWG ", "");
-  const chain = ["i1", "i2", "i3", "i4", "i5"].map((k) => a.parsed.iface[k]).filter(Boolean);
+  const dpiResist = 100 - a.scores.dpi;
+  const score = Math.round((dpiResist + a.scores.stealth) / 2);
+  const threshFg = (v: number) => (v >= 70 ? "var(--ok)" : v >= 45 ? "var(--accent-2)" : "var(--err)");
+
+  // 110×110 circular gauge, r46, sw9
+  const R = 46, C = 2 * Math.PI * R, mono = "ui-monospace,'SF Mono',Menlo,Consolas,monospace";
+  const gauge =
+    `<svg width="110" height="110" viewBox="0 0 110 110" style="flex:0 0 110px">` +
+    `<circle cx="55" cy="55" r="${R}" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="9"/>` +
+    `<circle cx="55" cy="55" r="${R}" fill="none" stroke="${ringFg}" stroke-width="9" stroke-linecap="round"` +
+    ` stroke-dasharray="${(score / 100) * C} ${C}" transform="rotate(-90 55 55)"/>` +
+    `<text x="55" y="52" text-anchor="middle" fill="var(--on-hero)" font-size="26" font-weight="700">${score}</text>` +
+    `<text x="55" y="70" text-anchor="middle" fill="${ringFg}" font-size="9" font-weight="700" letter-spacing="1">${grade}</text></svg>`;
+
+  // ladder: fill every step up to and including the current version
+  const ci = AWG_SCALE.indexOf(verKey);
+  const ladder = AWG_SCALE.map((s, i) => {
+    const bar = i < ci ? "rgba(255,255,255,.55)" : i === ci ? "var(--on-hero)" : "rgba(255,255,255,.14)";
+    const op = i === ci ? 1 : i < ci ? 0.6 : 0.32;
+    return `<div style="flex:1"><div style="height:4px;border-radius:99px;background:${bar}"></div>` +
+      `<div style="font-size:9.5px;margin-top:5px;text-align:center;color:var(--on-hero);opacity:${op}">${esc(s)}</div></div>`;
+  }).join("");
+
+  const metric = (label: string, value: number) =>
+    `<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-sm),inset 0 1px 0 var(--hl);padding:13px 15px">` +
+    `<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">${esc(label)}</span>` +
+    `<span style="font-size:15px;font-weight:700;font-family:${mono};color:${threshFg(value)}">${value}</span></div>` +
+    `<div style="height:5px;border-radius:99px;background:var(--panel-3);margin-top:9px;overflow:hidden"><div style="height:100%;width:${value}%;background:${threshFg(value)};border-radius:99px"></div></div></div>`;
+
+  const card = (title: string, right: string, inner: string) =>
+    `<div style="background:var(--panel);border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow-sm),inset 0 1px 0 var(--hl);margin-bottom:11px">` +
+    `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:13px 16px 11px;border-bottom:1px solid var(--line)">` +
+    `<span style="font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3)">${esc(title)}</span>` +
+    `<span style="font-size:10.5px;color:var(--text-3)">${right}</span></div><div style="padding:12px 16px 14px">${inner}</div></div>`;
+
+  // Параметры конфига — the summary facts as a mono key/value tile grid
+  const facts = a.summary.map((f) =>
+    `<div style="padding:9px 11px;border-radius:10px;background:var(--panel-2);border:1px solid var(--line)">` +
+    `<div style="font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3)">${esc(f.label)}</div>` +
+    `<div style="font-size:12.5px;font-weight:650;margin-top:3px;font-family:${mono};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.value)}</div></div>`).join("");
+
+  // CPS chips: one per parsed I1 tag, coloured by legality
+  const i1 = a.parsed.iface.i1;
+  const p = i1 ? parseI1(i1) : null;
+  const tagColor = (tag: string, first: boolean): string => {
+    if (first && tag !== "b") return "var(--err)";
+    if (tag === "b" || tag === "r" || tag === "rc" || tag === "t" || tag === "c") return "var(--ok)";
+    return "var(--warn)";
+  };
+  const chips = p?.tags.length
+    ? p.tags.map((t, i) => {
+        const col = tagColor(t.tag, i === 0);
+        const text = t.arg ? `<${t.tag} ${t.arg}>` : `<${t.tag}>`;
+        return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;border:1px solid ${col};background:var(--panel-2);color:${col};font-family:${mono};font-size:11px">` +
+          `<i style="width:5px;height:5px;border-radius:99px;background:${col}"></i>${esc(text)}</span>`;
+      }).join("")
+    : "";
+
+  const marks: Record<string, [string, string, string]> = {
+    pass: ["✓", "var(--ok)", "color-mix(in srgb, var(--ok) 14%, transparent)"],
+    warn: ["!", "var(--warn)", "color-mix(in srgb, var(--warn) 14%, transparent)"],
+    fail: ["!", "var(--err)", "color-mix(in srgb, var(--err) 14%, transparent)"],
+    info: ["i", "var(--accent)", "color-mix(in srgb, var(--accent) 14%, transparent)"],
+  };
   const counts = {
     fail: a.checks.filter((c) => c.status === "fail").length,
     warn: a.checks.filter((c) => c.status === "warn").length,
     pass: a.checks.filter((c) => c.status === "pass").length,
   };
-
-  // circular gauge
-  const R = 34, C = 2 * Math.PI * R;
-  const gauge =
-    `<svg width="86" height="86" viewBox="0 0 86 86" style="flex:0 0 86px">` +
-    `<circle cx="43" cy="43" r="${R}" fill="none" stroke="var(--hero-line)" stroke-width="7"/>` +
-    `<circle cx="43" cy="43" r="${R}" fill="none" stroke="${camoColor}" stroke-width="7" stroke-linecap="round"` +
-    ` stroke-dasharray="${(a.scores.total / 100) * C} ${C}" transform="rotate(-90 43 43)"/>` +
-    `<text x="43" y="41" text-anchor="middle" fill="var(--on-hero)" font-size="21" font-weight="700">${a.scores.total}</text>` +
-    `<text x="43" y="55" text-anchor="middle" fill="${camoColor}" font-size="8.5" font-weight="700" letter-spacing="1">${a.camouflage}</text></svg>`;
-
-  const scale = AWG_SCALE.map((s) => {
-    const on = s === verKey;
-    return `<div style="flex:1"><div style="height:3px;border-radius:99px;background:${on ? "var(--on-hero)" : "var(--hero-line)"}"></div>` +
-      `<div style="font-size:9.5px;margin-top:5px;text-align:center;color:${on ? "var(--on-hero)" : "rgba(243,246,255,.45)"}">${esc(s)}</div></div>`;
-  }).join("");
-
-  const metric = (label: string, value: number) =>
-    `<div style="flex:1;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px">` +
-    `<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">${esc(label)}</span>` +
-    `<b style="font-size:12.5px;color:var(--accent)">${value}%</b></div>` +
-    `<div style="height:4px;border-radius:99px;background:var(--panel-3);margin-top:9px;overflow:hidden"><div style="height:100%;width:${value}%;background:var(--accent);border-radius:99px"></div></div></div>`;
-
-  const card = (title: string, right: string, inner: string) =>
-    `<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px;margin-bottom:11px">` +
-    `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:9px">` +
-    `<span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">${esc(title)}</span>` +
-    `<span style="font-size:10.5px;color:var(--text-3)">${right}</span></div>${inner}</div>`;
-
-  const badge = (n: number, label: string, color: string) =>
-    `<span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text-2)">` +
+  const pill = (n: number, label: string, color: string) =>
+    `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--panel-2);padding:3px 9px;border-radius:99px;font-size:10.5px;color:var(--text-2)">` +
     `<i style="width:5px;height:5px;border-radius:99px;background:${color}"></i>${n} ${esc(label)}</span>`;
 
-  const marks: Record<string, [string, string]> = {
-    pass: ["✓", "var(--ok)"], warn: ["!", "var(--warn)"], fail: ["✕", "var(--err)"], info: ["·", "var(--text-3)"],
-  };
+  const ceiling = a.summary.find((f) => f.label === "MTU")?.value;
 
   box.innerHTML =
-    `<div style="background:var(--hero-bg);border-radius:16px;padding:18px;margin-bottom:11px;color:var(--on-hero)">` +
-    `<div style="display:flex;gap:16px;align-items:center">${gauge}` +
-    `<div style="min-width:0"><div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(243,246,255,.5)">Профиль</div>` +
-    `<div style="font-size:22px;font-weight:700;letter-spacing:-.02em;margin:1px 0 5px">${esc(a.version.ver)}</div>` +
-    `<div style="font-size:11.5px;line-height:1.45;color:rgba(243,246,255,.68)">${esc(a.version.desc)}</div></div></div>` +
-    `<div style="display:flex;gap:6px;margin-top:16px">${scale}</div></div>` +
-    `<div style="display:flex;gap:11px;margin-bottom:11px">${metric("DPI-стойкость", 100 - a.scores.dpi)}${metric("Stealth", a.scores.stealth)}</div>` +
-    card("Мимикрия I1", "", `<b style="font-size:14px">${esc(a.version.protocol ?? "—")}</b>`) +
-    card(
-      "Цепочка CPS",
-      `${chain.length} тег(ов) · порядок важен`,
-      chain.length
-        ? chain.map((c) => `<div style="display:flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid var(--line);border-radius:9px;background:var(--panel-2);margin-bottom:6px">` +
-            `<i style="width:5px;height:5px;border-radius:99px;background:var(--ok);flex:0 0 5px"></i>` +
-            `<span style="font-family:ui-monospace,monospace;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c)}</span></div>`).join("")
-        : `<span style="font-size:12px;color:var(--text-3)">I1 не задан</span>`,
-    ) +
+    `<div style="border-radius:16px;background:var(--hero-bg);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:11px;color:var(--on-hero)">` +
+    `<div style="display:flex;gap:18px;align-items:center">${gauge}` +
+    `<div style="min-width:0"><div style="font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--on-hero);opacity:.5">Профиль</div>` +
+    `<div style="font-size:27px;font-weight:700;letter-spacing:-.03em;margin:2px 0 5px">${esc(a.version.ver)}</div>` +
+    `<div style="font-size:11.5px;line-height:1.45;color:var(--on-hero);opacity:.68">${esc(a.version.desc)}</div></div></div>` +
+    `<div style="display:flex;gap:6px;margin-top:16px">${ladder}</div></div>` +
+    `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:11px">` +
+    metric("DPI-стойкость", dpiResist) + metric("Stealth", a.scores.stealth) +
+    `<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-sm),inset 0 1px 0 var(--hl);padding:13px 15px">` +
+    `<div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">Мимикрия I1</div>` +
+    `<div style="font-size:15px;font-weight:700;margin-top:6px">${esc(a.version.protocol ?? "—")}</div></div></div>` +
+    card("Параметры конфига", "", `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(146px,1fr));gap:7px">${facts}</div>`) +
+    (chips
+      ? card("Цепочка CPS", `${p!.tags.length} тег(ов) · порядок важен`, `<div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>`)
+      : "") +
     card(
       "Проверки",
-      `${badge(counts.fail, "ошибок", "var(--err)")} &nbsp; ${badge(counts.warn, "предупр.", "var(--warn)")} &nbsp; ${badge(counts.pass, "ок", "var(--ok)")}`,
-      a.checks
-        .map((c) => {
-          const [m, col] = marks[c.status];
-          return `<div style="display:grid;grid-template-columns:20px 1fr;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);margin-bottom:6px">` +
-            `<span style="color:${col};font-weight:700">${m}</span>` +
-            `<span><b style="font-size:12.5px">${esc(c.title)}</b>` +
-            `<div style="font-size:11px;color:var(--text-3);line-height:1.45;margin-top:2px">${esc(c.detail)}</div></span></div>`;
-        })
-        .join(""),
+      `${pill(counts.fail, "ошибок", "var(--err)")} ${pill(counts.warn, "предупр.", "var(--warn)")} ${pill(counts.pass, "ок", "var(--ok)")}`,
+      a.checks.map((c) => {
+        const [m, col, chip] = marks[c.status];
+        return `<div style="display:flex;align-items:flex-start;gap:11px;padding:11px 12px;border-radius:12px;background:var(--panel-2);border:1px solid var(--line);box-shadow:inset 2px 0 0 ${col};margin-bottom:6px">` +
+          `<div style="flex:0 0 18px;width:18px;height:18px;border-radius:6px;background:${chip};display:grid;place-items:center;color:${col};font-size:11px;font-weight:700;line-height:1;margin-top:1px">${m}</div>` +
+          `<div style="min-width:0"><div style="font-size:12.5px;font-weight:600;letter-spacing:-.012em">${esc(c.title)}</div>` +
+          `<div style="font-size:11.5px;color:var(--text-3);margin-top:3px;line-height:1.5">${esc(c.detail)}</div></div></div>`;
+      }).join(""),
     ) +
-    (a.hints.length
-      ? card("Как усилить", "", a.hints.map((h) => `<div style="font-size:11.5px;color:var(--text-2);padding:5px 0">→ ${esc(h)}</div>`).join(""))
-      : "");
+    `<div style="display:flex;align-items:flex-start;gap:10px;padding:11px 13px;border-radius:12px;background:var(--panel-2);border:1px solid var(--line)">` +
+    `<div style="flex:0 0 16px;width:16px;height:16px;border-radius:99px;background:var(--accent);display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;line-height:1">i</div>` +
+    `<div style="font-size:11.5px;color:var(--text-2);line-height:1.5">Профиль ${esc(a.version.ver)}${ceiling ? `, MTU ${esc(ceiling)}` : ""}. Справочник MTU: 1420 WG · 1380 AWG 1.0 · 1360 AWG 1.5 · 1320 AWG 2.0 · 1280 максимальная совместимость.</div></div>`;
 
-  // header subtitle mirrors the verdict, as in the design
-  const sub = [...screenEl("analyzer").querySelectorAll<HTMLElement>("*")].find(
-    (e) => e.children.length === 0 && /вставьте \.conf|AWG|маскировка/.test(e.textContent ?? ""),
-  );
-  if (sub) sub.textContent = `${a.version.ver} · маскировка ${a.camouflage}`;
+  // header subtitle mirrors the verdict; show the apply button
+  setText("anSub", `${a.version.ver} · маскировка ${grade}`);
+  showAnalyzerApply(a);
+}
+
+/** «Применить к генератору» — writes the analyzed version/MTU into the form. */
+function showAnalyzerApply(a: AnalysisResult): void {
+  const bar = $("analyzerActions");
+  if (!bar || $("anApply")) return;
+  const btn = document.createElement("div");
+  btn.id = "anApply";
+  btn.className = "scp0";
+  btn.style.cssText = "padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);font-size:12.5px;font-weight:600;color:var(--text-2);cursor:pointer;white-space:nowrap";
+  btn.textContent = "Применить к генератору";
+  bar.insertBefore(btn, bar.firstChild);
+  btn.addEventListener("click", () => {
+    const v = a.version.ver === "WireGuard" ? "wg" : a.version.ver.replace("AWG ", "");
+    if (["wg", "1.0", "1.5", "2.0", "3.0"].includes(v)) {
+      setGroup("awgVer", v);
+      updateAwgVersion();
+    }
+    const mtu = a.summary.find((f) => f.label === "MTU")?.value;
+    if (mtu) setInput("mtuInput", mtu);
+    updateProfile();
+    saveSettings();
+    showView("generate");
+  });
+}
+
+/** Parse-error strip along the bottom of the analyzer's code input card. */
+function analyzerError(text: string): void {
+  const card = $("analyzerInput")?.closest<HTMLElement>('[style*="code-line"]');
+  $("anError")?.remove();
+  if (!text || !card) return;
+  const el = document.createElement("div");
+  el.id = "anError";
+  el.style.cssText = "padding:11px 16px;border-top:1px solid var(--code-line);background:var(--panel-2);color:var(--err);font-size:12px;font-weight:550";
+  el.textContent = text;
+  card.appendChild(el);
 }
 
 function onAnalyze(): void {
   const raw = inputValue("analyzerInput").trim();
-  if (!raw) return status("analyzer", "Вставьте конфиг.", "err");
+  if (!raw) return analyzerError("Вставьте конфиг для анализа.");
   try {
     renderAnalysis(analyzeConfig(raw));
-    status("analyzer", "");
+    analyzerError("");
   } catch (err) {
-    status("analyzer", `⚠ ${esc(err instanceof Error ? err.message : String(err))}`, "err");
+    analyzerError(err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -1762,9 +1838,15 @@ async function onCheckProxies(): Promise<void> {
 
 /** The design's checker panel: progress bar, four counters, log, found keys. */
 function checkerPanel(pct: number, counters: Array<[string, number, string]>, log: Array<[string, string]>, found: string[]): void {
-  const box = ensureBox("bfPanel", hostCard("tools").parentElement ?? screenEl("tools"));
-  placeAfterCard("tools", box);
-  box.style.cssText = "margin-top:18px";
+  // design: the panel is the last section INSIDE the «Генератор и чекер» card
+  const card = $("bfStartBtn")?.closest<HTMLElement>('[style*="var(--panel)"]') ?? hostCard("tools");
+  let box = $("bfPanel");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "bfPanel";
+    card.appendChild(box);
+  }
+  box.style.cssText = "margin:16px 18px 18px;padding-top:16px;border-top:1px solid var(--line)";
   box.innerHTML =
     `<div style="height:5px;border-radius:99px;background:var(--panel-3);overflow:hidden;margin-bottom:13px">` +
     `<div style="height:100%;border-radius:99px;width:${pct}%;transition:width .3s linear;background-color:var(--accent);background-image:repeating-linear-gradient(115deg,rgba(255,255,255,.22) 0 8px,rgba(255,255,255,0) 8px 16px);background-size:28px 100%;animation:flow .7s linear infinite"></div></div>` +
@@ -1793,7 +1875,8 @@ async function onBruteforce(): Promise<void> {
   const proxies = inputValue("bfProxies").trim().split("\n").map((l) => l.trim()).filter(Boolean);
   const threads = parseInt(inputValue("bfThreads"), 10) || 30;
   bfAbort = new AbortController();
-  setBusy("bfStartBtn", true, "Проверяем…");
+  // design keeps the label, only prepends a spinner (setBusy adds the spinner)
+  setBusy("bfStartBtn", true, "Сгенерировать и проверить");
   status("tools", "");
 
   const found: string[] = [];
@@ -1929,8 +2012,13 @@ function init(): void {
   onClick("importRawBtn", () => void onImport(false));
   onClick("analyzerBtn", onAnalyze);
   onClick("analyzerFromResult", () => {
+    // design: only fill the field (no auto-analyze); prompt if nothing to take
+    if (!lastConfig) {
+      analyzerError("Сначала сгенерируйте или импортируйте конфиг");
+      return;
+    }
     setInput("analyzerInput", lastConfig);
-    onAnalyze();
+    analyzerError("");
   });
 
   onClick("goGenerate", () => showView("generate"));
