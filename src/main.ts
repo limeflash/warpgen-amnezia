@@ -11,6 +11,7 @@ import { qrDataUrl } from "./core/qr";
 import { clashFromNode, parseImportedConf, normalizeImportedConfig } from "./core/clash";
 import { clientList, downloadUrl } from "./core/client-downloads";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
+import { loadJson, saveJson, addHistory, loadHistory, deleteHistory, clearHistory, updateHistoryTag } from "./core/store";
 
 // ─────────────── DOM helpers ───────────────
 function $<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -148,6 +149,7 @@ async function onGenerate(): Promise<void> {
     setText("resultStatus", status);
     show($("resultCard"), true);
     $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
+    pushHistory(result.configType, result.endpoint, result.config);
   } catch (err) {
     errBox.textContent = "⚠ " + (err instanceof Error ? err.message : String(err));
     errBox.style.display = "block";
@@ -250,6 +252,7 @@ async function onImport(toClash: boolean): Promise<void> {
     show($("qrWrap"), false);
     show($("resultCard"), true);
     $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
+    pushHistory(lastConfigType, "", output);
   } catch (err) {
     setText("importStatus", `Ошибка: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
@@ -310,6 +313,7 @@ async function wsRun(kind: "scan" | "import" | "junk" | "sni"): Promise<void> {
       setText("resultStatus", `Конфиг из warpscout${endpoint ? ` · ${endpoint}` : ""}`);
       show($("resultCard"), true);
       $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
+      pushHistory(lastConfigType, endpoint || "", config);
       setText("wsStatus", "✓ Конфиг импортирован из warpscout.");
     } else if (kind === "junk") {
       await ws.findJunk({ proto, onLine, signal: wsAbort.signal });
@@ -516,11 +520,130 @@ function onLogoTap(): void {
   }
 }
 
+// ─────────────── Settings persistence ───────────────
+const SETTINGS_KEY = "warpgen.settings";
+
+interface Settings {
+  configType?: string;
+  obfsProfile?: string;
+  endpointPort?: string;
+  endpointIp?: string;
+  dnsServer?: string;
+  i1Preset?: string;
+  customI1Domain?: string;
+  splitMode?: string;
+  splitTargets?: string[];
+  mtu?: string;
+  keepalive?: string;
+  includeIpv6?: boolean;
+}
+
+function collectSettings(): Settings {
+  return {
+    configType: val("configType"),
+    obfsProfile: val("obfsProfile"),
+    endpointPort: val("endpointPort"),
+    endpointIp: val("endpointIp"),
+    dnsServer: val("dnsServer"),
+    i1Preset: val("i1Preset"),
+    customI1Domain: val("customI1Domain"),
+    splitMode: val("splitMode"),
+    splitTargets: selectedSplitTargets(),
+    mtu: val("mtu"),
+    keepalive: val("keepalive"),
+    includeIpv6: $<HTMLInputElement>("includeIpv6").checked,
+  };
+}
+
+function applySettings(s: Settings): void {
+  const setSel = (id: string, v?: string) => {
+    if (v == null) return;
+    const el = $<HTMLSelectElement>(id);
+    if ([...el.options].some((o) => o.value === v)) el.value = v;
+  };
+  setSel("configType", s.configType);
+  setSel("obfsProfile", s.obfsProfile);
+  setSel("endpointPort", s.endpointPort);
+  setSel("endpointIp", s.endpointIp);
+  setSel("dnsServer", s.dnsServer);
+  setSel("i1Preset", s.i1Preset);
+  setSel("splitMode", s.splitMode);
+  if (s.customI1Domain != null) $<HTMLInputElement>("customI1Domain").value = s.customI1Domain;
+  if (s.mtu != null) $<HTMLInputElement>("mtu").value = s.mtu;
+  if (s.keepalive != null) $<HTMLInputElement>("keepalive").value = s.keepalive;
+  if (typeof s.includeIpv6 === "boolean") $<HTMLInputElement>("includeIpv6").checked = s.includeIpv6;
+  if (Array.isArray(s.splitTargets)) setSplitTargets(s.splitTargets);
+}
+
+const saveSettings = () => saveJson(SETTINGS_KEY, collectSettings());
+
+// ─────────────── Config history ───────────────
+function coerceType(t: string): "amnezia" | "wireguard" | "clash" {
+  return t === "clash" ? "clash" : t === "wireguard" ? "wireguard" : "amnezia";
+}
+
+function chip(label: string, fn: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.className = "chip-btn";
+  b.textContent = label;
+  b.addEventListener("click", fn);
+  return b;
+}
+
+function renderHistory(): void {
+  const list = loadHistory();
+  const box = $("historyList");
+  box.textContent = "";
+  show($("historyEmpty"), list.length === 0);
+  for (const e of list) {
+    const row = document.createElement("div");
+    row.className = "split-box";
+    row.style.cssText = "display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;";
+
+    const info = document.createElement("span");
+    info.style.cssText = "flex:1; min-width:150px; font-size:12px;";
+    info.innerHTML = `<b>${esc(e.configType)}</b> · ${esc(e.endpoint || "—")} · <span style="color:var(--muted)">${esc(new Date(e.ts).toLocaleString())}</span>`;
+
+    const tag = document.createElement("input");
+    tag.type = "text";
+    tag.placeholder = "тег";
+    tag.value = e.tag;
+    tag.style.cssText = "width:100px; padding:6px 8px; font-size:12px;";
+    tag.addEventListener("change", () => updateHistoryTag(e.id, tag.value));
+
+    const load = chip("Загрузить", () => {
+      $<HTMLTextAreaElement>("configOutput").value = e.config;
+      lastConfigType = coerceType(e.configType);
+      $("accountBadge").textContent = e.tag || "история";
+      $("accountBadge").className = "badge badge-free";
+      setText("resultStatus", `Из истории · ${e.endpoint || "—"}`);
+      show($("qrWrap"), false);
+      show($("resultCard"), true);
+      $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    const copy = chip("⎘", () => void navigator.clipboard.writeText(e.config).catch(() => {}));
+    const del = chip("✕", () => {
+      deleteHistory(e.id);
+      renderHistory();
+    });
+
+    row.append(info, tag, load, copy, del);
+    box.appendChild(row);
+  }
+}
+
+function pushHistory(configType: string, endpoint: string, config: string): void {
+  addHistory({ configType, endpoint, config });
+  renderHistory();
+}
+
 // ─────────────── Wire up ───────────────
 function init(): void {
   buildI1Select();
   buildSplitGrid();
   buildClientButtons();
+  applySettings(loadJson<Settings>(SETTINGS_KEY, {}));
+  renderHistory();
   setText("siteVersion", `v${__APP_VERSION__}`);
 
   $("generateBtn").addEventListener("click", onGenerate);
@@ -572,6 +695,11 @@ function init(): void {
 
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void onGenerate();
+  });
+  document.addEventListener("change", saveSettings);
+  $("historyClearBtn").addEventListener("click", () => {
+    clearHistory();
+    renderHistory();
   });
 
   updateConfigTypeVisibility();
