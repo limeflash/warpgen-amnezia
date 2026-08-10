@@ -36,12 +36,31 @@ export function groupValue(group: string): string {
   return on?.dataset.value ?? cardsOf(group)[0]?.dataset.value ?? "";
 }
 
+/**
+ * The design also recolours a card's caption when it is picked, and the capture
+ * only holds that look on whichever card was selected in the mockup. Both looks
+ * are read once, before the first swap, and then applied to every card.
+ */
+const titleLooks = new Map<string, { on: string; off: string }>();
+
+function captureTitles(group: string, cards: HTMLElement[]): void {
+  if (titleLooks.has(group)) return;
+  const selected = cards.find((c) => c.getAttribute("style") === c.dataset.on);
+  const style = (c?: HTMLElement) => (c?.firstElementChild as HTMLElement | null)?.getAttribute("style") ?? "";
+  const on = style(selected);
+  const off = style(cards.find((c) => c !== selected));
+  if (on && off && on !== off) titleLooks.set(group, { on, off });
+}
+
 export function setGroup(group: string, value: string): void {
+  const look = titleLooks.get(group);
   for (const card of cardsOf(group)) {
     const on = card.dataset.value === value;
     card.dataset.selected = on ? "1" : "0";
     const style = on ? card.dataset.on : card.dataset.off;
     if (style) card.setAttribute("style", style);
+    const title = card.firstElementChild as HTMLElement | null;
+    if (look && title) title.setAttribute("style", on ? look.on : look.off);
   }
 }
 
@@ -51,6 +70,7 @@ export function bindGroup(group: string, onChange?: (v: string) => void): void {
   if (!cards.length) return;
   // seed selection from the design's own default (the accent-styled card)
   const initial = cards.find((c) => c.getAttribute("style") === c.dataset.on)?.dataset.value ?? cards[0].dataset.value!;
+  captureTitles(group, cards);
   setGroup(group, initial);
   for (const card of cards) {
     card.addEventListener("click", () => {

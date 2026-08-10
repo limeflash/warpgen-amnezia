@@ -13,7 +13,7 @@
     "app:dev": "tauri dev",
     "app:build": "tauri build",
     "fetch:warpscout": "node scripts/fetch-warpscout.mjs",
-    "gen:icon": "node scripts/gen-icon.mjs && tauri icon src-tauri/icon-source.png"
+    "gen:icon": "tauri icon docs/icon-source.png"
   },
   "dependencies": {
     "@noble/curves": "^1.9.1",
