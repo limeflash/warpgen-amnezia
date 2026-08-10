@@ -129,8 +129,6 @@ export function addSelectOption(id: string, value: string, label: string): void 
 
 // ─────────────── toggles ───────────────
 
-const toggleBase = new WeakMap<HTMLElement, string>();
-
 export function toggleValue(id: string): boolean {
   return $(id)?.dataset.toggle === "on";
 }
@@ -140,23 +138,42 @@ function toggleBox(el: HTMLElement): HTMLElement | null {
   return el.querySelector<HTMLElement>('[style*="width: 16px"][style*="height: 16px"]');
 }
 
+/**
+ * The design draws one checkbox checked and another unchecked; both looks are
+ * captured once and then applied to every toggle, so they stay identical.
+ */
+let checkedLook: { style: string; inner: string } | null = null;
+let uncheckedLook: { style: string; inner: string } | null = null;
+
+function captureLooks(): void {
+  if (checkedLook && uncheckedLook) return;
+  const boxes = Array.from(document.querySelectorAll<HTMLElement>('[data-toggle] [style*="width: 16px"][style*="height: 16px"]'));
+  for (const b of boxes) {
+    const style = b.getAttribute("style") ?? "";
+    const look = { style, inner: b.innerHTML };
+    if (/background:\s*var\(--accent\)/.test(style)) checkedLook ??= look;
+    else uncheckedLook ??= look;
+  }
+  checkedLook ??= {
+    style: "width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--accent); background: var(--accent); display: grid; place-items: center;",
+    inner: '<div style="width: 6px; height: 6px; border-radius: 1.5px; background: var(--on-accent);"></div>',
+  };
+  uncheckedLook ??= {
+    style: "width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--line-2); background: transparent; display: grid; place-items: center;",
+    inner: "",
+  };
+}
+
 export function setToggle(id: string, on: boolean): void {
   const el = $(id);
   if (!el) return;
   el.dataset.toggle = on ? "on" : "off";
   const box = toggleBox(el);
   if (!box) return;
-  if (!toggleBase.has(box)) toggleBase.set(box, box.getAttribute("style") ?? "");
-  const base = toggleBase.get(box)!;
-  box.setAttribute(
-    "style",
-    on
-      ? base.replace(/border:[^;]*/, "border: 1.5px solid var(--accent)").replace(/background:[^;]*/, "background: var(--accent)")
-      : base.replace(/border:[^;]*/, "border: 1.5px solid var(--line-2)").replace(/background:[^;]*/, "background: transparent"),
-  );
-  // the inner dot only shows when checked
-  const dot = box.firstElementChild as HTMLElement | null;
-  if (dot) dot.style.visibility = on ? "visible" : "hidden";
+  captureLooks();
+  const look = on ? checkedLook! : uncheckedLook!;
+  box.setAttribute("style", look.style);
+  box.innerHTML = look.inner;
 }
 
 export function bindToggle(id: string, onChange?: (v: boolean) => void): void {
