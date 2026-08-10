@@ -550,42 +550,49 @@ function renderJunkResult(
   });
 }
 
+/**
+ * Результаты card. Markup and the ping/dot tiers mirror the design's scanRows
+ * view-model: dot <30 ok / <60 accent / else warn, ping green only under 30 ms,
+ * row highlighted when its IP is the one currently in the generator.
+ */
 function renderScanRows(rows: ws.ScanRow[]): void {
   const box = ensureBox("wsResults", hostCard("scan").parentElement ?? screenEl("scan"));
-  const cols = "minmax(0,1.5fr) 76px minmax(0,1fr) 70px minmax(0,1fr)";
-  box.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:15px;overflow:hidden;margin-bottom:14px";
+  const cols = "1.5fr .8fr .9fr .8fr 1.4fr";
+  const mono = "ui-monospace,'SF Mono',Menlo,Consolas,monospace";
+  box.style.cssText =
+    "background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-sm),inset 0 1px 0 var(--hl);overflow:hidden;margin-bottom:16px";
   box.innerHTML =
-    `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:14px 18px 12px">` +
-    `<b style="font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">Результаты</b>` +
-    `<span style="font-size:11px;color:var(--text-3)">клик по строке — подставить endpoint в генератор</span></div>` +
-    `<div style="display:grid;grid-template-columns:${cols};gap:12px;padding:9px 18px;background:var(--panel-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)">` +
-    `<span>Endpoint</span><span>Ping</span><span>Страна</span><span>Нода</span><span>Локация</span></div>` +
-    `<div id="wsRows" style="max-height:340px;overflow-y:auto"></div>`;
+    `<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--line)">` +
+    `<div style="font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3)">Результаты</div>` +
+    `<div style="font-size:11.5px;color:var(--text-3)">клик по строке — подставить endpoint в генератор</div></div>` +
+    `<div style="display:grid;grid-template-columns:${cols};padding:9px 18px;background:var(--panel-2);border-bottom:1px solid var(--line);font-size:10.5px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)">` +
+    `<div>Endpoint</div><div>Ping</div><div>Страна</div><div>Нода</div><div>Локация</div></div>` +
+    `<div id="wsRows" style="max-height:340px;overflow:auto"></div>`;
 
   const list = must("wsRows");
-  const rowStyle = (sel: boolean) =>
-    `display:grid;grid-template-columns:${cols};gap:12px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer;background:${sel ? "var(--sel)" : "transparent"}`;
+  const currentIp = selectValue("endpointIp");
 
   rows.forEach((r, i) => {
-    const tier = r.ping < 30 ? "var(--ok)" : r.ping < 70 ? "var(--accent)" : "var(--warn)";
     const row = document.createElement("div");
-    row.style.cssText = rowStyle(i === 0);
+    row.className = "scan-row" + (r.endpoint.split(":")[0] === currentIp ? " sel" : "");
+    row.style.cssText =
+      `display:grid;grid-template-columns:${cols};align-items:center;padding:11px 18px;border-bottom:1px solid var(--line);cursor:pointer;` +
+      `animation:fadeUp .34s cubic-bezier(.2,.8,.2,1) both;animation-delay:${i * 45}ms;transition:background .14s ease`;
     row.innerHTML =
-      `<span style="display:flex;align-items:center;gap:8px;min-width:0">` +
-      `<i style="width:6px;height:6px;border-radius:99px;background:${tier};flex:0 0 6px"></i>` +
-      `<span style="font-family:ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis">${esc(r.endpoint)}</span></span>` +
-      `<span style="font-family:ui-monospace,monospace;font-weight:600;color:${r.ping < 70 ? "var(--ok)" : "var(--text)"}">${r.ping} ms</span>` +
-      `<span>${esc(COUNTRY[r.country] ?? r.country)}</span>` +
-      `<span style="font-family:ui-monospace,monospace;font-size:11.5px;color:var(--text-2)">${esc(r.node)}</span>` +
-      `<span style="color:var(--text-3);overflow:hidden;text-overflow:ellipsis">${esc(r.location.split(",")[0])}</span>`;
+      `<div style="font-family:${mono};font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:8px">` +
+      `<div style="width:6px;height:6px;border-radius:99px;flex:0 0 6px;background:${r.ping < 30 ? "var(--ok)" : r.ping < 60 ? "var(--accent)" : "var(--warn)"}"></div>` +
+      `<span>${esc(r.endpoint)}</span></div>` +
+      `<div style="font-family:${mono};font-size:12.5px;font-weight:600;color:${r.ping < 30 ? "var(--ok)" : "var(--text)"}">${r.ping} ms</div>` +
+      `<div style="font-size:12.5px">${esc(COUNTRY[r.country] ?? r.country)}</div>` +
+      `<div style="font-family:${mono};font-size:12px;color:var(--text-2)">${esc(r.node)}</div>` +
+      `<div style="font-size:12.5px;color:var(--text-2)">${esc(r.location.split(",")[0])}</div>`;
     row.addEventListener("click", () => {
-      [...list.children].forEach((d, j) => ((d as HTMLElement).style.cssText = rowStyle(false) + (j === rows.length - 1 ? ";border-bottom:0" : "")));
-      row.style.cssText = rowStyle(true);
+      [...list.children].forEach((d) => d.classList.remove("sel"));
+      row.classList.add("sel");
       applyEndpoint(r.endpoint);
     });
     list.appendChild(row);
   });
-  (list.lastElementChild as HTMLElement | null)?.style.setProperty("border-bottom", "0");
   placeAfterCard("scan", box);
 }
 
@@ -628,8 +635,8 @@ async function onScan(): Promise<void> {
       return;
     }
     scanProgress(`Найдено ${rows.length} рабочих endpoint · быстрейший подставлен в генератор`, 100, null, note);
+    applyEndpoint(rows[0].endpoint); // before the table, so the best row renders selected
     renderScanRows(rows);
-    applyEndpoint(rows[0].endpoint);
   } catch (err) {
     $("wsProgress")?.remove();
     wsStatus(wsAbort?.signal.aborted ? "Остановлено." : `⚠ ${err instanceof Error ? err.message : String(err)}`);

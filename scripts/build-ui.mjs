@@ -100,6 +100,9 @@ ${css}
     .sel-wrap > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
     .live-input { width: 100%; background: transparent; border: 0; outline: none; padding: 0; font: inherit; color: inherit; }
     .live-input::placeholder { color: var(--text-3); }
+    /* scan results — the design's row background / style-hover, which the capture can't carry */
+    .scan-row.sel { background: var(--sel); }
+    .scan-row:hover { background: var(--hover); }
   </style>
 </head>
 
