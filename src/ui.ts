@@ -135,18 +135,28 @@ export function toggleValue(id: string): boolean {
   return $(id)?.dataset.toggle === "on";
 }
 
+/** The design draws the checkbox as a 16px rounded square; only it changes. */
+function toggleBox(el: HTMLElement): HTMLElement | null {
+  return el.querySelector<HTMLElement>('[style*="width: 16px"][style*="height: 16px"]');
+}
+
 export function setToggle(id: string, on: boolean): void {
   const el = $(id);
   if (!el) return;
-  if (!toggleBase.has(el)) toggleBase.set(el, el.getAttribute("style") ?? "");
   el.dataset.toggle = on ? "on" : "off";
-  const base = toggleBase.get(el)!;
-  el.setAttribute(
+  const box = toggleBox(el);
+  if (!box) return;
+  if (!toggleBase.has(box)) toggleBase.set(box, box.getAttribute("style") ?? "");
+  const base = toggleBase.get(box)!;
+  box.setAttribute(
     "style",
-    on ? `${base};border-color:var(--accent);background:var(--sel);color:var(--accent)` : base,
+    on
+      ? base.replace(/border:[^;]*/, "border: 1.5px solid var(--accent)").replace(/background:[^;]*/, "background: var(--accent)")
+      : base.replace(/border:[^;]*/, "border: 1.5px solid var(--line-2)").replace(/background:[^;]*/, "background: transparent"),
   );
-  const box = el.querySelector<HTMLElement>('[style*="border-radius: 5px"], [style*="border-radius:5px"]');
-  if (box) box.style.background = on ? "var(--accent)" : "";
+  // the inner dot only shows when checked
+  const dot = box.firstElementChild as HTMLElement | null;
+  if (dot) dot.style.visibility = on ? "visible" : "hidden";
 }
 
 export function bindToggle(id: string, onChange?: (v: boolean) => void): void {

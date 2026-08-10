@@ -92,6 +92,9 @@ ${css}
     .view.active { display: block; animation: fadeUp .24s cubic-bezier(.2,.8,.2,1); }
     .hidden { display: none !important; }
     .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid currentcolor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
+    /* Everything the design draws as a clickable div */
+    .nav-item, [data-group] > *, [data-value], [data-client], [data-toggle],
+    [id$="Btn"], #themeToggle, .sel-wrap { cursor: pointer; }
     /* Native control layered over a design-drawn field, keeping its exact look */
     .sel-wrap { position: relative; }
     .sel-wrap > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }

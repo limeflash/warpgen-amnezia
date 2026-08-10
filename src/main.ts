@@ -57,6 +57,15 @@ function applyTheme(dark: boolean): void {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   setText("themeLabel", dark ? "Тёмная тема" : "Светлая тема");
   saveJson("warpgen.theme", dark ? "dark" : "light");
+
+  // The design draws the switch statically — move its knob to match the theme.
+  const pill = $("themeToggle")?.querySelector<HTMLElement>('[style*="width: 38px"]');
+  const knob = pill?.querySelector<HTMLElement>('[style*="width: 14px"]');
+  if (pill) pill.style.background = dark ? "var(--accent)" : "var(--line-2)";
+  if (knob) {
+    knob.style.transition = "transform .2s";
+    knob.style.transform = dark ? "translateX(19px)" : "translateX(0)";
+  }
 }
 
 // ─────────────── views ───────────────
@@ -84,6 +93,79 @@ function ensureBox(id: string, parent: HTMLElement, html = ""): HTMLElement {
 
 function screenEl(view: string): HTMLElement {
   return document.querySelector<HTMLElement>(`.view[data-view="${view}"]`)!;
+}
+
+/**
+ * A couple of ids landed on wrappers rather than the control itself when the
+ * design was captured; move them onto the right element before binding.
+ */
+function repairHooks(): void {
+  // #wsSpeed sat on the row holding both toggles — take its first toggle child.
+  const speed = $("wsSpeed");
+  if (speed?.querySelector("[data-toggle]")) {
+    const first = speed.firstElementChild as HTMLElement | null;
+    speed.removeAttribute("id");
+    delete speed.dataset.toggle;
+    if (first) {
+      first.id = "wsSpeed";
+      first.dataset.toggle = "off";
+    }
+  }
+
+  // The Architect protocol tiles lost their group during capture — rebind them
+  // to the grid that actually holds "QUIC Initial".
+  const gen = screenEl("generate");
+  // Bind the tiles by their protocol caption — the design's grid holds an extra
+  // cell, so positional binding lands one off.
+  const BY_NAME: Record<string, string> = {
+    "QUIC Initial": "quic_initial", "QUIC 0-RTT": "quic_0rtt", "TLS ClientHello": "tls_client_hello",
+    "HTTP/3": "http3", "DTLS 1.3": "dtls", SIP: "sip", "DNS query": "dns_query",
+    "WireGuard Noise": "wireguard_noise", "TLS → QUIC": "tls_to_quic", "QUIC burst": "quic_burst",
+    "Случайный": "random",
+  };
+  for (const stale of gen.querySelectorAll<HTMLElement>('[data-group="archProfile"]')) {
+    delete stale.dataset.group;
+    delete stale.dataset.value;
+  }
+  const tiles: HTMLElement[] = [];
+  for (const [name, value] of Object.entries(BY_NAME)) {
+    const label = [...gen.querySelectorAll<HTMLElement>("*")].find(
+      (e) => e.textContent?.trim() === name && e.children.length === 0,
+    );
+    // the tile is a near ancestor — walking further lands on the section wrapper
+    let tile: HTMLElement | null = null;
+    let n: HTMLElement | null = label ?? null;
+    for (let i = 0; i < 3 && n; i++) {
+      n = n.parentElement;
+      const s = n?.getAttribute("style") ?? "";
+      if (/cursor: pointer/.test(s) && /border-radius/.test(s)) {
+        tile = n;
+        break;
+      }
+    }
+    if (!tile || tiles.includes(tile)) continue;
+    tile.dataset.group = "archProfile";
+    tile.dataset.value = value;
+    tiles.push(tile);
+  }
+  const on = tiles.find((t) => /var\(--accent\)/.test(t.getAttribute("style") ?? ""));
+  const off = tiles.find((t) => !/var\(--accent\)/.test(t.getAttribute("style") ?? ""));
+  for (const t of tiles) {
+    t.dataset.on = on?.getAttribute("style") ?? "";
+    t.dataset.off = off?.getAttribute("style") ?? "";
+  }
+
+  // #historyList must be the rows container inside the history screen.
+  const hist = screenEl("history");
+  const header = [...hist.querySelectorAll<HTMLElement>("*")].find(
+    (e) => e.textContent?.trim() === "ENDPOINT" && e.children.length === 0,
+  );
+  const rows = header?.parentElement?.parentElement;
+  if (rows) {
+    $("historyList")?.removeAttribute("id");
+    rows.id = "historyList";
+    rows.dataset.headerKeep = String([...rows.children].indexOf(header!.parentElement!));
+  }
 }
 
 /** The design's card container around a control (panel background + radius). */
@@ -116,7 +198,15 @@ const ENDPOINTS: Array<{ value: string; label: string; group?: string }> = [
 ];
 
 function buildControls(): void {
-  fillSelect("dnsServer", Object.keys(DNS_SERVERS).map((k) => ({ value: k, label: DNS_LABELS[k] ?? k })), "malw_link");
+  // The design captions DNS as "name · first IP" — keep that shape.
+  fillSelect(
+    "dnsServer",
+    Object.entries(DNS_SERVERS).map(([k, servers]) => ({
+      value: k,
+      label: `${(DNS_LABELS[k] ?? k).split(" —")[0]} · ${servers.split(",")[0].trim()}`,
+    })),
+    "malw_link",
+  );
   fillSelect("endpointIp", ENDPOINTS, "auto");
   fillSelect(
     "i1Preset",
@@ -224,9 +314,23 @@ function onArchGenerate(): void {
   status("generate", `Обфускация собрана: ${p} · Jc ${architect.junk.jc} · цепочка ${calcChainSize(architect.obfuscation)} Б`);
 }
 
+/** The design's first card on a screen — dynamic content goes in its column. */
+function hostCard(view: string): HTMLElement {
+  const sec = screenEl(view);
+  return sec.querySelector<HTMLElement>('[style*="background: var(--panel)"][style*="border-radius"]') ?? sec;
+}
+
+/** Places `el` right after the screen's card, inside the same padded column. */
+function placeAfterCard(view: string, el: HTMLElement): void {
+  const card = hostCard(view);
+  const parent = card.parentElement ?? screenEl(view);
+  if (el.parentElement !== parent) parent.insertBefore(el, card.nextSibling);
+}
+
 /** Status line under a screen's content. */
 function status(view: string, text: string, kind: "info" | "err" | "ok" = "info"): void {
-  const box = ensureBox(`status-${view}`, screenEl(view));
+  const box = ensureBox(`status-${view}`, hostCard(view).parentElement ?? screenEl(view));
+  placeAfterCard(view, box);
   box.style.cssText = "margin:12px 2px;font-size:12px;line-height:1.5";
   box.style.color = kind === "err" ? "var(--err)" : kind === "ok" ? "var(--ok)" : "var(--text-2)";
   box.innerHTML = text;
@@ -403,7 +507,7 @@ function renderScanRows(rows: ws.ScanRow[]): void {
     });
     list.appendChild(row);
   });
-  screenEl("scan").insertBefore(box, screenEl("scan").firstChild!.nextSibling);
+  placeAfterCard("scan", box);
 }
 
 const scanPhase = (line: string): string | null => {
@@ -519,7 +623,10 @@ function renderHistory(): void {
   setText("historyCount", String(list.length));
   const box = $("historyList");
   if (!box) return;
-  box.textContent = "";
+  // keep the design's header row, drop the rest (mock rows / previous render)
+  for (const row of [...box.children]) {
+    if (!row.textContent?.includes("ENDPOINT")) row.remove();
+  }
   if (!list.length) {
     box.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-3);font-size:12.5px">История пуста</div>`;
     return;
@@ -716,6 +823,7 @@ function loadSettings(): void {
 
 // ─────────────── init ───────────────
 function init(): void {
+  repairHooks();
   buildControls();
   buildSplitPicker();
 
