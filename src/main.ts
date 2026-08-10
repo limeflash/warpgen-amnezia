@@ -663,6 +663,33 @@ function updateVisibility(): void {
   updateChainSize();
 }
 
+/**
+ * The design draws a range slider as a track + a blue fill div + a transparent
+ * native input, with the current value shown in the header. The capture keeps
+ * the pieces but freezes the fill and value; this makes them follow the input.
+ */
+function bindSlider(id: string): void {
+  const inp = $<HTMLInputElement>(id);
+  const wrap = inp?.parentElement;
+  if (!inp || !wrap) return;
+  const fill = [...wrap.children].find(
+    (c) => c !== inp && /position:\s*absolute/.test(c.getAttribute("style") || "") && !/right:\s*0/.test(c.getAttribute("style") || ""),
+  ) as HTMLElement | undefined;
+  const label = wrap.previousElementSibling?.querySelector<HTMLElement>('[style*="var(--accent)"]');
+  const min = Number(inp.min) || 0;
+  const max = Number(inp.max) || 100;
+  const paint = (): void => {
+    const pct = ((Number(inp.value) - min) / (max - min)) * 100;
+    if (fill) fill.style.width = `${pct}%`;
+    if (label) label.textContent = inp.value;
+  };
+  inp.addEventListener("input", () => {
+    paint();
+    saveSettings();
+  });
+  paint();
+}
+
 function updateChainSize(): void {
   if (!architect) return setText("chainSize", `0 / ${CPS_MAX_BYTES} Б`);
   const bytes = calcChainSize(architect.obfuscation);
@@ -1673,6 +1700,8 @@ function init(): void {
   }
   for (const s of ["endpointIp", "dnsServer", "i1Preset"]) bindSelect(s, saveSettings);
   for (const t of ["archRouter", "wsSpeed", "wsTunPing", "dpiQuic"]) bindToggle(t);
+  bindSlider("archJunk");
+  bindSlider("bfThreads");
 
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((n) =>
     n.addEventListener("click", () => showView(n.dataset.view!)),
