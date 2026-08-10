@@ -118,9 +118,65 @@ export function syncSelectLabel(id: string): void {
   if (sel && label) label.textContent = sel.selectedOptions[0]?.text ?? "";
 }
 
+/**
+ * The design opens its own panel instead of the OS list. The native <select>
+ * stays as the value store — everything else reads it — but it never opens:
+ * clicking the drawn row renders the panel below it, styled like the mockup.
+ */
+function openPanel(id: string): void {
+  const sel = $<HTMLSelectElement>(id);
+  const wrap = document.querySelector<HTMLElement>(`[data-sel-label="${id}"]`)?.closest<HTMLElement>(".sel-wrap");
+  if (!sel || !wrap) return;
+  closePanels();
+
+  const backdrop = document.createElement("div");
+  backdrop.dataset.selPanel = id;
+  backdrop.style.cssText = "position:fixed;inset:0;z-index:30";
+  backdrop.addEventListener("click", closePanels);
+
+  const panel = document.createElement("div");
+  panel.dataset.selPanel = id;
+  panel.style.cssText =
+    "position:absolute;z-index:40;top:calc(100% + 6px);left:0;right:0;max-height:300px;overflow:auto;background:var(--panel);border:1px solid var(--line-2);border-radius:13px;box-shadow:var(--shadow);padding:6px;animation:rise .12s ease-out";
+
+  const row = (o: HTMLOptionElement): string => {
+    const on = o.value === sel.value;
+    return `<div data-opt="${esc(o.value)}" class="scp1" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:12.5px;font-weight:${on ? "650" : "500"};color:${on ? "var(--accent)" : "var(--text)"};background:${on ? "var(--sel)" : "transparent"}">` +
+      `<span>${esc(o.text)}</span></div>`;
+  };
+  const label = (t: string): string =>
+    `<div style="font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);padding:9px 10px 5px">${esc(t)}</div>`;
+
+  panel.innerHTML = [...sel.children]
+    .map((child) =>
+      child instanceof HTMLOptGroupElement
+        ? label(child.label) + [...child.children].map((o) => row(o as HTMLOptionElement)).join("")
+        : row(child as HTMLOptionElement))
+    .join("");
+
+  for (const el of panel.querySelectorAll<HTMLElement>("[data-opt]")) {
+    el.addEventListener("click", () => {
+      sel.value = el.dataset.opt!;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+      closePanels();
+    });
+  }
+  wrap.append(backdrop, panel);
+}
+
+export function closePanels(): void {
+  for (const el of document.querySelectorAll("[data-sel-panel]")) el.remove();
+}
+
 export function bindSelect(id: string, onChange?: (v: string) => void): void {
   const sel = $<HTMLSelectElement>(id);
   if (!sel) return;
+  sel.style.display = "none"; // the panel replaces the OS dropdown
+  const wrap = document.querySelector<HTMLElement>(`[data-sel-label="${id}"]`)?.closest<HTMLElement>(".sel-wrap");
+  wrap?.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest("[data-sel-panel]")) return;
+    openPanel(id);
+  });
   sel.addEventListener("change", () => {
     syncSelectLabel(id);
     onChange?.(sel.value);

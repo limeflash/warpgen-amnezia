@@ -13,6 +13,7 @@
 ![Linux](https://img.shields.io/badge/Linux-.deb%20%2F%20AppImage-FCC624?logo=linux&logoColor=black)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-7%20(tsgo)-3178C6?logo=typescript&logoColor=white)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 </div>
 
@@ -140,3 +141,9 @@ fake-TTL. При первом запуске в app-data скачиваются 
 - [nellimonix/warp-config-generator-vercel](https://github.com/nellimonix/warp-config-generator-vercel) — идея валидного QUIC для `I1`.
 - [hoaxisr/awg-manager](https://github.com/hoaxisr/awg-manager) — AmneziaWG Architect (MIT) и анализатор конфигов.
 - [bol-van/zapret](https://github.com/bol-van/zapret) — `winws2` и WinDivert для обхода DPI.
+
+## Лицензия
+
+[MIT](LICENSE). Сторонние компоненты: `warpscout` и AmneziaWG Architect — тоже MIT,
+`winws2` / WinDivert скачиваются на машину пользователя при включении обхода DPI и
+в состав приложения не входят.

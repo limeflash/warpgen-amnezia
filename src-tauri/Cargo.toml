@@ -1,6 +1,6 @@
 [package]
 name = "warpgen"
-version = "2.0.0"
+version = "2.1.0"
 description = "Cloudflare WARP config generator for AmneziaWG with the warpscout endpoint scanner"
 authors = ["WarpGen"]
 edition = "2021"

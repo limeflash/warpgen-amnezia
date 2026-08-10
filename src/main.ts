@@ -98,6 +98,33 @@ function screenEl(view: string): HTMLElement {
 }
 
 /**
+ * Rebinds a row of chips the design draws by caption. The capture sometimes put
+ * the group markers on the surrounding section instead of the chips themselves;
+ * the selected/unselected looks are taken from the design's own chips.
+ */
+function repairChips(view: string, group: string, labels: Array<[string, string]>): void {
+  const sec = screenEl(view);
+  for (const bad of sec.querySelectorAll<HTMLElement>(`[data-group="${group}"]`)) {
+    bad.removeAttribute("data-group");
+    bad.removeAttribute("data-value");
+    if (bad.getAttribute("style") === "null") bad.removeAttribute("style");
+  }
+  const leaves = [...sec.querySelectorAll<HTMLElement>("div")].filter((d) => !d.children.length);
+  const chips = labels.map(([label, value]) => [leaves.find((d) => d.textContent?.trim() === label), value] as const);
+  if (chips.some(([el]) => !el)) return;
+
+  const styles = chips.map(([el]) => el!.getAttribute("style") ?? "");
+  const on = styles.find((s) => s.includes("var(--accent)")) ?? styles[0];
+  const off = styles.find((s) => s !== on) ?? styles[0];
+  for (const [el, value] of chips) {
+    el!.dataset.group = group;
+    el!.dataset.value = value;
+    el!.dataset.on = on;
+    el!.dataset.off = off;
+  }
+}
+
+/**
  * A couple of ids landed on wrappers rather than the control itself when the
  * design was captured; move them onto the right element before binding.
  */
@@ -170,6 +197,18 @@ function repairHooks(): void {
     header!.id = "historyHead";
   }
 
+  // Chip rows the capture mis-annotated: the markers landed on section
+  // wrappers (with style="null"), so clicking them did nothing.
+  repairChips("generate", "archIntensity", [["низкая", "low"], ["средняя", "medium"], ["высокая", "high"]]);
+  repairChips("generate", "archBrowser", [
+    ["не задавать", ""], ["Chrome", "chrome"], ["Edge", "edge"],
+    ["Firefox", "firefox"], ["Safari", "safari"], ["Яндекс", "yandex"],
+  ]);
+
+  // history count sits in the nav item, unnamed
+  const histNav = document.querySelector<HTMLElement>('.nav-item[data-view="history"]');
+  if (histNav && histNav.children.length > 2) histNav.lastElementChild!.id = "historyCount";
+
   // Only the result screen's empty state was captured, so tag the places its
   // config branch has to be rebuilt into.
   const res = screenEl("result");
@@ -228,27 +267,53 @@ function buildControls(): void {
     I1_GROUPS.flatMap((g) => g.options.map((o) => ({ value: o.key, label: o.label, group: g.label }))),
     DEFAULT_I1_KEY,
   );
-  fillSelect("archBrowser", [
-    { value: "", label: "не задавать" }, { value: "chrome", label: "Chrome" }, { value: "edge", label: "Edge" },
-    { value: "firefox", label: "Firefox" }, { value: "safari", label: "Safari" }, { value: "yandex_desktop", label: "Яндекс" },
-  ], "");
 }
 
-// Split-tunnel service picker — appended to the routing card when needed.
+/**
+ * Split-tunnel service picker, rebuilt to the design: a search field, category
+ * chips with counts and a grid of service tiles with a check in the corner.
+ * The mockup keeps this behind `showSvc`, so it was never captured.
+ */
+const splitState = { selected: new Set<string>(), cat: "all", query: "" };
+
+/** Every pickable service, flattened: base targets first, then the catalog. */
+const splitCatalog = (): Array<{ key: string; label: string; cat: string }> => [
+  ...splitTargetList().map((t) => ({ ...t, cat: "Основные" })),
+  ...catalogTargetGroups().flatMap((g) => g.targets.map((t) => ({ ...t, cat: g.label }))),
+];
+
+/** Deterministic tile colour, so a service always looks the same. */
+function tileColor(key: string): string {
+  let h = 0;
+  for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return "hsl(" + h + " 52% 52%)";
+}
+
+const initials = (label: string): string =>
+  label.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase();
+
 function buildSplitPicker(): void {
-  const card = cardOf(document.querySelector<HTMLElement>(`[data-group="splitMode"]`));
+  const card = cardOf(document.querySelector<HTMLElement>('[data-group="splitMode"]'));
   if (!card || $("splitBox")) return;
 
   const box = document.createElement("div");
   box.id = "splitBox";
   box.className = "hidden";
-  box.style.cssText = "margin-top:14px";
+  box.style.cssText = "padding:14px 0 4px;border-top:1px solid var(--line);margin-top:14px";
   box.innerHTML =
-    `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px">` +
-    `<div style="font-size:12.5px;font-weight:600">Сервисы</div><div style="font-size:11px;color:var(--text-3)" id="splitCount">выбрано 0</div></div>` +
-    `<input id="catalogSearch" placeholder="Поиск сервиса…" style="width:100%;max-width:430px;padding:8px 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--panel-2);color:var(--text);font-size:12.5px;outline:none" />` +
-    `<div id="splitPresets" style="display:flex;gap:6px;flex-wrap:wrap;margin:9px 0"></div>` +
-    `<div id="splitGrid" style="max-height:300px;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px"></div>`;
+    `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px">` +
+    `<div style="font-size:12.5px;font-weight:600;letter-spacing:-.012em">Сервисы</div>` +
+    `<div id="splitCount" style="font-size:11px;color:var(--text-3);text-align:right">выбрано 0</div></div>` +
+    `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:11px;border:1px solid var(--line-2);background:var(--panel-2);box-shadow:inset 0 1px 2px rgba(10,12,27,.05)">` +
+    `<svg width="15" height="15" style="fill:none;stroke:var(--text-3);stroke-width:1.6;stroke-linecap:round;flex:0 0 15px"><circle cx="6.6" cy="6.6" r="4.4"></circle><line x1="10" y1="10" x2="13.2" y2="13.2"></line></svg>` +
+    `<input id="catalogSearch" placeholder="discord, steam, ai…" spellcheck="false" style="flex:1;min-width:0;border:0;background:transparent;outline:none;font-size:12.5px;color:inherit" />` +
+    `<div id="svcTotal" style="font-size:11.5px;color:var(--text-3);white-space:nowrap"></div></div>` +
+    `<div id="svcCats" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>` +
+    `<div id="splitGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(102px,1fr));gap:7px;margin-top:11px;max-height:340px;overflow-y:auto;overflow-x:hidden;padding:2px"></div>` +
+    `<div id="svcEmpty" class="hidden" style="padding:26px 0;text-align:center;font-size:12.5px;color:var(--text-3)">Ничего не найдено</div>` +
+    `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">` +
+    `<div style="font-size:11.5px;color:var(--text-3);margin-right:3px">Быстрый выбор</div>` +
+    `<div id="splitPresets" style="display:flex;gap:6px;flex-wrap:wrap"></div></div>`;
   card.appendChild(box);
 
   const presets: Array<[string, string[]]> = [
@@ -258,40 +323,76 @@ function buildSplitPicker(): void {
     ["Очистить", []],
   ];
   const pbox = must("splitPresets");
-  for (const [label, keys] of presets) {
-    const b = document.createElement("div");
-    b.textContent = label;
-    b.style.cssText = "padding:5px 10px;border:1px solid var(--line-2);border-radius:8px;background:var(--panel-2);font-size:11.5px;color:var(--text-2);cursor:pointer";
-    b.addEventListener("click", () => setSplit(keys));
-    pbox.appendChild(b);
-  }
-
-  const grid = must("splitGrid");
-  const add = (key: string, label: string) => {
-    const row = document.createElement("label");
-    row.dataset.name = label.toLowerCase();
-    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel-2);font-size:12px;cursor:pointer";
-    row.innerHTML = `<input type="checkbox" data-split="${esc(key)}" style="accent-color:var(--accent)" /><span>${esc(label)}</span>`;
-    grid.appendChild(row);
-  };
-  for (const t of splitTargetList()) add(t.key, t.label);
-  for (const g of catalogTargetGroups()) for (const t of g.targets) add(t.key, t.label);
-  grid.addEventListener("change", updateSplitCount);
-
-  must("catalogSearch").addEventListener("input", (e) => {
-    const q = (e.target as HTMLInputElement).value.trim().toLowerCase();
-    grid.querySelectorAll<HTMLElement>("label").forEach((l) => {
-      l.style.display = !q || (l.dataset.name ?? "").includes(q) ? "" : "none";
+  pbox.innerHTML = presets
+    .map(([label], i) =>
+      `<div data-preset="${i}" class="scpc" style="padding:5px 10px;border-radius:8px;border:1px solid var(--line-2);background:var(--panel-2);font-size:11.5px;font-weight:600;color:var(--text-2);cursor:pointer">${esc(label)}</div>`)
+    .join("");
+  for (const el of pbox.querySelectorAll<HTMLElement>("[data-preset]")) {
+    el.addEventListener("click", () => {
+      setSplit(presets[Number(el.dataset.preset)][1]);
+      saveSettings();
     });
+  }
+  must("catalogSearch").addEventListener("input", (e) => {
+    splitState.query = (e.target as HTMLInputElement).value.trim().toLowerCase();
+    renderSplit();
   });
+  renderSplit();
 }
 
-const splitBoxes = () => Array.from(document.querySelectorAll<HTMLInputElement>("input[data-split]"));
-const selectedSplit = () => splitBoxes().filter((c) => c.checked).map((c) => c.dataset.split!);
-function setSplit(keys: string[]): void {
-  const set = new Set(keys);
-  for (const c of splitBoxes()) c.checked = set.has(c.dataset.split!);
+function renderSplit(): void {
+  const all = splitCatalog();
+  const cats = [...new Set(all.map((s) => s.cat))];
+  const chip = (value: string, label: string, n: number): string => {
+    const on = splitState.cat === value;
+    return `<div data-cat="${esc(value)}" class="scp7" style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;border:1px solid ${on ? "var(--accent)" : "var(--line-2)"};background:${on ? "var(--sel)" : "var(--panel-2)"};color:${on ? "var(--accent)" : "var(--text)"};font-size:11.5px;font-weight:${on ? "650" : "500"};cursor:pointer">` +
+      `<span>${esc(label)}</span><span style="font-size:10.5px;opacity:.55;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace">${n}</span></div>`;
+  };
+
+  const catsBox = $("svcCats");
+  if (catsBox) {
+    catsBox.innerHTML = chip("all", "Все", all.length) +
+      cats.map((c) => chip(c, c, all.filter((s) => s.cat === c).length)).join("");
+    for (const el of catsBox.querySelectorAll<HTMLElement>("[data-cat]")) {
+      el.addEventListener("click", () => {
+        splitState.cat = el.dataset.cat!;
+        renderSplit();
+      });
+    }
+  }
+
+  const shown = all.filter((s) =>
+    (splitState.cat === "all" || s.cat === splitState.cat) &&
+    (!splitState.query || s.label.toLowerCase().includes(splitState.query) || s.key.includes(splitState.query)));
+
+  const grid = $("splitGrid");
+  if (grid) {
+    grid.innerHTML = shown.map((s) => {
+      const on = splitState.selected.has(s.key);
+      return `<div data-split="${esc(s.key)}" class="scp6" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:13px 8px 11px;border-radius:13px;border:1px solid ${on ? "var(--accent)" : "var(--line-2)"};background:${on ? "var(--sel)" : "var(--panel-2)"};cursor:pointer;user-select:none;transition:border-color .14s ease,background .14s ease,transform .14s ease">` +
+        `<div style="width:30px;height:30px;border-radius:9px;background:${tileColor(s.key)};display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;letter-spacing:-.02em">${esc(initials(s.label))}</div>` +
+        `<div style="font-size:11.5px;font-weight:${on ? "650" : "500"};color:${on ? "var(--accent)" : "var(--text)"};text-align:center;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${esc(s.label)}</div>` +
+        `<div style="position:absolute;top:7px;right:7px;width:13px;height:13px;border-radius:5px;background:${on ? "var(--accent)" : "transparent"};border:1.5px solid ${on ? "var(--accent)" : "var(--line-2)"};display:grid;place-items:center">` +
+        `<div style="width:4px;height:4px;border-radius:1px;background:${on ? "var(--on-accent)" : "transparent"}"></div></div></div>`;
+    }).join("");
+    for (const el of grid.querySelectorAll<HTMLElement>("[data-split]")) {
+      el.addEventListener("click", () => {
+        const key = el.dataset.split!;
+        if (!splitState.selected.delete(key)) splitState.selected.add(key);
+        renderSplit();
+        saveSettings();
+      });
+    }
+  }
+  show($("svcEmpty"), shown.length === 0);
+  setText("svcTotal", `${all.length} сервисов`);
   updateSplitCount();
+}
+
+const selectedSplit = (): string[] => [...splitState.selected];
+function setSplit(keys: string[]): void {
+  splitState.selected = new Set(keys);
+  renderSplit();
 }
 const updateSplitCount = () => setText("splitCount", `выбрано ${selectedSplit().length}`);
 
@@ -308,24 +409,34 @@ const AWG_VERSIONS: Array<[string, string, string]> = [
 ];
 
 function mountAwgSection(): void {
-  const col = screenEl("generate").querySelector<HTMLElement>('[style*="padding: 18px 26px"]');
-  if (!col || $("awgCard")) return;
+  // The card itself was captured (collapsed); only its body is missing, so the
+  // design's own header — caption, version chip, summary and chevron — is reused.
+  const col = screenEl("generate");
+  const cap = [...col.querySelectorAll<HTMLElement>("div")].find(
+    (d) => !d.children.length && d.textContent?.trim() === "Расширенная обфускация",
+  );
+  const head = cap?.parentElement?.parentElement;
+  const card = head?.parentElement;
+  if (!cap || !head || !card || $("awgBody")) return;
+
+  card.id = "awgCard";
+  head.id = "awgHead";
+  head.classList.add("scp1");
+  head.style.cursor = "pointer";
+  cap.nextElementSibling?.setAttribute("id", "awgVerChip");
+  const right = head.children[1];
+  right?.firstElementChild?.setAttribute("id", "awgSummary");
+  right?.lastElementChild?.setAttribute("id", "awgArrow");
+
   const tileBase = "padding:9px 11px;border-radius:11px;cursor:pointer;min-width:0;transition:border-color .14s ease,background .14s ease,transform .14s ease";
   const off = `${tileBase};border:1px solid var(--line-2);background:var(--panel-2)`;
   const on = `${tileBase};border:1px solid var(--accent);background:var(--sel)`;
 
-  const card = document.createElement("div");
-  card.id = "awgCard";
-  card.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow-sm),inset 0 1px 0 var(--hl);margin-top:14px";
-  card.innerHTML =
-    `<div id="awgHead" class="scp1" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;cursor:pointer;border-radius:15px">` +
-    `<div style="display:flex;align-items:center;gap:10px">` +
-    `<div style="font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3)">Расширенная обфускация</div>` +
-    `<div id="awgVerChip" style="font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:99px;background:var(--sel);color:var(--accent)">AWG 1.5</div></div>` +
-    `<div style="display:flex;align-items:center;gap:10px">` +
-    `<span id="awgSummary" style="font-size:11.5px;color:var(--text-3);font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace"></span>` +
-    `<div id="awgArrow" style="width:7px;height:7px;border-right:1.6px solid var(--text-3);border-bottom:1.6px solid var(--text-3);transform:rotate(45deg)"></div></div></div>` +
-    `<div id="awgBody" class="hidden" style="padding:2px 18px 16px;border-top:1px solid var(--line)">` +
+  const body = document.createElement("div");
+  body.id = "awgBody";
+  body.className = "hidden";
+  body.style.cssText = "padding:2px 18px 16px;border-top:1px solid var(--line)";
+  body.innerHTML =
     `<div style="padding:13px 0">` +
     `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px">` +
     `<div style="font-size:12.5px;font-weight:600;letter-spacing:-.012em">Версия профиля</div>` +
@@ -340,17 +451,16 @@ function mountAwgSection(): void {
     `<div style="flex:0 0 16px;width:16px;height:16px;border-radius:99px;background:var(--warn);display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;line-height:1">!</div>` +
     `<div id="verWarnText" style="font-size:11.5px;color:var(--text-2);line-height:1.5"></div></div>` +
     `<div style="display:flex;align-items:center;gap:10px;margin-top:11px">` +
-    `<div style="font-size:11.5px;color:var(--text-3)">Рекомендуемый MTU для профиля: <span id="mtuRec" style="color:var(--text);font-weight:600;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace"></span></div></div>` +
-    `</div></div>`;
-  col.appendChild(card);
+    `<div style="font-size:11.5px;color:var(--text-3)">Рекомендуемый MTU для профиля: ` +
+    `<span id="mtuRec" style="color:var(--text);font-weight:600;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace"></span></div></div>` +
+    `</div>`;
+  card.appendChild(body);
 
   onClick("awgHead", () => {
-    const body = must("awgBody");
-    const open = body.classList.toggle("hidden");
-    must("awgArrow").style.transform = open ? "rotate(45deg)" : "rotate(-135deg)";
+    const open = !must("awgBody").classList.toggle("hidden");
+    must("awgArrow").style.transform = open ? "rotate(-135deg)" : "rotate(45deg)";
   });
-  bindGroup("awgVer", (v) => {
-    if (v === "wg") setGroup("configType", "wireguard");
+  bindGroup("awgVer", () => {
     updateAwgVersion();
     saveSettings();
   });
@@ -367,7 +477,7 @@ function updateAwgVersion(): void {
   setText("verWarnText", warn ?? "");
   show($("verWarn"), !!warn);
   setText("mtuRec", String(v === "wg" ? 1420 : recommendedMtu(v as AwgVersion)));
-  setText("awgSummary", v === "wg" ? "без junk" : `${v === "1.5" || v === "2.0" || v === "3.0" ? "CPS · " : ""}Jc ${architect?.junk.jc ?? 4}`);
+  setText("awgSummary", v === "wg" ? "без обфускации" : `${v === "1.0" ? "" : "CPS · "}Jc ${architect?.junk.jc ?? 4}`);
 }
 
 function updateVisibility(): void {
@@ -396,7 +506,7 @@ function onArchGenerate(): void {
     intensity: (groupValue("archIntensity") || "medium") as "low" | "medium" | "high",
     junkLevel: parseInt(inputValue("archJunk"), 10) || 5,
     customHost: inputValue("archHost").trim() || undefined,
-    browserProfile: (selectValue("archBrowser") || "") as never,
+    browserProfile: (groupValue("archBrowser") || "") as never,
     routerMode: toggleValue("archRouter"),
     mtu: 1280,
   });
@@ -610,8 +720,10 @@ function resetDefaults(): void {
   setSelect("i1Preset", DEFAULT_I1_KEY);
   setSplit([]);
   architect = null;
+  setGroup("awgVer", "1.5");
+  updateAwgVersion();
   updateVisibility();
-  status("generate", "");
+  status("generate", "Форма сброшена к настройкам по умолчанию.", "ok");
 }
 
 async function downloadConfig(): Promise<void> {
@@ -687,7 +799,11 @@ function scanProgress(title: string, percent: number, active: ScanStep | null, n
 }
 
 function wsStatus(text: string, spin = false): void {
-  status("scan", spin ? `<span class="spinner"></span> ${esc(text)}` : esc(text));
+  // warpscout is driven from both the scan screen and the generator card, so the
+  // line shows up wherever the user actually clicked
+  const html = spin ? `<span class="spinner"></span> ${esc(text)}` : esc(text);
+  const view = document.querySelector<HTMLElement>(".view.active")?.dataset.view;
+  status(view === "generate" ? "generate" : "scan", html);
 }
 
 /** Country code → Russian name, as the design spells them out. */
@@ -1303,7 +1419,7 @@ function saveSettings(): void {
     archProfile: groupValue("archProfile"), archIntensity: groupValue("archIntensity"),
     awgVer: groupValue("awgVer"),
     endpointIp: selectValue("endpointIp"), dnsServer: selectValue("dnsServer"),
-    i1Preset: selectValue("i1Preset"), archBrowser: selectValue("archBrowser"),
+    i1Preset: selectValue("i1Preset"), archBrowser: groupValue("archBrowser"),
     configName: inputValue("configName"), archHost: inputValue("archHost"),
     splitTargets: selectedSplit(),
   });
@@ -1311,10 +1427,10 @@ function saveSettings(): void {
 
 function loadSettings(): void {
   const s = loadJson<Record<string, unknown>>(SETTINGS_KEY, {});
-  for (const g of ["configType", "obfsProfile", "endpointPort", "splitMode", "archProfile", "archIntensity", "awgVer"]) {
+  for (const g of ["configType", "obfsProfile", "endpointPort", "splitMode", "archProfile", "archIntensity", "archBrowser", "awgVer"]) {
     if (typeof s[g] === "string") setGroup(g, s[g] as string);
   }
-  for (const id of ["endpointIp", "dnsServer", "i1Preset", "archBrowser"]) {
+  for (const id of ["endpointIp", "dnsServer", "i1Preset"]) {
     if (typeof s[id] === "string") setSelect(id, s[id] as string);
   }
   if (typeof s.configName === "string") setInput("configName", s.configName);
@@ -1332,13 +1448,13 @@ function init(): void {
   setText("siteVersion", `v${__APP_VERSION__}`);
   setText("platformChip", currentOs() === "windows" ? "Windows" : currentOs() === "macos" ? "macOS" : "Linux");
 
-  for (const g of ["configType", "obfsProfile", "endpointPort", "splitMode", "archProfile", "archIntensity", "wsProto"]) {
+  for (const g of ["configType", "obfsProfile", "endpointPort", "splitMode", "archProfile", "archIntensity", "archBrowser", "wsProto"]) {
     bindGroup(g, () => {
       updateVisibility();
       saveSettings();
     });
   }
-  for (const s of ["endpointIp", "dnsServer", "i1Preset", "archBrowser"]) bindSelect(s, saveSettings);
+  for (const s of ["endpointIp", "dnsServer", "i1Preset"]) bindSelect(s, saveSettings);
   for (const t of ["archRouter", "wsSpeed", "wsTunPing", "dpiQuic"]) bindToggle(t);
 
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((n) =>
@@ -1393,7 +1509,9 @@ function init(): void {
   for (const id of ["pxsrc0", "pxsrc1", "pxsrc2", "pxsrc3"]) onClick(id, () => void loadProxies(id));
   onClick("historyClearBtn", () => {
     clearHistory();
+    activeConfigId = 0;
     renderHistory();
+    if (lastConfig) setResult(lastConfig, lastConfigType, "текущий"); // refresh «Сохранённые»
   });
 
   document.querySelectorAll<HTMLElement>("[data-client]").forEach((el, i) => {
