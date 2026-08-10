@@ -73,8 +73,17 @@ driver, so Administrator is required. *Stop* kills it. After enabling, run the
 warpscout scan to find endpoints that now get through.
 
 > ⚠ Not verifiable in CI (needs admin + a live network) — test on your own
-> machine. macOS/Linux `tpws` is **not wired up yet** (it needs root + pf/iptables
-> redirect) — planned follow-up.
+> machine.
+
+**macOS / Linux.** The DPI screen is Windows-only, and the originally planned
+`tpws` port would not have helped: `tpws` is a transparent **TCP** proxy, while
+WARP is UDP (2408/500/4500/1701). The tool that handles UDP is `nfqws`, and it
+needs Linux **NFQUEUE** — so:
+
+* **Linux** — feasible with `nfqws` + an `iptables -j NFQUEUE` rule, run as root
+  (`pkexec`). Not implemented.
+* **macOS** — no zapret path for UDP: pf can redirect TCP to `tpws`, but there is
+  no nfqueue equivalent, so WARP's UDP cannot be desynced this way.
 
 ## Scripts
 
