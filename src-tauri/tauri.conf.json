@@ -13,13 +13,15 @@
     "windows": [
       {
         "label": "main",
-        "title": "WarpGen — AmneziaWG 2.x",
-        "width": 900,
-        "height": 840,
-        "minWidth": 420,
-        "minHeight": 600,
+        "title": "WarpGen",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 960,
+        "minHeight": 640,
         "resizable": true,
-        "center": true
+        "center": true,
+        "decorations": false,
+        "transparent": false
       }
     ],
     "security": {

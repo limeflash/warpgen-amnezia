@@ -30,6 +30,28 @@ let lastConfigType: ConfigKind = "amnezia";
 let lastConfig = "";
 let architect: GeneratedSignature | null = null;
 
+// ─────────────── window chrome ───────────────
+// The window is frameless (decorations: false) so the design's own titlebar is
+// the only one — its buttons and drag region have to be wired up here.
+async function initWindowChrome(): Promise<void> {
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const win = getCurrentWindow();
+
+  const bar = document.querySelector<HTMLElement>('[style*="flex: 0 0 46px"]');
+  bar?.setAttribute("data-tauri-drag-region", "");
+
+  const buttons = document.querySelectorAll<HTMLElement>('[style*="width: 30px"][style*="height: 26px"]');
+  const actions: Array<() => Promise<void>> = [
+    () => win.minimize(),
+    () => win.toggleMaximize(),
+    () => win.close(),
+  ];
+  buttons.forEach((b, i) => {
+    const act = actions[i];
+    if (act) b.addEventListener("click", () => void act());
+  });
+}
+
 // ─────────────── theme ───────────────
 function applyTheme(dark: boolean): void {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -788,6 +810,7 @@ function init(): void {
 
   void ws.warpscoutVersion().catch((err) => status("scan", `warpscout недоступен: ${esc(String(err))}`, "err"));
   showView("generate");
+  void initWindowChrome();
 }
 
 init();
