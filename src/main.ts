@@ -29,6 +29,13 @@ const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt
 
 let lastConfigType: "amnezia" | "wireguard" | "clash" = "amnezia";
 
+// ─────────────── View navigation ───────────────
+function showView(name: string): void {
+  document.querySelectorAll<HTMLElement>(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === name));
+  document.querySelectorAll<HTMLElement>(".nav-item").forEach((n) => n.classList.toggle("active", n.dataset.view === name));
+  document.querySelector(".content")?.scrollTo({ top: 0 });
+}
+
 // ─────────────── Build dynamic controls ───────────────
 function buildI1Select(): void {
   const sel = $<HTMLSelectElement>("i1Preset");
@@ -50,7 +57,7 @@ function buildSplitGrid(): void {
   const grid = $("splitGrid");
   for (const { key, label } of splitTargetList()) {
     const l = document.createElement("label");
-    l.className = "split-item";
+    l.className = "check";
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.dataset.split = key;
@@ -72,7 +79,7 @@ function buildClientButtons(): void {
   for (const { key, title } of clientList()) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "chip-btn";
+    b.className = "chip";
     b.textContent = `⬇ ${title}`;
     b.addEventListener("click", () => {
       const url = downloadUrl(key);
@@ -148,8 +155,7 @@ async function onGenerate(): Promise<void> {
       if (result.splitTunnel.unresolvedDomains.length) status += ` · DNS miss: ${result.splitTunnel.unresolvedDomains.length}`;
     }
     setText("resultStatus", status);
-    show($("resultCard"), true);
-    $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
+    showView("result");
     pushHistory(result.configType, result.endpoint, result.config);
   } catch (err) {
     errBox.textContent = "⚠ " + (err instanceof Error ? err.message : String(err));
@@ -251,8 +257,7 @@ async function onImport(toClash: boolean): Promise<void> {
     setText("resultStatus", toClash ? "Импортировано → Clash YAML" : "Распаковано в .conf");
     setText("importStatus", "✓ Готово.");
     show($("qrWrap"), false);
-    show($("resultCard"), true);
-    $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
+    showView("result");
     pushHistory(lastConfigType, "", output);
   } catch (err) {
     setText("importStatus", `Ошибка: ${err instanceof Error ? err.message : String(err)}`);
@@ -320,8 +325,7 @@ async function wsRun(kind: "scan" | "import" | "junk" | "sni"): Promise<void> {
       $("accountBadge").textContent = "warpscout";
       $("accountBadge").className = "badge badge-free";
       setText("resultStatus", `Конфиг из warpscout${endpoint ? ` · ${endpoint}` : ""}`);
-      show($("resultCard"), true);
-      $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
+      showView("result");
       pushHistory(lastConfigType, endpoint || "", config);
       setText("wsStatus", "✓ Конфиг импортирован из warpscout.");
     } else if (kind === "junk") {
@@ -514,21 +518,6 @@ async function onBruteforce(): Promise<void> {
   bfAbort = null;
 }
 
-// ─────────────── Secret card reveal (tap logo x7) ───────────────
-let tapCount = 0;
-let tapTimer: ReturnType<typeof setTimeout> | null = null;
-function onLogoTap(): void {
-  tapCount++;
-  if (tapTimer) clearTimeout(tapTimer);
-  tapTimer = setTimeout(() => (tapCount = 0), 3000);
-  if (tapCount >= 7) {
-    tapCount = 0;
-    const card = $("secretCard");
-    show(card, card.classList.contains("hidden"));
-    if (!card.classList.contains("hidden")) card.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-}
-
 // ─────────────── DPI bypass (winws, Windows) ───────────────
 let dpiBusy = false;
 
@@ -575,7 +564,7 @@ async function dpiStop(): Promise<void> {
 
 async function initDpi(): Promise<void> {
   if (currentOs() !== "windows") return;
-  show($("dpiCard"), true);
+  show($("navDpi"), true);
   $("dpiStartBtn").addEventListener("click", dpiStart);
   $("dpiStopBtn").addEventListener("click", dpiStop);
   dpiSetRunning(await winws.winwsRunning());
@@ -645,7 +634,7 @@ function coerceType(t: string): "amnezia" | "wireguard" | "clash" {
 
 function chip(label: string, fn: () => void): HTMLButtonElement {
   const b = document.createElement("button");
-  b.className = "chip-btn";
+  b.className = "chip";
   b.textContent = label;
   b.addEventListener("click", fn);
   return b;
@@ -679,8 +668,7 @@ function renderHistory(): void {
       $("accountBadge").className = "badge badge-free";
       setText("resultStatus", `Из истории · ${e.endpoint || "—"}`);
       show($("qrWrap"), false);
-      show($("resultCard"), true);
-      $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
+      showView("result");
     });
     const copy = chip("⎘", () => void navigator.clipboard.writeText(e.config).catch(() => {}));
     const del = chip("✕", () => {
@@ -721,7 +709,7 @@ function init(): void {
   $("splitMode").addEventListener("change", updateSplitVisibility);
   $("i1Preset").addEventListener("change", updateCustomI1Visibility);
   $("advToggle").addEventListener("click", () => show($("advBox"), $("advBox").classList.contains("hidden")));
-  $("logoTrigger").addEventListener("click", onLogoTap);
+  document.querySelectorAll<HTMLElement>(".nav-item").forEach((n) => n.addEventListener("click", () => showView(n.dataset.view!)));
 
   document.querySelectorAll<HTMLButtonElement>("[data-preset]").forEach((b) =>
     b.addEventListener("click", () => {
