@@ -22,7 +22,7 @@ import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { downloadDir, join } from "@tauri-apps/api/path";
 import {
   $, must, setText, show, esc, bindGroup, groupValue, setGroup, fillSelect, bindSelect, selectValue,
-  setSelect, addSelectOption, bindToggle, toggleValue, onClick, inputValue, setInput,
+  setSelect, addSelectOption, bindToggle, setToggle, toggleValue, onClick, inputValue, setInput,
   setBusy,
 } from "./ui.ts";
 
@@ -50,6 +50,26 @@ async function initWindowChrome(): Promise<void> {
     () => win.toggleMaximize(),
     () => win.close(),
   ];
+
+  // macOS: the design shows traffic-light dots instead of the Windows cluster.
+  if (currentOs() === "macos" && buttons.length) {
+    const cluster = buttons[0].parentElement;
+    if (cluster) {
+      cluster.innerHTML = "";
+      cluster.style.gap = "8px";
+      for (const [color, act] of [["#ff5f57", actions[2]], ["#febc2e", actions[0]], ["#28c840", actions[1]]] as const) {
+        const dot = document.createElement("div");
+        dot.style.cssText = `width:12px;height:12px;border-radius:99px;background:${color};cursor:pointer`;
+        dot.addEventListener("click", () => void act());
+        cluster.appendChild(dot);
+      }
+      // move the cluster to the left of the bar
+      const bar2 = cluster.closest<HTMLElement>('[style*="flex: 0 0 46px"]');
+      if (bar2) bar2.insertBefore(cluster, bar2.firstChild);
+    }
+    return;
+  }
+
   buttons.forEach((b, i) => {
     const act = actions[i];
     if (act) b.addEventListener("click", () => void act());
@@ -59,7 +79,6 @@ async function initWindowChrome(): Promise<void> {
 // ─────────────── theme ───────────────
 function applyTheme(dark: boolean): void {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
-  setText("themeLabel", dark ? "Тёмная тема" : "Светлая тема");
   saveJson("warpgen.theme", dark ? "dark" : "light");
 
   // The design draws the switch statically — move its knob to match the theme.
@@ -67,20 +86,43 @@ function applyTheme(dark: boolean): void {
   const knob = pill?.querySelector<HTMLElement>('[style*="width: 14px"]');
   if (pill) pill.style.background = dark ? "var(--accent)" : "var(--line-2)";
   if (knob) {
-    knob.style.transition = "transform .2s";
+    knob.style.transition = "transform .22s cubic-bezier(.4,0,.2,1)";
     knob.style.transform = dark ? "translateX(19px)" : "translateX(0)";
   }
+  // sun stroke/fill + moon crescent recolour with the theme, as the design does
+  const icon = dark ? "rgba(7,16,38,.55)" : "rgba(255,255,255,.9)";
+  const t = $("themeToggle");
+  t?.querySelectorAll<SVGElement>("svg *").forEach((n) => {
+    if (n.getAttribute("stroke")) n.setAttribute("stroke", icon);
+    const f = n.getAttribute("fill");
+    if (f && f !== "none") n.setAttribute("fill", icon);
+  });
+  const moon = t?.querySelector<HTMLElement>('[style*="box-shadow"][style*="inset"]');
+  if (moon) moon.style.boxShadow = `inset -3px -2px 0 0 ${icon}`;
 }
 
 // ─────────────── views ───────────────
+/** Active nav item: 2px accent bar + --sel fill — the design's gradient. */
 function showView(name: string): void {
   document.querySelectorAll<HTMLElement>(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === name));
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((n) => {
     const on = n.dataset.view === name;
-    n.style.background = on ? "var(--sel)" : "transparent";
+    n.style.background = on ? "linear-gradient(90deg,var(--accent) 0 2px,var(--sel) 2px 100%)" : "transparent";
     n.style.color = on ? "var(--accent)" : "var(--text-2)";
   });
   document.querySelector<HTMLElement>('[style*="overflow: hidden auto"]')?.scrollTo({ top: 0 });
+}
+
+/** Toggle an accent dot on a nav item (result = has config, scout = scanning). */
+function navDot(view: string, on: boolean, pulse = false): void {
+  const nav = document.querySelector<HTMLElement>(`.nav-item[data-view="${view}"]`);
+  if (!nav) return;
+  nav.querySelector("[data-nav-dot]")?.remove();
+  if (!on) return;
+  const dot = document.createElement("div");
+  dot.dataset.navDot = "1";
+  dot.style.cssText = `margin-left:auto;width:6px;height:6px;border-radius:99px;background:var(--accent)${pulse ? ";animation:breathe 1.3s ease-in-out infinite" : ""}`;
+  nav.appendChild(dot);
 }
 
 // ─────────────── dynamic containers the mockup only sketches ───────────────
@@ -139,9 +181,13 @@ function repairHooks(): void {
     delete speed.dataset.toggle;
     if (first) {
       first.id = "wsSpeed";
-      first.dataset.toggle = "off";
+      first.dataset.toggle = "on"; // design default: state.speed = true
     }
   }
+
+  // header subtitle for the scan screen (scoutSub) is live in the design
+  const scoutBar = screenEl("scan").querySelector<HTMLElement>('[style*="position: sticky"]');
+  scoutBar?.children[0]?.children[1]?.setAttribute("id", "scoutSub");
 
   // The Architect protocol tiles lost their group during capture — rebind them
   // to the grid that actually holds "QUIC Initial".
@@ -236,6 +282,25 @@ function repairHooks(): void {
   const obfCap = leaf("Профиль обфускации");
   if (obfCap?.parentElement?.parentElement) obfCap.parentElement.parentElement.id = "obfSection";
 
+  // live generator bits the design binds but the capture froze
+  leaf("весь трафик через WARP")?.setAttribute("id", "routeNote");
+  leaf("endpoint · auto")?.setAttribute("id", "arcEp");
+  [...gen.querySelectorAll<HTMLElement>("div")].find((d) => d.textContent?.trim() === "Поиск endpoint →")?.setAttribute("id", "scoutLink");
+
+  // I1 custom-domain input, hidden until the 'Свой домен' preset is chosen
+  const i1Card = $("i1Preset")?.closest<HTMLElement>('[style*="var(--panel)"]');
+  if (i1Card && !$("i1CustomRow")) {
+    const row = document.createElement("div");
+    row.id = "i1CustomRow";
+    row.className = "hidden";
+    row.style.cssText = "display:grid;grid-template-columns:154px minmax(0,1fr);gap:18px;align-items:center;padding:13px 18px;border-top:1px solid var(--line)";
+    row.innerHTML =
+      `<div style="min-width:0"><div style="font-size:12.5px;font-weight:600;letter-spacing:-.012em">Свой домен</div>` +
+      `<div style="font-size:11px;color:var(--text-3);margin-top:2px">валидный QUIC Initial под SNI</div></div>` +
+      `<div style="min-width:0;max-width:430px"><input id="i1Domain" placeholder="example.com" spellcheck="false" style="width:100%;padding:8px 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--panel-2);box-shadow:inset 0 1px 2px rgba(10,12,27,.05);font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:12.5px;outline:none" /></div>`;
+    i1Card.appendChild(row);
+  }
+
   const advCap = leaf("Дополнительно");
   const advHead = advCap?.parentElement;
   if (advHead) {
@@ -249,6 +314,8 @@ function repairHooks(): void {
   // Only the result screen's empty state was captured, so tag the places its
   // config branch has to be rebuilt into.
   const res = screenEl("result");
+  // the empty-state "Взять из истории" subtitle carries a live saved-config count
+  [...res.querySelectorAll<HTMLElement>("div")].find((d) => !d.children.length && /сохранённ\w* конфиг/.test(d.textContent || ""))?.setAttribute("id", "resultEmptyCount");
   const col = res.querySelector<HTMLElement>('[style*="padding: 18px 26px 40px"]');
   if (col) {
     col.id = "resultCol";
@@ -283,9 +350,9 @@ const DNS_LABELS: Record<string, string> = {
 
 const ENDPOINTS: Array<{ value: string; label: string; group?: string }> = [
   { value: "auto", label: "Авто (из API Cloudflare)" },
-  ...["162.159.193.1", "162.159.193.2", "162.159.193.5", "162.159.193.10"].map((v) => ({ value: v, label: v, group: "Официальный ingress" })),
-  ...["162.159.192.1", "162.159.192.2", "162.159.192.5"].map((v) => ({ value: v, label: v, group: "Consumer WARP" })),
-  ...["162.159.195.1", "162.159.195.4", "188.114.96.1", "188.114.98.1"].map((v) => ({ value: v, label: v, group: "Community" })),
+  ...["162.159.192.1", "162.159.193.10", "188.114.96.1", "188.114.97.1"].map((v) => ({ value: v, label: v, group: "Официальные" })),
+  ...["162.159.192.2", "162.159.192.5"].map((v) => ({ value: v, label: v, group: "Consumer" })),
+  ...["162.159.195.1", "162.159.195.4", "188.114.98.1"].map((v) => ({ value: v, label: v, group: "Community" })),
 ];
 
 function buildControls(): void {
@@ -537,10 +604,16 @@ function mountAwgSection(): void {
     `<div id="verWarnText" style="font-size:11.5px;color:var(--text-2);line-height:1.5"></div></div>` +
     `<div style="display:flex;align-items:center;gap:10px;margin-top:11px">` +
     `<div style="font-size:11.5px;color:var(--text-3)">Рекомендуемый MTU для профиля: ` +
-    `<span id="mtuRec" style="color:var(--text);font-weight:600;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace"></span></div></div>` +
+    `<span id="mtuRec" style="color:var(--text);font-weight:600;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace"></span></div>` +
+    `<div id="applyMtu" class="scp9" style="padding:4px 10px;border-radius:7px;border:1px solid var(--line-2);font-size:11px;font-weight:600;color:var(--text-2);cursor:pointer">Применить</div></div>` +
     `</div>`;
   card.appendChild(body);
 
+  onClick("applyMtu", () => {
+    setInput("mtuInput", $("mtuRec")?.textContent ?? "");
+    updateProfile();
+    saveSettings();
+  });
   onClick("awgHead", () => {
     const open = !must("awgBody").classList.toggle("hidden");
     must("awgArrow").style.transform = open ? "rotate(-135deg)" : "rotate(45deg)";
@@ -562,7 +635,10 @@ function updateAwgVersion(): void {
   setText("verWarnText", warn ?? "");
   show($("verWarn"), !!warn);
   setText("mtuRec", String(v === "wg" ? 1420 : recommendedMtu(v as AwgVersion)));
-  setText("awgSummary", v === "wg" ? "без обфускации" : `${v === "1.0" ? "" : "CPS · "}Jc ${architect?.junk.jc ?? 4}`);
+  // design formula: 'Jc N · H h1/h2/h3/h4' + ' · CPS' when version ≥ 1.5
+  const jc = architect?.junk.jc ?? 5;
+  const vi = ["wg", "1.0", "1.5", "2.0", "3.0"].indexOf(v);
+  setText("awgSummary", `Jc ${jc} · H 1/2/3/4${vi >= 2 ? " · CPS" : ""}`);
 }
 
 /** «Дополнительно» — MTU / keepalive / IPv6, built into the captured header. */
@@ -644,6 +720,25 @@ function updateProfile(): void {
   if (track) track.style.background = advState.ipv6 ? "var(--accent)" : "var(--line-2)";
   if (knob) knob.style.transform = advState.ipv6 ? "translateX(14px)" : "translateX(0)";
   setText("ipv6Label", advState.ipv6 ? "включён" : "выключен");
+
+  // live routing-card hint and the Architect endpoint label
+  setText("routeNote", split ? `${splitState.selected.size} сервисов` : "весь трафик через WARP");
+  setText("arcEp", ip === "auto" ? "endpoint · auto" : `${ip}:${port}`);
+  // sidebar account card reacts to the key field immediately (design isPlus)
+  const keyed = inputValue("licenseKey").trim().length > 0;
+  setAccount(keyed);
+}
+
+/** Account card: flips to WARP+ the moment a key is typed (design isPlus). */
+function setAccount(plus: boolean): void {
+  const badge = $("accountBadge"); // flex row: [dot, label]
+  if (badge && badge.children.length >= 2) {
+    (badge.children[0] as HTMLElement).style.background = plus ? "var(--accent)" : "var(--text-3)";
+    badge.children[1].textContent = plus ? "WARP+" : "Free";
+  } else if (badge) {
+    badge.textContent = plus ? "WARP+" : "Free";
+  }
+  setText("accountNote", plus ? "Ключ будет применён при генерации" : "пусто — бесплатный аккаунт");
 }
 
 function updateVisibility(): void {
@@ -659,7 +754,10 @@ function updateVisibility(): void {
     show(cardOf(document.querySelector<HTMLElement>(`[data-group="${group}"]`)), type === "amnezia");
   }
   show(cardOf($("i1Preset")), type === "amnezia");
-  show($("splitBox"), groupValue("splitMode") === "selective");
+  // design showSvc = split OR clash; a full-tunnel Clash still lists services
+  show($("splitBox"), groupValue("splitMode") === "selective" || type === "clash");
+  // I1 custom-domain input appears only for the 'custom' preset
+  show($("i1CustomRow"), type === "amnezia" && selectValue("i1Preset") === "custom");
   updateChainSize();
 }
 
@@ -823,7 +921,12 @@ function setResult(config: string, type: ConfigKind, meta: string): void {
   lastConfig = config;
   lastConfigType = type;
   show($("resultEmpty"), false);
-  setText("resultSub", meta ? `${fileName()} · ${meta}` : fileName());
+  // design: lead with the config name (the saved entry's tag or the type title),
+  // then the endpoint — not the download filename
+  const typeTitle = type === "clash" ? "Clash / Mihomo" : type === "wireguard" ? "WireGuard" : "AmneziaWG";
+  const active = loadHistory().find((h) => h.id === activeConfigId);
+  const name = active?.tag?.trim() || typeTitle;
+  setText("resultSub", meta ? `${name} · ${meta}` : name);
   resultActions();
 
   const box = ensureBox("resultBox", $("resultCol") ?? screenEl("result"));
@@ -842,7 +945,7 @@ function setResult(config: string, type: ConfigKind, meta: string): void {
     `<div style="width:9px;height:9px;border-radius:99px;background:#febc2e"></div>` +
     `<div style="width:9px;height:9px;border-radius:99px;background:#28c840"></div></div>` +
     `<div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:8px">` +
-    `<div style="min-width:0;flex:0 1 auto;font-size:12.5px;font-weight:650;letter-spacing:-.015em;color:var(--code-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(meta || "Конфиг")}</div>` +
+    `<div style="min-width:0;flex:0 1 auto;font-size:12.5px;font-weight:650;letter-spacing:-.015em;color:var(--code-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</div>` +
     `<div style="flex:0 1 auto;min-width:0;font-size:11px;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;color:var(--code-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fileName())}</div></div>` +
     `<div style="flex:0 0 auto;font-size:11px;color:var(--code-dim);white-space:nowrap">${config.split("\n").length} строк · read-only</div></div>` +
     `<div style="margin:0;padding:14px 0 16px;max-height:min(56vh,560px);overflow-y:auto;overflow-x:hidden;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:12px;line-height:1.75;color:var(--code-fg)">${tokenizeConfig(config)}</div></div>` +
@@ -867,6 +970,7 @@ function setResult(config: string, type: ConfigKind, meta: string): void {
       renderHistory();
     });
   }
+  navDot("result", true);
   showView("result");
 }
 
@@ -882,6 +986,7 @@ async function onGenerate(): Promise<void> {
       endpointPort: groupValue("endpointPort") || "2408",
       endpointIp: selectValue("endpointIp") || "auto",
       i1Preset: selectValue("i1Preset") || DEFAULT_I1_KEY,
+      customI1Domain: inputValue("i1Domain").trim() || undefined,
       dnsServer: selectValue("dnsServer") || "malw_link",
       splitMode: groupValue("splitMode") === "selective" ? "selective" : "full",
       splitTargets: selectedSplit(),
@@ -954,13 +1059,22 @@ async function copyText(text: string, id: string, done: string, normal: string):
 function toggleQr(): void {
   const wrap = $("qrWrap");
   if (!wrap || !lastConfig) return;
+  const lit = (on: boolean): void => {
+    const b = $("qrBtn");
+    if (!b) return;
+    b.style.borderColor = on ? "var(--accent)" : "var(--line-2)";
+    b.style.background = on ? "var(--sel)" : "transparent";
+    b.style.color = on ? "var(--accent)" : "var(--text-2)";
+  };
   if (!wrap.classList.contains("hidden")) {
     show(wrap, false);
+    lit(false);
     return;
   }
   try {
     ($("qrImg") as HTMLImageElement).src = qrDataUrl(lastConfig);
     show(wrap, true);
+    lit(true);
   } catch {
     status("result", "Конфиг слишком большой для QR — используйте «Скачать».", "err");
   }
@@ -977,25 +1091,33 @@ const STEP_INFO: Array<[ScanStep, string, string]> = [
   ["speed", "Скорость", "download"],
 ];
 
-function scanProgress(title: string, percent: number, active: ScanStep | null, note?: Partial<Record<ScanStep, string>>): void {
+function scanProgress(title: string, percent: number, active: ScanStep | null, note?: Partial<Record<ScanStep, string>>, tiles = true): void {
   const box = ensureBox("wsProgress", hostCard("scan").parentElement ?? screenEl("scan"));
   placeAfterCard("scan", box);
-  box.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:16px 18px;margin-bottom:14px";
-  const done = (s: ScanStep) => STEP_INFO.findIndex(([k]) => k === s) < STEP_INFO.findIndex(([k]) => k === active);
+  // design: 16px radius, shadow-sm, 18px 20px padding, 16px margin-bottom
+  box.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow-sm);margin-bottom:16px";
+  // a step is lit if it's active OR already passed; at 100% (active null) all pass
+  const idx = (s: ScanStep) => STEP_INFO.findIndex(([k]) => k === s);
+  const activeIdx = active ? idx(active) : STEP_INFO.length;
+  const speedOn = toggleValue("wsSpeed");
   box.innerHTML =
-    `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px">` +
-    `<b style="font-size:13px">${esc(title)}</b>` +
-    `<span style="font-size:11.5px;color:var(--text-3);font-family:ui-monospace,monospace">${percent}%</span></div>` +
-    `<div style="height:7px;border-radius:99px;background:var(--panel-3);overflow:hidden;margin-bottom:12px">` +
-    `<div style="height:100%;width:${percent}%;border-radius:99px;background:var(--accent);transition:width .3s"></div></div>` +
-    `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px">` +
-    STEP_INFO.map(([key, label, sub]) => {
-      const on = key === active || done(key);
-      return `<div style="padding:9px 12px;border-radius:11px;border:1px solid ${on ? "var(--accent)" : "var(--line)"};background:${on ? "var(--sel)" : "var(--panel-2)"}">` +
-        `<div style="font-size:12.5px;font-weight:600;color:${on ? "var(--accent)" : "var(--text-3)"}">${esc(label)}</div>` +
-        `<div style="font-size:10.5px;color:var(--text-3);margin-top:1px">${esc(note?.[key] ?? sub)}</div></div>`;
-    }).join("") +
-    `</div>`;
+    `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:13px">` +
+    `<div style="font-size:12.5px;font-weight:600">${esc(title)}</div>` +
+    `<div style="font-size:11.5px;color:var(--text-3);font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace">${percent}%</div></div>` +
+    `<div style="height:5px;border-radius:99px;background:var(--panel-3);overflow:hidden;margin-bottom:14px">` +
+    `<div style="height:100%;border-radius:99px;width:${percent}%;transition:width .5s cubic-bezier(.2,.8,.2,1);background-color:var(--accent);background-image:repeating-linear-gradient(115deg,rgba(255,255,255,.22) 0 8px,rgba(255,255,255,0) 8px 16px);background-size:28px 100%;animation:flow .7s linear infinite"></div></div>` +
+    (tiles
+      ? `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">` +
+        STEP_INFO.map(([key, label, sub], i) => {
+          const on = i < activeIdx || key === active;
+          const t = key === "speed" ? (speedOn ? "Скорость" : "Пинг") : label;
+          const s = key === "speed" ? (speedOn ? "download" : "RTT") : sub;
+          return `<div style="padding:9px 12px;border-radius:10px;border:1px solid ${on ? "var(--accent)" : "var(--line-2)"};background:${on ? "var(--sel)" : "transparent"}">` +
+            `<div style="font-size:12px;font-weight:600;color:${on ? "var(--accent)" : "var(--text)"}">${esc(t)}</div>` +
+            `<div style="font-size:11px;color:var(--text-3);margin-top:1px">${esc(note?.[key] ?? s)}</div></div>`;
+        }).join("") +
+        `</div>`
+      : "");
 }
 
 function wsStatus(text: string, spin = false): void {
@@ -1121,12 +1243,29 @@ const wsFilters = () => {
   return /^[A-Za-z]{2}(,[A-Za-z]{2})*$/.test(f) ? { country: f.toUpperCase() } : { node: f.toUpperCase() };
 };
 
+/** The design's scanning state: nav dot, spinner in Scan, red Stop, live subtitle. */
+function scoutBusy(on: boolean, msg?: string): void {
+  navDot("scan", on, true);
+  const scan = $("wsScanBtn");
+  if (scan) {
+    scan.querySelector(".spinner")?.remove();
+    if (on) scan.insertAdjacentHTML("afterbegin", '<span class="spinner" style="margin-right:7px"></span>');
+  }
+  const stop = $("wsStopBtn");
+  if (stop) {
+    stop.style.borderColor = on ? "var(--err)" : "var(--line-2)";
+    stop.style.color = on ? "var(--err)" : "var(--text-3)";
+  }
+  setText("scoutSub", `warpscout · ${msg ?? (on ? "сканирование…" : "сканер endpoint'ов")}`);
+}
+
 async function onScan(): Promise<void> {
   if (wsAbort) return;
   wsAbort = new AbortController();
   $("wsResults")?.remove();
   $("wsFindResult")?.remove(); // the design clears `find` when a scan starts
   status("scan", "");
+  scoutBusy(true, "проверка портов…");
   scanProgress("Проверка доступных портов…", 8, "ports");
   const note: Partial<Record<ScanStep, string>> = {};
   try {
@@ -1162,6 +1301,7 @@ async function onScan(): Promise<void> {
     wsStatus(wsAbort?.signal.aborted ? "Остановлено." : `⚠ ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     wsAbort = null;
+    scoutBusy(false);
   }
 }
 
@@ -1188,7 +1328,12 @@ function tileState(kind: "junk" | "sni", label: string, busy: boolean): void {
 async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
   if (wsAbort) return;
   wsAbort = new AbortController();
-  if (kind !== "import") tileState(kind, "измеряю…", true);
+  if (kind !== "import") {
+    tileState(kind, "измеряю…", true);
+    // design: the scan progress bar (no phase tiles) runs during junk/sni too
+    $("wsResults")?.remove();
+    scanProgress(kind === "junk" ? "find-junk: подбор параметров обфускации…" : "find-sni: перебор SNI…", 66, "tunnels", undefined, false);
+  }
   wsStatus(kind === "import" ? "Импорт конфига…" : kind === "junk" ? "Подбор junk-параметров…" : "Поиск SNI…", true);
   const proto = (groupValue("wsProto") || "awg") as ws.Proto;
   try {
@@ -1241,6 +1386,7 @@ async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
     wsStatus(wsAbort?.signal.aborted ? "Остановлено." : `⚠ ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     wsAbort = null;
+    $("wsProgress")?.remove();
   }
 }
 
@@ -1262,13 +1408,9 @@ function setDpiOn(on: boolean): void {
     }
   }
 
+  // the design keeps this button a solid accent fill in BOTH states; only the label changes
   const btn = $("dpiStartBtn");
-  if (btn) {
-    btn.textContent = on ? "Перезапустить" : "Включить DPI-обход";
-    btn.style.background = on ? "transparent" : "var(--accent)";
-    btn.style.color = on ? "var(--accent)" : "var(--on-accent)";
-    btn.style.border = "1px solid var(--accent)";
-  }
+  if (btn) btn.textContent = on ? "Перезапустить" : "Включить DPI-обход";
 
   const nav = document.querySelector<HTMLElement>('.nav-item[data-view="dpi"]');
   nav?.querySelector("[data-dpi-dot]")?.remove();
@@ -1315,8 +1457,26 @@ function importStatus(text: string, ok = false): void {
   bar.textContent = text;
 }
 
+/** The design's distinct Amnezia Premium warning card, below the code card. */
+function importPremiumCard(show: boolean): void {
+  $("importPremium")?.remove();
+  if (!show) return;
+  const card = $("importInput")?.closest<HTMLElement>('[style*="code-line"]');
+  const host = card?.parentElement;
+  if (!host) return;
+  const el = document.createElement("div");
+  el.id = "importPremium";
+  el.style.cssText = "display:flex;align-items:flex-start;gap:11px;margin-top:13px;padding:13px 15px;border-radius:13px;border:1px solid var(--warn);background:var(--panel);box-shadow:var(--shadow-sm);max-width:640px";
+  el.innerHTML =
+    `<div style="flex:0 0 18px;width:18px;height:18px;border-radius:99px;background:var(--warn);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700;line-height:1">!</div>` +
+    `<div><div style="font-size:12.5px;font-weight:650;letter-spacing:-.012em">Это ссылка Amnezia Premium</div>` +
+    `<div style="font-size:11.5px;color:var(--text-2);line-height:1.5;margin-top:3px">Она содержит доступ к API подписки, а не готовый конфиг. Получите <span style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace">.conf</span> в приложении AmneziaVPN и вставьте его сюда.</div></div>`;
+  host.insertBefore(el, card!.nextSibling);
+}
+
 async function onImport(toClash: boolean): Promise<void> {
   const input = inputValue("importInput").trim();
+  importPremiumCard(false);
   if (!input) {
     importStatus("Вставьте конфиг или ссылку vpn://");
     return;
@@ -1329,7 +1489,9 @@ async function onImport(toClash: boolean): Promise<void> {
     pushHistory(type, "", output);
     setResult(output, type, toClash ? "импорт → Clash" : "импорт");
   } catch (err) {
+    const premium = (err as { premium?: boolean })?.premium === true;
     importStatus(err instanceof Error ? err.message : String(err));
+    importPremiumCard(premium);
   }
 }
 
@@ -1338,11 +1500,22 @@ async function onImport(toClash: boolean): Promise<void> {
 const HISTORY_COLS =
   "display:grid;grid-template-columns:minmax(70px,104px) minmax(0,172px) minmax(0,96px) minmax(64px,1fr) 168px";
 
+/** Russian pluralisation for the saved-config counts the design shows. */
+function savedWord(n: number): string {
+  const d = n % 10, dd = n % 100;
+  if (d === 1 && dd !== 11) return "сохранённый конфиг";
+  if (d >= 2 && d <= 4 && (dd < 10 || dd >= 20)) return "сохранённых конфига";
+  return "сохранённых конфигов";
+}
+
 function renderHistory(): void {
   const list = loadHistory();
   setText("historyCount", String(list.length));
+  setText("resultEmptyCount", `${list.length} ${savedWord(list.length)}`);
   const box = $("historyList");
   if (!box) return;
+  // «Очистить всё» only exists when there is history (design sc-if hasHistory)
+  show($("historyClearBtn"), list.length > 0);
   // drop the previous render (and the mock rows the design ships with); the
   // header row is the design's own and stays, hidden when there is nothing to head
   for (const row of [...box.children]) {
@@ -1351,19 +1524,22 @@ function renderHistory(): void {
   const head = $("historyHead");
   if (head) head.style.display = list.length ? "grid" : "none";
   if (!list.length) {
+    // the design renders a self-contained card INSTEAD of the table panel
+    box.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-sm),inset 0 1px 0 var(--hl);padding:22px 24px 24px;max-width:560px";
     const empty = document.createElement("div");
     empty.dataset.hist = "1";
-    empty.style.cssText = "text-align:center;padding:46px 24px";
     empty.innerHTML =
-      `<b style="display:block;font-size:14px;margin-bottom:6px">История пуста</b>` +
-      `<div style="font-size:12px;color:var(--text-3);line-height:1.5;max-width:430px;margin:0 auto 16px">` +
+      `<div style="font-size:15px;font-weight:680;letter-spacing:-.024em">История пуста</div>` +
+      `<div style="font-size:12.5px;color:var(--text-2);margin-top:7px;line-height:1.55">` +
       `Сгенерированные и импортированные конфиги сохраняются здесь автоматически — до 20 последних, ` +
       `с названием, тегом и быстрым переключением.</div>` +
-      `<div id="historyFirst" style="display:inline-block;padding:9px 16px;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:12.5px;font-weight:600;cursor:pointer">Сгенерировать первый</div>`;
+      `<div id="historyFirst" class="scp4" style="margin-top:16px;display:inline-block;padding:8px 15px;border-radius:10px;background:var(--accent);color:var(--on-accent);box-shadow:inset 0 -1px 0 rgba(0,0,0,.14);font-size:12.5px;font-weight:650;cursor:pointer">Сгенерировать первый</div>`;
     box.appendChild(empty);
     onClick("historyFirst", () => showView("generate"));
     return;
   }
+  // restore the table-panel look when there are rows
+  box.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-sm),inset 0 1px 0 var(--hl);overflow:hidden;max-width:1000px";
   for (const e of list) {
     const d = new Date(e.ts);
     const date = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} · ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -1412,7 +1588,12 @@ function renderHistory(): void {
 }
 
 function pushHistory(configType: string, endpoint: string, config: string): void {
-  activeConfigId = addHistory({ configType, endpoint, config })[0]?.id ?? 0;
+  // design: a new entry is never blank — name it from the field or type+time
+  const typeTitle = configType === "clash" ? "Clash" : configType === "wireguard" ? "WireGuard" : "AmneziaWG";
+  const now = new Date();
+  const stamp = `${String(now.getDate()).padStart(2, "0")}.${String(now.getMonth() + 1).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const tag = inputValue("configName").trim() || `${typeTitle} · ${stamp}`;
+  activeConfigId = addHistory({ configType, endpoint, config, tag })[0]?.id ?? 0;
   renderHistory();
 }
 
@@ -1655,6 +1836,8 @@ function saveSettings(): void {
     i1Preset: selectValue("i1Preset"), archBrowser: groupValue("archBrowser"),
     configName: inputValue("configName"), archHost: inputValue("archHost"),
     mtu: inputValue("mtuInput"), keepalive: inputValue("keepaliveInput"), ipv6: advState.ipv6,
+    archJunk: inputValue("archJunk"), i1Domain: inputValue("i1Domain"),
+    dpiPorts: inputValue("dpiPorts"), dpiTtl: inputValue("dpiTtl"), dpiQuic: toggleValue("dpiQuic"),
     splitTargets: selectedSplit(),
   });
 }
@@ -1671,6 +1854,11 @@ function loadSettings(): void {
   if (typeof s.archHost === "string") setInput("archHost", s.archHost);
   if (typeof s.mtu === "string") setInput("mtuInput", s.mtu);
   if (typeof s.keepalive === "string") setInput("keepaliveInput", s.keepalive);
+  if (typeof s.archJunk === "string") setInput("archJunk", s.archJunk);
+  if (typeof s.i1Domain === "string") setInput("i1Domain", s.i1Domain);
+  if (typeof s.dpiPorts === "string") setInput("dpiPorts", s.dpiPorts);
+  if (typeof s.dpiTtl === "string") setInput("dpiTtl", s.dpiTtl);
+  if (s.dpiQuic === true) setToggle("dpiQuic", true);
   advState.ipv6 = s.ipv6 === true;
   if (Array.isArray(s.splitTargets)) setSplit(s.splitTargets as string[]);
   updateAwgVersion();
@@ -1688,9 +1876,14 @@ function init(): void {
   buildControls();
   buildSplitPicker();
 
-  applyTheme(loadJson<string>("warpgen.theme", "dark") === "dark");
+  applyTheme(loadJson<string>("warpgen.theme", "light") === "dark");
   setText("siteVersion", `v${__APP_VERSION__}`);
-  setText("platformChip", currentOs() === "windows" ? "Windows" : currentOs() === "macos" ? "macOS" : "Linux");
+  const osLabel = currentOs() === "windows" ? "Windows" : currentOs() === "macos" ? "macOS" : "Linux";
+  setText("platformChip", osLabel);
+  // clients header subtitle is the same live OS label in the design
+  const clientsBar = screenEl("clients").querySelector<HTMLElement>('[style*="position: sticky"]');
+  const clientsSub = clientsBar?.children[0]?.children[1] as HTMLElement | undefined;
+  if (clientsSub) clientsSub.textContent = `загрузки для ${osLabel}`;
 
   for (const g of ["configType", "obfsProfile", "endpointPort", "splitMode", "archProfile", "archIntensity", "archBrowser", "wsProto"]) {
     bindGroup(g, () => {
@@ -1698,8 +1891,14 @@ function init(): void {
       saveSettings();
     });
   }
-  for (const s of ["endpointIp", "dnsServer", "i1Preset"]) bindSelect(s, saveSettings);
-  for (const t of ["archRouter", "wsSpeed", "wsTunPing", "dpiQuic"]) bindToggle(t);
+  for (const s of ["endpointIp", "dnsServer"]) bindSelect(s, saveSettings);
+  bindSelect("i1Preset", () => { updateVisibility(); saveSettings(); }); // custom-domain row toggles on this
+  onClick("scoutLink", () => showView("scan"));
+  $("licenseKey")?.addEventListener("input", () => setAccount(inputValue("licenseKey").trim().length > 0));
+  $("i1Domain")?.addEventListener("input", saveSettings);
+  for (const t of ["archRouter", "wsSpeed", "wsTunPing"]) bindToggle(t);
+  bindToggle("dpiQuic", saveSettings);
+  for (const id of ["dpiPorts", "dpiTtl"]) $(id)?.addEventListener("input", saveSettings);
   bindSlider("archJunk");
   bindSlider("bfThreads");
 

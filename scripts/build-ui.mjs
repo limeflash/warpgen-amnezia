@@ -106,7 +106,7 @@ const STATE_CSS = `
     .scpk:hover { background: rgba(255,255,255,.06) !important; color: var(--code-fg) !important; }`;
 
 const out = `<!DOCTYPE html>
-<html lang="ru" data-theme="dark">
+<html lang="ru" data-theme="light">
 
 <head>
   <meta charset="UTF-8" />

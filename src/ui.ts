@@ -209,9 +209,11 @@ export function toggleValue(id: string): boolean {
   return $(id)?.dataset.toggle === "on";
 }
 
-/** The design draws the checkbox as a 16px rounded square; only it changes. */
+/** The design draws the checkbox as a 15–16px rounded square; only it changes. */
 function toggleBox(el: HTMLElement): HTMLElement | null {
-  return el.querySelector<HTMLElement>('[style*="width: 16px"][style*="height: 16px"]');
+  return el.querySelector<HTMLElement>(
+    '[style*="width: 16px"][style*="height: 16px"], [style*="width: 15px"][style*="height: 15px"]',
+  );
 }
 
 /**

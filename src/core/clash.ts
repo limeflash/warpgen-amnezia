@@ -253,10 +253,9 @@ export async function decodeAmneziaVpnLink(link: string): Promise<string> {
     root?.service_type === "amnezia-premium" ||
     root?.api_config?.service_type === "amnezia-premium";
   if (isPremium) {
-    throw new Error(
-      "Это ссылка Amnezia Premium — она содержит доступ к API подписки, а не готовый конфиг. " +
-        "Получите .conf в приложении AmneziaVPN и вставьте его сюда.",
-    );
+    const err = new Error("Ссылка Amnezia Premium — конфиг не извлекается");
+    (err as Error & { premium?: boolean }).premium = true;
+    throw err;
   }
 
   const container = Array.isArray(root?.containers) ? root.containers[0] : null;
