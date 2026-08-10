@@ -4,6 +4,8 @@
 // Also imports a WireGuard/AmneziaWG `.conf` or an Amnezia `vpn://` link.
 
 import { normalizeInterfaceAddress } from "./ip";
+import { clashDnsServers } from "./dns";
+import { domainsForServices } from "./service-catalog";
 
 export const WARP_PUBLIC_KEY = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=";
 
@@ -122,19 +124,30 @@ export function buildClashYaml(profile: ClashProfile): string {
 export interface ClashBuildOpts {
   name?: string;
   dnsNameservers?: string[];
+  /** Encrypted-DNS preset id (see DOH_PRESETS) — used when dnsNameservers is unset. */
+  dohPreset?: string;
   cdnKeys?: string[];
+  /**
+   * Service ids from the catalog (service-catalog.ts) to route through the
+   * tunnel. Their domains become DOMAIN-SUFFIX rules — no DNS resolution
+   * needed, unlike split tunneling.
+   */
+  services?: string[];
 }
 
 /** Single-node Clash profile with the default routing preset (blocked → WARP, ru → direct). */
 export function clashFromNode(node: ClashNode, opts: ClashBuildOpts = {}): string {
   const cdnKeys = opts.cdnKeys?.length ? opts.cdnKeys : ["cloudflare"];
   const cdnCidrs = [...new Set(cdnKeys.flatMap((k) => CDN_CIDRS[k] ?? []))];
+  const nameservers = opts.dnsNameservers ?? (opts.dohPreset ? clashDnsServers(opts.dohPreset) : undefined);
+  // Selected catalog services win over the built-in shortlist.
+  const proxyDomains = opts.services?.length ? domainsForServices(opts.services) : CLASH_DOMAIN_PRESETS.blocked_sites;
   return buildClashYaml({
     name: opts.name || node.name,
     nodes: [{ ...node, address: normalizeInterfaceAddress(node.address) }],
-    dns: { mode: "fake-ip", nameservers: opts.dnsNameservers },
+    dns: { mode: "fake-ip", nameservers },
     routing: {
-      proxyDomains: CLASH_DOMAIN_PRESETS.blocked_sites,
+      proxyDomains,
       ruDirectDomains: CLASH_DOMAIN_PRESETS.ru_direct,
       cdnCidrs,
     },

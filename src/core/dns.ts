@@ -1,9 +1,47 @@
-import { httpFetch } from "./http";
-import { isIP } from "./ip";
-import { DNS_SERVERS } from "./dns-servers";
+import { httpFetch } from "./http.ts";
+import { isIP } from "./ip.ts";
+import { DNS_SERVERS } from "./dns-servers.ts";
 
 export { DNS_SERVERS };
 export const DEFAULT_DNS_ID = "malw_link";
+
+/**
+ * Encrypted-DNS presets for Clash/Mihomo (DoH/DoT), with the IP + SNI pairs
+ * verified against live servers upstream (hoaxisr/awg-manager, MIT).
+ *
+ * Gotchas — do NOT "fix" these from memory:
+ *  - Yandex serves DoH on the same host as DoT: `common.dot.dns.yandex.net`.
+ *    The plausible-looking `common.dns.yandex.net` does not resolve and is not
+ *    in the certificate.
+ *  - Cloudflare picks the filtering profile by SNI too: 1.1.1.1 with
+ *    `family.cloudflare-dns.com` already filters content. The clean pair is
+ *    `cloudflare-dns.com` (or `one.one.one.one`).
+ *  - AdGuard's legacy `dns-unfiltered.adguard.com` presents a `*.adguard.com`
+ *    certificate with no IP in the SAN — unusable.
+ *  - 9.9.9.9 and 94.140.14.14 are the providers' default *filtering* profiles
+ *    (malware / ads respectively).
+ */
+export interface DohPreset {
+  id: string;
+  label: string;
+  ip: string;
+  sni: string;
+}
+
+export const DOH_PRESETS: readonly DohPreset[] = [
+  { id: "cloudflare", label: "Cloudflare", ip: "1.1.1.1", sni: "cloudflare-dns.com" },
+  { id: "google", label: "Google", ip: "8.8.8.8", sni: "dns.google" },
+  { id: "quad9", label: "Quad9", ip: "9.9.9.9", sni: "dns.quad9.net" },
+  { id: "adguard", label: "AdGuard", ip: "94.140.14.14", sni: "dns.adguard-dns.com" },
+  { id: "yandex", label: "Яндекс", ip: "77.88.8.8", sni: "common.dot.dns.yandex.net" },
+];
+
+/** Clash/Mihomo nameserver entries for a preset: DoH first, DoT as the second. */
+export function clashDnsServers(presetId: string): string[] {
+  const p = DOH_PRESETS.find((x) => x.id === presetId);
+  if (!p) return ["https://cloudflare-dns.com/dns-query", "tls://one.one.one.one"];
+  return [`https://${p.sni}/dns-query`, `tls://${p.sni}`];
+}
 
 /** The `DNS = ...` line for a server preset (falls back to Cloudflare). */
 export function dnsLine(dnsId: string): string {
