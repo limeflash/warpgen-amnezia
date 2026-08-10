@@ -719,7 +719,16 @@ function renderHistory(): void {
     if (!row.textContent?.includes("ENDPOINT")) row.remove();
   }
   if (!list.length) {
-    box.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-3);font-size:12.5px">История пуста</div>`;
+    const empty = document.createElement("div");
+    empty.style.cssText = "text-align:center;padding:46px 24px";
+    empty.innerHTML =
+      `<b style="display:block;font-size:14px;margin-bottom:6px">История пуста</b>` +
+      `<div style="font-size:12px;color:var(--text-3);line-height:1.5;max-width:430px;margin:0 auto 16px">` +
+      `Сгенерированные и импортированные конфиги сохраняются здесь автоматически — до 20 последних, ` +
+      `с названием, тегом и быстрым переключением.</div>` +
+      `<div id="historyFirst" style="display:inline-block;padding:9px 16px;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:12.5px;font-weight:600;cursor:pointer">Сгенерировать первый</div>`;
+    box.appendChild(empty);
+    onClick("historyFirst", () => showView("generate"));
     return;
   }
   for (const e of list) {
