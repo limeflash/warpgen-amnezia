@@ -1178,7 +1178,13 @@ const STEP_INFO: Array<[ScanStep, string, string]> = [
   ["speed", "Скорость", "download"],
 ];
 
-function scanProgress(title: string, percent: number, active: ScanStep | null, note?: Partial<Record<ScanStep, string>>, tiles = true): void {
+/**
+ * Progress card. `percent === null` renders an INDETERMINATE bar (full-width
+ * animated stripe, no number) for long operations with no known duration —
+ * find-junk/find-sni and first-run account registration, so it never looks
+ * frozen at a made-up percentage.
+ */
+function scanProgress(title: string, percent: number | null, active: ScanStep | null, note?: Partial<Record<ScanStep, string>>, tiles = true): void {
   const box = ensureBox("wsProgress", hostCard("scan").parentElement ?? screenEl("scan"));
   placeAfterCard("scan", box);
   // design: 16px radius, shadow-sm, 18px 20px padding, 16px margin-bottom
@@ -1187,12 +1193,13 @@ function scanProgress(title: string, percent: number, active: ScanStep | null, n
   const idx = (s: ScanStep) => STEP_INFO.findIndex(([k]) => k === s);
   const activeIdx = active ? idx(active) : STEP_INFO.length;
   const speedOn = toggleValue("wsSpeed");
+  const indet = percent === null;
   box.innerHTML =
     `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:13px">` +
     `<div style="font-size:12.5px;font-weight:600">${esc(title)}</div>` +
-    `<div style="font-size:11.5px;color:var(--text-3);font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace">${percent}%</div></div>` +
+    (indet ? "" : `<div style="font-size:11.5px;color:var(--text-3);font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace">${percent}%</div>`) + `</div>` +
     `<div style="height:5px;border-radius:99px;background:var(--panel-3);overflow:hidden;margin-bottom:14px">` +
-    `<div style="height:100%;border-radius:99px;width:${percent}%;transition:width .5s cubic-bezier(.2,.8,.2,1);background-color:var(--accent);background-image:repeating-linear-gradient(115deg,rgba(255,255,255,.22) 0 8px,rgba(255,255,255,0) 8px 16px);background-size:28px 100%;animation:flow .7s linear infinite"></div></div>` +
+    `<div style="height:100%;border-radius:99px;width:${indet ? "100%" : `${percent}%`};transition:width .5s cubic-bezier(.2,.8,.2,1);${indet ? "opacity:.85;" : ""}background-color:var(--accent);background-image:repeating-linear-gradient(115deg,rgba(255,255,255,.22) 0 8px,rgba(255,255,255,0) 8px 16px);background-size:28px 100%;animation:flow .7s linear infinite"></div></div>` +
     (tiles
       ? `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">` +
         STEP_INFO.map(([key, label, sub], i) => {
@@ -1415,22 +1422,31 @@ function tileState(kind: "junk" | "sni", label: string, busy: boolean): void {
 async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
   if (wsAbort) return;
   wsAbort = new AbortController();
+  const baseTitle = kind === "junk" ? "find-junk: подбор параметров обфускации…" : kind === "sni" ? "find-sni: перебор SNI…" : "Импорт конфига…";
+  // stream warpscout's own output so a long/first-run operation never looks frozen
+  const onLine = (line: string): void => {
+    const t = line.trim();
+    if (!t) return;
+    if (kind !== "import") scanProgress(`${baseTitle}  ·  ${t.slice(0, 80)}`, null, null, undefined, false);
+    else wsStatus(t, true);
+  };
   if (kind !== "import") {
     tileState(kind, "измеряю…", true);
-    // design: the scan progress bar (no phase tiles) runs during junk/sni too
     $("wsResults")?.remove();
-    scanProgress(kind === "junk" ? "find-junk: подбор параметров обфускации…" : "find-sni: перебор SNI…", 66, "tunnels", undefined, false);
+    // indeterminate bar (null percent): the design's flow stripe, no fake number
+    scanProgress(baseTitle, null, null, undefined, false);
+    scoutBusy(true, kind === "junk" ? "find-junk…" : "find-sni…");
   }
   wsStatus(kind === "import" ? "Импорт конфига…" : kind === "junk" ? "Подбор junk-параметров…" : "Поиск SNI…", true);
   const proto = (groupValue("wsProto") || "awg") as ws.Proto;
   try {
     if (kind === "import") {
-      const { config, endpoint } = await ws.importConfig({ proto, ...wsFilters(), signal: wsAbort.signal });
+      const { config, endpoint } = await ws.importConfig({ proto, ...wsFilters(), onLine, signal: wsAbort.signal });
       const kind = proto === "wg" ? "wireguard" : "amnezia";
       pushHistory(kind, endpoint ?? "", config);
       setResult(config, kind, `warpscout${endpoint ? ` · ${endpoint}` : ""}`);
     } else if (kind === "junk") {
-      const out = await ws.findJunk({ proto, signal: wsAbort.signal });
+      const out = await ws.findJunk({ proto, onLine, signal: wsAbort.signal });
       const m = out.match(/jc\s*=?\s*(\d+).*?jmin\s*=?\s*(\d+).*?jmax\s*=?\s*(\d+)/is);
       if (m) {
         architect = { junk: { jc: +m[1], jmin: +m[2], jmax: +m[3] }, profile: architect?.profile ?? "quic_initial", obfuscation: architect?.obfuscation ?? {} };
@@ -1449,7 +1465,7 @@ async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
         wsStatus("find-junk завершён.");
       }
     } else {
-      const out = await ws.findSni({ proto, signal: wsAbort.signal });
+      const out = await ws.findSni({ proto, onLine, signal: wsAbort.signal });
       const host = out.match(/\b([a-z0-9-]+\.[a-z]{2,}(?:\.[a-z]{2,})?)\b/i)?.[1];
       if (host) {
         setInput("archHost", host);
@@ -1474,6 +1490,7 @@ async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
   } finally {
     wsAbort = null;
     $("wsProgress")?.remove();
+    if (kind !== "import") scoutBusy(false);
   }
 }
 
