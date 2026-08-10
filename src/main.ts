@@ -7,6 +7,8 @@ import { httpFetch } from "./core/http";
 import * as ws from "./core/warpscout";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { downloadDir, join } from "@tauri-apps/api/path";
+import { qrDataUrl } from "./core/qr";
+import { clashFromNode, parseImportedConf, normalizeImportedConfig } from "./core/clash";
 
 // ─────────────── DOM helpers ───────────────
 function $<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -21,7 +23,7 @@ const setText = (id: string, text: string): void => {
 const show = (el: HTMLElement, on: boolean) => el.classList.toggle("hidden", !on);
 const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] || c);
 
-let lastConfigType: "amnezia" | "wireguard" = "amnezia";
+let lastConfigType: "amnezia" | "wireguard" | "clash" = "amnezia";
 
 // ─────────────── Build dynamic controls ───────────────
 function buildI1Select(): void {
@@ -73,7 +75,7 @@ function setSplitTargets(keys: string[]): void {
 
 // ─────────────── Visibility toggles ───────────────
 function updateConfigTypeVisibility(): void {
-  const isAmnezia = val("configType") !== "wireguard";
+  const isAmnezia = val("configType") === "amnezia";
   document.querySelectorAll<HTMLElement>(".amnezia-only").forEach((el) => show(el, isAmnezia));
   $("connectionGrid").style.gridTemplateColumns = isAmnezia ? "" : "1fr";
 }
@@ -157,7 +159,12 @@ function resetDefaults(): void {
 
 async function downloadConfig(): Promise<void> {
   const text = $<HTMLTextAreaElement>("configOutput").value;
-  const name = lastConfigType === "wireguard" ? "WARP_WireGuard.conf" : "WARP_AmneziaWG.conf";
+  const name =
+    lastConfigType === "clash"
+      ? "WARP_Clash.yaml"
+      : lastConfigType === "wireguard"
+        ? "WARP_WireGuard.conf"
+        : "WARP_AmneziaWG.conf";
   // Write straight to Downloads via the fs plugin — reliable on every platform
   // (WKWebView on macOS doesn't honour <a download> for blobs).
   try {
@@ -182,6 +189,53 @@ async function copyText(text: string, btn: HTMLButtonElement, done: string, norm
     setTimeout(() => (btn.textContent = normal), 2000);
   } catch {
     btn.textContent = "Ошибка :(";
+  }
+}
+
+function toggleQr(): void {
+  const text = $<HTMLTextAreaElement>("configOutput").value;
+  if (!text) return;
+  const wrap = $("qrWrap");
+  if (!wrap.classList.contains("hidden")) {
+    show(wrap, false);
+    return;
+  }
+  try {
+    $<HTMLImageElement>("qrImg").src = qrDataUrl(text);
+    show(wrap, true);
+  } catch {
+    setText("resultStatus", "Конфиг слишком большой для QR — используйте «Скачать».");
+  }
+}
+
+// Import a .conf / vpn:// link — either convert to Clash YAML or just unpack it.
+async function onImport(toClash: boolean): Promise<void> {
+  const input = val("importInput").trim();
+  if (!input) return;
+  const btn = $<HTMLButtonElement>(toClash ? "importClashBtn" : "importRawBtn");
+  btn.disabled = true;
+  try {
+    const raw = await normalizeImportedConfig(input);
+    let output: string;
+    if (toClash) {
+      output = clashFromNode(parseImportedConf(raw));
+      lastConfigType = "clash";
+    } else {
+      output = raw;
+      lastConfigType = /(\bJc\s*=|\bI1\s*=)/.test(raw) ? "amnezia" : "wireguard";
+    }
+    $<HTMLTextAreaElement>("configOutput").value = output;
+    $("accountBadge").textContent = "import";
+    $("accountBadge").className = "badge badge-free";
+    setText("resultStatus", toClash ? "Импортировано → Clash YAML" : "Распаковано в .conf");
+    setText("importStatus", "✓ Готово.");
+    show($("qrWrap"), false);
+    show($("resultCard"), true);
+    $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    setText("importStatus", `Ошибка: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -456,6 +510,9 @@ function init(): void {
   $("copyBtn").addEventListener("click", (e) =>
     copyText($<HTMLTextAreaElement>("configOutput").value, e.currentTarget as HTMLButtonElement, "✓ Скопировано!", "⎘ Копировать"),
   );
+  $("qrBtn").addEventListener("click", toggleQr);
+  $("importClashBtn").addEventListener("click", () => onImport(true));
+  $("importRawBtn").addEventListener("click", () => onImport(false));
 
   $("configType").addEventListener("change", updateConfigTypeVisibility);
   $("splitMode").addEventListener("change", updateSplitVisibility);

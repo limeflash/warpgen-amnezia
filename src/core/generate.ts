@@ -4,8 +4,9 @@ import { resolveI1, DEFAULT_I1_KEY } from "./i1";
 import { dnsLine, dnsLineIPv4Only, dnsLineToCidrs, resolve4, DEFAULT_DNS_ID } from "./dns";
 import { normalizeSplitTargets, resolveSplitAllowedIPs } from "./split";
 import { isIP, normalizeInterfaceAddress } from "./ip";
+import { clashFromWarp, WARP_PUBLIC_KEY } from "./clash";
 
-export type ConfigType = "amnezia" | "wireguard";
+export type ConfigType = "amnezia" | "wireguard" | "clash";
 export type SplitMode = "full" | "selective";
 
 export interface GenerateOptions {
@@ -56,7 +57,8 @@ async function resolveHost(host: string): Promise<string> {
 }
 
 export async function generateConfig(opts: GenerateOptions): Promise<GenerateResult> {
-  const configType: ConfigType = opts.configType === "wireguard" ? "wireguard" : "amnezia";
+  const configType: ConfigType =
+    opts.configType === "wireguard" ? "wireguard" : opts.configType === "clash" ? "clash" : "amnezia";
   const isAmnezia = configType === "amnezia";
   const licenseKey = (opts.licenseKey ?? "").trim();
   const endpointPort = opts.endpointPort || "2408";
@@ -154,6 +156,29 @@ export async function generateConfig(opts: GenerateOptions): Promise<GenerateRes
     throw new GenerateError("Cloudflare не вернул корректный адрес интерфейса.");
   }
 
+  // Clash uses routing rules (not AllowedIPs) — emit YAML and return early.
+  if (configType === "clash") {
+    const config = clashFromWarp(
+      {
+        server: epIp,
+        port: Number(endpointPort) || 2408,
+        address: ipv4 || "172.16.0.2/32",
+        privateKey: priv,
+        publicKey: peerPub || WARP_PUBLIC_KEY,
+        reserved: decodeReserved(cfg.client_id),
+      },
+      { dnsNameservers: dnsId === "malw_link" ? ["https://dns.malw.link/dns-query"] : undefined },
+    );
+    return {
+      config,
+      accountType,
+      endpoint,
+      licenseError,
+      splitTunnel: { mode: "full", selectedTargets: [], resolvedAllowedIps: 0, unresolvedDomains: [] },
+      configType,
+    };
+  }
+
   // 4. AllowedIPs — full tunnel or resolved split routes.
   let allowedIpsLine = includeIpv6 ? "0.0.0.0/0, ::/0" : "0.0.0.0/0";
   const splitTunnel: SplitTunnelInfo = {
@@ -209,6 +234,18 @@ export async function generateConfig(opts: GenerateOptions): Promise<GenerateRes
   const config = [...interfaceLines, "", ...peerLines].join("\n");
 
   return { config, accountType, endpoint, licenseError, splitTunnel, configType };
+}
+
+/** Cloudflare `client_id` (base64, 3 bytes) → the Clash `reserved` triple. */
+function decodeReserved(clientId: unknown): number[] | null {
+  if (typeof clientId !== "string" || !clientId) return null;
+  try {
+    const bin = atob(clientId);
+    const bytes = Array.from(bin, (c) => c.charCodeAt(0));
+    return bytes.length >= 3 ? bytes.slice(0, 3) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Positive integer keepalive, or 25 by default; pass null to omit entirely. */

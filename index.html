@@ -151,6 +151,7 @@
       <select id="configType">
         <option value="amnezia" selected>AmneziaWG / AmneziaVPN (S/J/H/I1)</option>
         <option value="wireguard">WireGuard (vanilla)</option>
+        <option value="clash">Clash / Mihomo (.yaml)</option>
       </select>
       <div class="hint">Если на macOS Amnezia-формат нестабилен — попробуйте WireGuard (vanilla).</div>
     </div>
@@ -320,6 +321,17 @@
     </div>
   </div>
 
+  <!-- ── Import ── -->
+  <div class="card">
+    <div class="card-title">📥 Импорт конфига → Clash</div>
+    <textarea id="importInput" style="height:90px;" placeholder="Вставьте WireGuard/AmneziaWG .conf или ссылку vpn://…" spellcheck="false"></textarea>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn btn-sec" id="importClashBtn">Импортировать → Clash</button>
+      <button class="btn btn-sec" id="importRawBtn" style="flex:0.8;">Только распаковать</button>
+    </div>
+    <div class="status" id="importStatus"></div>
+  </div>
+
   <!-- ── Result ── -->
   <div class="card hidden" id="resultCard">
     <div class="result-header">
@@ -328,8 +340,12 @@
     </div>
     <textarea id="configOutput" readonly spellcheck="false"></textarea>
     <div class="btn-row" style="margin-top:14px;">
-      <button class="btn btn-ok" id="downloadBtn">⬇ Скачать .conf</button>
+      <button class="btn btn-ok" id="downloadBtn">⬇ Скачать</button>
       <button class="btn btn-sec" id="copyBtn">⎘ Копировать</button>
+      <button class="btn btn-sec" id="qrBtn">▦ QR</button>
+    </div>
+    <div id="qrWrap" class="hidden" style="text-align:center; margin-top:14px;">
+      <img id="qrImg" alt="QR" style="width:260px; height:260px; image-rendering:pixelated; background:#fff; border-radius:10px; padding:8px;" />
     </div>
     <div class="status" id="resultStatus"></div>
   </div>
