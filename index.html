@@ -6,714 +6,1134 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WarpGen</title>
   <style>
-    /* ═══ Design tokens (from the WarpGen design system) ═══ */
-    :root {
-      --bg: #e9eefb; --panel: #fcfdff; --panel-2: #f5f8ff; --panel-3: #eef3fe;
-      --line: #e1e8f8; --line-2: #ced9f2;
-      --text: #0a0c1b; --text-2: #5b6584; --text-3: #8a93ae;
-      --accent: #3f7dfb; --accent-2: #aac3fd; --accent-hi: #5d95ff; --on-accent: #fff;
-      --soft: #eaf0fe; --sel: #e4ecfe; --hover: #f0f4ff;
-      --ok: #0e8f5f; --warn: #b0780a; --err: #d64545;
-      --shadow: 0 1px 2px rgba(10,12,27,.05), 0 8px 20px -14px rgba(10,12,27,.22);
-      --shadow-sm: 0 1px 2px rgba(10,12,27,.05);
-      --code-bg: #fcfcfe; --code-fg: #2b2e3d; --code-line: #e2e6f2; --code-head: #f4f6fb;
-      --code-dim: #8c93aa; --tile-a: var(--accent); --tile-b: var(--accent-hi); --on-tile: #fff;
-      --bar: rgba(233,238,251,.86);
-      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    }
-    html[data-theme="dark"] {
-      --bg: #070709; --panel: #0d0d11; --panel-2: #111116; --panel-3: #17171e;
-      --line: #1e1e26; --line-2: #2c2c38;
-      --text: #f4f5f8; --text-2: #9b9daa; --text-3: #696c7c;
-      --accent: #5f8fff; --accent-2: #93b2ff; --accent-hi: #7ea6ff;
-      --soft: #121a30; --sel: #141c33; --hover: #131319;
-      --ok: #37d399; --warn: #e3b341; --err: #f4666a;
-      --shadow: 0 1px 2px rgba(0,0,0,.5), 0 12px 28px -18px rgba(0,0,0,.9);
-      --shadow-sm: 0 1px 2px rgba(0,0,0,.45);
-      --code-bg: #0a0a0e; --code-fg: #c3c7d4; --code-line: #1e1e26; --code-head: #101015;
-      --code-dim: #6b7086; --tile-a: #3a5fc4; --tile-b: #6a94ee;
-      --bar: rgba(7,7,9,.86);
-    }
 
-    html, body { margin: 0; padding: 0; height: 100%; }
-    * { box-sizing: border-box; }
-    body {
-      background: var(--bg); color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-      -webkit-font-smoothing: antialiased; font-size: 13.5px; line-height: 1.45;
-    }
-    input, select, textarea, button { font: inherit; color: inherit; }
-    button { border: 0; background: none; cursor: pointer; }
-    ::-webkit-scrollbar { width: 10px; height: 10px; }
-    ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    @keyframes rise { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: none; } }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+:root{
+  --bg:#e9eefb; --panel:#fcfdff; --panel-2:#f5f8ff; --panel-3:#eef3fe;
+  --line:#e1e8f8; --line-2:#ced9f2;
+  --text:#0a0c1b; --text-2:#5b6584; --text-3:#8a93ae;
+  --accent:var(--accent-user,#3f7dfb); --accent-2:#aac3fd; --on-accent:#ffffff;
+  --soft:#eaf0fe; --sel:#e4ecfe; --hover:#f0f4ff;
+  --ok:#0e8f5f; --warn:#b0780a; --err:#d64545;
+  --shadow:0 1px 2px rgba(10,12,27,.05),0 8px 20px -14px rgba(10,12,27,.22);
+  --shadow-sm:0 1px 2px rgba(10,12,27,.05);
+  --hl:rgba(255,255,255,.8); --accent-hi:#5d95ff; --glow:rgba(63,125,251,.42);
+  --code-bg:#fcfcfe; --code-fg:#2b2e3d; --code-line:#e2e6f2; --code-head:#f4f6fb; --code-dim:#8c93aa; --code-dim2:#5d6479; --code-gut:#b9bfd0;
+  --tk-sec:#6a3fd0; --tk-key:#1f5fd0; --tk-num:#b3541e; --tk-str:#0f7a5a; --tk-tag:#a53f8c; --tk-com:#8f95a8; --tk-op:#9aa0b4; --on-tile:#ffffff; --tile-a:var(--accent); --tile-b:var(--accent-hi);
+  --hero-bg:#0c0d16; --on-hero:#f3f6ff; --hero-line:rgba(243,246,255,.14); --bar:rgba(233,238,251,.86);
+}
+html[data-theme=dark]{
+  --bg:#070709; --panel:#0d0d11; --panel-2:#111116; --panel-3:#17171e;
+  --line:#1e1e26; --line-2:#2c2c38;
+  --text:#f4f5f8; --text-2:#9b9daa; --text-3:#696c7c;
+  --accent:#5f8fff; --accent-2:#93b2ff; --on-accent:#ffffff;
+  --soft:#121a30; --sel:#141c33; --hover:#131319;
+  --ok:#37d399; --warn:#e3b341; --err:#f4666a;
+  --shadow:0 1px 2px rgba(0,0,0,.5),0 12px 28px -18px rgba(0,0,0,.9);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.45);
+  --hl:rgba(255,255,255,.045); --accent-hi:#7ea6ff; --glow:rgba(95,143,255,.3);
+  --code-bg:#0a0a0e; --code-fg:#c3c7d4; --code-line:#1e1e26; --code-head:#101015; --code-dim:#6b7086; --code-dim2:#98a0b8; --code-gut:#3a3f52;
+  --tk-sec:#c4a6ff; --tk-key:#82aaff; --tk-num:#f0a763; --tk-str:#59d6a6; --tk-tag:#f28fd2; --tk-com:#6b7086; --tk-op:#7c8299; --on-tile:#ffffff; --tile-a:#3a5fc4; --tile-b:#6a94ee;
+  --hero-bg:#101018; --on-hero:#f4f5f8; --hero-line:rgba(244,245,248,.13); --bar:rgba(7,7,9,.86);
+}
+html,body{margin:0;padding:0;height:100%}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-size:13.5px;line-height:1.45;text-wrap:pretty}
+*{box-sizing:border-box}
+input,select,textarea,button{font:inherit;color:inherit}
+button{border:0;background:none;cursor:pointer}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--accent-2)}
+::selection{background:var(--accent-2);color:#071026}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:10px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--text-3);background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes rise{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+@keyframes flow{from{background-position:0 0,0 0}to{background-position:-28px 0,0 0}}
+@keyframes breathe{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.35)}}
+body{background:var(--bg)}
+img[data-logo=dark]{display:none!important}
+html[data-theme=dark] img[data-logo=dark]{display:block!important}
+html[data-theme=dark] img[data-logo=light]{display:none!important}
+input[type=range]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border-radius:99px;background:#fff;border:1px solid var(--line-2);box-shadow:0 2px 6px rgba(10,12,27,.25);cursor:grab}
 
-    /* ═══ Shell ═══ */
-    .app { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-    .titlebar {
-      flex: 0 0 46px; display: flex; align-items: center; justify-content: space-between;
-      padding: 0 14px; background: var(--bar); border-bottom: 1px solid var(--line);
-      backdrop-filter: blur(12px); user-select: none;
-    }
-    .tb-left, .tb-right { display: flex; align-items: center; gap: 10px; }
-    .dots { display: flex; gap: 8px; margin-right: 5px; }
-    .dots i { width: 12px; height: 12px; border-radius: 99px; display: block; }
-    .brand { font-size: 13.5px; font-weight: 650; letter-spacing: -.015em; }
-    .chip {
-      font-size: 10.5px; font-weight: 500; color: var(--text-3);
-      padding: 2px 7px; border: 1px solid var(--line); border-radius: 99px;
-    }
-    .theme-toggle { display: flex; align-items: center; gap: 7px; cursor: pointer; padding: 4px 8px; border-radius: 8px; }
-    .theme-toggle:hover { background: var(--hover); }
-    .theme-toggle span { font-size: 11.5px; color: var(--text-2); }
-    .switch-ui { position: relative; width: 38px; height: 19px; border-radius: 99px; background: var(--line-2); transition: background .18s; }
-    .switch-ui::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 99px; background: #fff; box-shadow: var(--shadow-sm); transition: transform .18s; }
-    html[data-theme="dark"] .switch-ui { background: var(--accent); }
-    html[data-theme="dark"] .switch-ui::after { transform: translateX(19px); }
-
-    .body { flex: 1; display: grid; grid-template-columns: 216px 1fr; min-height: 0; }
-
-    /* ═══ Sidebar ═══ */
-    .sidebar { border-right: 1px solid var(--line); background: var(--panel); padding: 12px 10px; overflow-y: auto; }
-    .nav-item {
-      width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-      border-radius: 9px; color: var(--text-2); font-size: 13px; font-weight: 500;
-      text-align: left; transition: background .14s, color .14s; margin-bottom: 2px;
-    }
-    .nav-item:hover { background: var(--hover); color: var(--text); }
-    .nav-item.active { background: var(--sel); color: var(--accent); font-weight: 600; }
-    .nav-item .ic { width: 17px; text-align: center; font-size: 14px; flex: 0 0 auto; }
-    .nav-item .badge-n {
-      margin-left: auto; font-size: 10.5px; font-weight: 600; min-width: 18px; text-align: center;
-      padding: 1px 5px; border-radius: 99px; background: var(--panel-3); color: var(--text-3);
-    }
-    .nav-item.active .badge-n { background: var(--accent); color: var(--on-accent); }
-
-    /* ═══ Main ═══ */
-    .main { display: flex; flex-direction: column; min-width: 0; }
-    .topbar {
-      flex: 0 0 auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-      padding: 14px 22px; border-bottom: 1px solid var(--line); background: var(--panel);
-    }
-    .acct { display: flex; align-items: center; gap: 9px; padding-right: 14px; border-right: 1px solid var(--line); }
-    .acct .tag { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; padding: 3px 9px; border-radius: 99px; background: var(--panel-3); color: var(--text-2); }
-    .acct .tag.plus { background: var(--accent); color: var(--on-accent); }
-    .acct small { color: var(--text-3); font-size: 11.5px; }
-    .titles h1 { margin: 0; font-size: 17px; font-weight: 660; letter-spacing: -.02em; }
-    .titles p { margin: 2px 0 0; font-size: 12px; color: var(--text-3); }
-    .topbar-actions { margin-left: auto; display: flex; gap: 8px; }
-
-    .scroll { flex: 1; overflow-y: auto; padding: 20px 22px 60px; }
-    .view { display: none; max-width: 900px; }
-    .view.active { display: block; animation: rise .22s ease; }
-
-    /* ═══ Cards / fields ═══ */
-    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 13px; box-shadow: var(--shadow-sm); margin-bottom: 14px; overflow: hidden; }
-    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 15px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
-    .card-head b { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
-    .card-head .meta { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
-    .card-body { padding: 15px; }
-
-    .field { margin-bottom: 15px; }
-    .field:last-child { margin-bottom: 0; }
-    .field > label { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
-    .field > label b { font-size: 12.5px; font-weight: 560; }
-    .field > label i { font-style: normal; font-size: 11px; color: var(--text-3); }
-
-    input[type=text], input[type=number], select, textarea {
-      width: 100%; padding: 9px 11px; background: var(--panel-2);
-      border: 1px solid var(--line); border-radius: 9px; color: var(--text);
-      font-size: 13px; outline: none; transition: border-color .15s, background .15s;
-    }
-    input:focus, select:focus, textarea:focus { border-color: var(--accent); background: var(--panel); }
-    input::placeholder, textarea::placeholder { color: var(--text-3); }
-    select { cursor: pointer; appearance: none; padding-right: 30px;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a93ae' stroke-width='2.2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: right 11px center; }
-    textarea { font-family: var(--mono); font-size: 12px; line-height: 1.6; resize: vertical; }
-
-    /* Segmented option cards */
-    .seg { display: grid; gap: 8px; grid-auto-flow: column; grid-auto-columns: 1fr; }
-    .seg.wrap { grid-auto-flow: row; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
-    .opt {
-      display: block; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px;
-      background: var(--panel-2); cursor: pointer; transition: border-color .14s, background .14s, transform .1s;
-    }
-    .opt:hover { border-color: var(--accent-2); }
-    .opt input { position: absolute; opacity: 0; pointer-events: none; }
-    .opt b { display: block; font-size: 12.5px; font-weight: 560; }
-    .opt i { display: block; font-style: normal; font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
-    .opt:has(input:checked) { border-color: var(--accent); background: var(--sel); }
-    .opt:has(input:checked) b { color: var(--accent); }
-
-    /* Toggle row */
-    .toggle { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); cursor: pointer; font-size: 12.5px; }
-    .toggle:hover { border-color: var(--accent-2); }
-    .toggle input { width: 15px; height: 15px; accent-color: var(--accent); flex: 0 0 auto; }
-    .toggles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
-
-    /* Buttons */
-    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 15px; border-radius: 9px; font-size: 12.5px; font-weight: 600; background: var(--accent); color: var(--on-accent); transition: opacity .15s, transform .08s; white-space: nowrap; }
-    .btn:hover:not(:disabled) { opacity: .92; }
-    .btn:active:not(:disabled) { transform: translateY(1px); }
-    .btn:disabled { opacity: .45; cursor: not-allowed; }
-    .btn.ghost { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
-    .btn.ghost:hover:not(:disabled) { background: var(--hover); border-color: var(--accent-2); }
-    .btn.danger { background: var(--panel-2); border: 1px solid var(--line); color: var(--err); }
-    .btn.danger:hover:not(:disabled) { border-color: var(--err); background: var(--hover); }
-    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-    .btn-row .btn { flex: 1; }
-    .chips { display: flex; gap: 7px; flex-wrap: wrap; }
-    .chip-btn { padding: 6px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); font-size: 11.5px; color: var(--text-2); }
-    .chip-btn:hover { background: var(--hover); border-color: var(--accent-2); color: var(--text); }
-
-    .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.35); border-top-color: currentColor; border-radius: 50%; animation: spin .7s linear infinite; }
+    /* ── app additions on top of the design system ── */
+    .view { display: none; }
+    .view.active { display: block; animation: fadeUp .24s cubic-bezier(.2,.8,.2,1); }
     .hidden { display: none !important; }
-
-    /* Architect tiles */
-    .tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
-    .hint { font-size: 11.5px; color: var(--text-3); line-height: 1.5; margin-top: 8px; }
-    .notice { display: flex; gap: 9px; padding: 10px 12px; border-radius: 10px; background: var(--soft); border: 1px solid var(--line); font-size: 11.5px; color: var(--text-2); line-height: 1.5; }
-    .notice .mark { flex: 0 0 auto; width: 17px; height: 17px; border-radius: 99px; display: grid; place-items: center; background: var(--warn); color: #fff; font-size: 11px; font-weight: 700; }
-    .status { font-size: 12px; color: var(--text-2); margin-top: 10px; min-height: 17px; }
-    .errbox { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); font-size: 12.5px; }
-
-    /* Range */
-    .range-row { display: flex; align-items: center; gap: 12px; }
-    input[type=range] { flex: 1; accent-color: var(--accent); }
-    .range-val { font-family: var(--mono); font-size: 12px; color: var(--accent); min-width: 22px; text-align: right; }
-
-    /* Code / output */
-    .code { background: var(--code-bg); border: 1px solid var(--code-line); border-radius: 11px; overflow: hidden; }
-    .code-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--code-head); border-bottom: 1px solid var(--code-line); font-family: var(--mono); font-size: 11px; color: var(--code-dim); }
-    .code textarea { border: 0; background: transparent; border-radius: 0; min-height: 300px; color: var(--code-fg); }
-    .code textarea:focus { background: transparent; }
-
-    /* Tables / lists */
-    .rows { border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
-    .row { display: grid; align-items: center; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
-    .row:last-child { border-bottom: 0; }
-    .row.head { background: var(--panel-2); font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
-    .row.pick { cursor: pointer; width: 100%; text-align: left; }
-    .row.pick:hover { background: var(--hover); }
-    .row.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); }
-    .mono { font-family: var(--mono); }
-    .muted { color: var(--text-3); }
-    .scroll-box { max-height: 380px; overflow-y: auto; }
-    .empty { text-align: center; padding: 44px 18px; color: var(--text-3); font-size: 12.5px; }
-    .empty b { display: block; color: var(--text-2); font-size: 13.5px; margin-bottom: 5px; }
-
-    .log { max-height: 170px; overflow-y: auto; background: var(--code-bg); border: 1px solid var(--code-line); border-radius: 10px; padding: 9px 11px; font-family: var(--mono); font-size: 11px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; margin-top: 11px; color: var(--code-fg); }
-    .progress { height: 5px; background: var(--panel-3); border-radius: 99px; overflow: hidden; margin-top: 10px; }
-    .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .25s; }
-
-    .grid2 { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
-    @media (max-width: 720px) { .grid2, .seg { grid-template-columns: 1fr; grid-auto-flow: row; } .body { grid-template-columns: 1fr; } .sidebar { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); } .nav-item { width: auto; white-space: nowrap; } }
-
-    /* Summary */
-    .sum { display: grid; gap: 1px; background: var(--line); border-radius: 11px; overflow: hidden; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
-    .sum div { background: var(--panel-2); padding: 10px 12px; }
-    .sum span { display: block; font-size: 10px; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
-    .sum b { font-size: 12.5px; font-weight: 600; }
-    .kv { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
-    .kv:last-child { border-bottom: 0; }
-    .kv span { color: var(--text-3); }
+    .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid currentcolor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
+    /* Native control layered over a design-drawn field, keeping its exact look */
+    .sel-wrap { position: relative; }
+    .sel-wrap > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+    .live-input { width: 100%; background: transparent; border: 0; outline: none; padding: 0; font: inherit; color: inherit; }
+    .live-input::placeholder { color: var(--text-3); }
   </style>
 </head>
 
 <body>
-  <div class="app">
-    <!-- ═══ Titlebar ═══ -->
-    <div class="titlebar">
-      <div class="tb-left">
-        <div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
-        <div class="brand">WarpGen</div>
-        <div class="chip" id="siteVersion">v…</div>
-        <div class="chip" id="platformChip">—</div>
-      </div>
-      <div class="tb-right">
-        <div class="theme-toggle" id="themeToggle" title="Переключить тему">
-          <span id="themeLabel">Тёмная тема</span>
-          <div class="switch-ui"></div>
-        </div>
-      </div>
+<div style="height: 100vh; display: flex; flex-direction: column; overflow: hidden;">
+
+  <div style="flex: 0 0 46px; display: flex; align-items: center; justify-content: space-between; padding: 0px 10px 0px 14px; background: var(--panel); border-bottom: 1px solid var(--line); position: relative; z-index: 60;">
+    <div style="display: flex; align-items: center; gap: 11px;">
+
+      <img src="/logo-solid.svg" alt="WarpGen" data-logo="light" style="height: 19px; width: auto; flex: 0 0 auto;">
+      <img src="/logo-gradient.svg" alt="WarpGen" data-logo="dark" style="height: 19px; width: auto; flex: 0 0 auto;">
+      <div style="font-size: 13.5px; font-weight: 650; letter-spacing: -0.015em;">WarpGen</div>
+      <div id="siteVersion" style="font-size: 10.5px; font-weight: 500; color: var(--text-3); padding: 2px 7px; border: 1px solid var(--line); border-radius: 99px; letter-spacing: 0.01em;">v1.4.2</div>
+      <div style="font-size: 10.5px; font-weight: 500; color: var(--text-3); letter-spacing: 0.02em;"><span id="platformChip">Windows</span></div>
     </div>
+    <div style="display: flex; align-items: center; gap: 4px;">
+      <div title="Переключить тему" class="scp0" id="themeToggle" style="height: 28px; display: flex; align-items: center; gap: 9px; padding: 0px 8px 0px 12px; border-radius: 99px; border: 1px solid var(--line); cursor: pointer; font-size: 11.5px; font-weight: 550; color: var(--text-2); user-select: none;">
+        <span id="themeLabel">Тёмная тема</span>
+        <div style="position: relative; width: 38px; height: 19px; border-radius: 99px; background: var(--line-2); padding: 2.5px; display: flex; transition: background 0.2s;">
+          <svg width="11" height="11" style="position: absolute; left: 4px; top: 4px; fill: none; stroke: rgba(255, 255, 255, 0.9); stroke-width: 1.25; stroke-linecap: round;">
+            <circle cx="5.5" cy="5.5" r="2.1" style="fill: rgba(255, 255, 255, 0.9); stroke: none;"></circle>
+            <line x1="5.5" y1="0.7" x2="5.5" y2="1.8"></line><line x1="5.5" y1="9.2" x2="5.5" y2="10.3"></line>
+            <line x1="0.7" y1="5.5" x2="1.8" y2="5.5"></line><line x1="9.2" y1="5.5" x2="10.3" y2="5.5"></line>
+            <line x1="2.2" y1="2.2" x2="3" y2="3"></line><line x1="8" y1="8" x2="8.8" y2="8.8"></line>
+            <line x1="8.8" y1="2.2" x2="8" y2="3"></line><line x1="3" y1="8" x2="2.2" y2="8.8"></line>
+          </svg>
+          <div style="position: absolute; right: 5px; top: 5.5px; width: 8px; height: 8px; border-radius: 99px; box-shadow: rgba(255, 255, 255, 0.9) -2.6px -0.6px 0px 0px inset;"></div>
+          <div style="position: relative; width: 14px; height: 14px; border-radius: 99px; background: rgb(255, 255, 255); box-shadow: rgba(10, 12, 27, 0.35) 0px 1px 2px; transform: translateX(0px); transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+        </div>
+      </div>
+      <div style="width: 10px;"></div>
 
-    <div class="body">
-      <!-- ═══ Sidebar ═══ -->
-      <aside class="sidebar">
-        <button class="nav-item active" data-view="generate"><span class="ic">⚡</span> Генератор</button>
-        <button class="nav-item" data-view="result"><span class="ic">📄</span> Результат</button>
-        <button class="nav-item" data-view="scan"><span class="ic">🛰</span> Поиск endpoint</button>
-        <button class="nav-item hidden" id="navDpi" data-view="dpi"><span class="ic">🛡</span> DPI-обход</button>
-        <button class="nav-item" data-view="import"><span class="ic">📥</span> Импорт</button>
-        <button class="nav-item" data-view="clients"><span class="ic">📦</span> Клиенты</button>
-        <button class="nav-item" data-view="history"><span class="ic">🕘</span> История <span class="badge-n" id="historyCount">0</span></button>
-        <button class="nav-item" data-view="tools"><span class="ic">🔑</span> Инструменты</button>
-        <button class="nav-item" data-view="analyzer"><span class="ic">🔬</span> Анализатор</button>
-      </aside>
+        <div style="display: flex; align-items: center; gap: 4px;">
 
-      <!-- ═══ Main ═══ -->
-      <main class="main">
-        <div class="topbar">
-          <div class="acct">
-            <span class="tag" id="accountBadge">Free</span>
-            <small id="accountNote">Бесплатный аккаунт Cloudflare</small>
-          </div>
-          <div class="titles">
-            <h1 id="viewTitle">Генератор</h1>
-            <p id="viewSub">Cloudflare WARP · AmneziaWG</p>
-          </div>
-          <div class="topbar-actions" id="topActions"></div>
+        <div style="display: flex; align-items: center; gap: 4px;">
+      <div class="scp1" style="width: 30px; height: 26px; display: grid; place-items: center; border-radius: 7px; cursor: pointer;"><div style="width: 10px; height: 1.5px; background: var(--text-2);"></div></div>
+      <div class="scp1" style="width: 30px; height: 26px; display: grid; place-items: center; border-radius: 7px; cursor: pointer;"><div style="width: 9px; height: 9px; border: 1.5px solid var(--text-2); border-radius: 2px;"></div></div>
+      <div class="scp2" style="width: 30px; height: 26px; display: grid; place-items: center; border-radius: 7px; cursor: pointer; position: relative;"><div style="position: absolute; width: 11px; height: 1.5px; background: var(--text-2); transform: rotate(45deg);"></div><div style="position: absolute; width: 11px; height: 1.5px; background: var(--text-2); transform: rotate(-45deg);"></div></div>
         </div>
 
-        <div class="scroll">
-
-          <!-- ═════ Генератор ═════ -->
-          <section class="view active" data-view="generate">
-            <div class="card">
-              <div class="card-head"><b>Аккаунт</b><span class="meta" id="acctMeta">Free</span></div>
-              <div class="card-body">
-                <div class="field">
-                  <label><b>Ключ WARP+</b><i>пусто — бесплатный аккаунт</i></label>
-                  <input type="text" id="licenseKey" placeholder="xxxxxxxx-xxxxxxxx-xxxxxxxx" spellcheck="false" />
-                </div>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-head"><b>Конфигурация</b></div>
-              <div class="card-body">
-                <div class="field">
-                  <label><b>Название</b><i>можно изменить позже</i></label>
-                  <input type="text" id="configName" placeholder="WARP" spellcheck="false" />
-                </div>
-
-                <div class="field">
-                  <label><b>Тип конфига</b><i>целевой клиент</i></label>
-                  <div class="seg" id="configTypeSeg">
-                    <label class="opt"><input type="radio" name="configType" value="amnezia" checked /><b>AmneziaWG</b><i>обфускация + I1</i></label>
-                    <label class="opt"><input type="radio" name="configType" value="wireguard" /><b>WireGuard</b><i>vanilla</i></label>
-                    <label class="opt"><input type="radio" name="configType" value="clash" /><b>Clash / Mihomo</b><i>.yaml</i></label>
-                  </div>
-                </div>
-
-                <div class="field amnezia-only">
-                  <label><b>Профиль обфускации</b><i>Jc · Jmin · Jmax</i></label>
-                  <div class="seg" id="obfsSeg">
-                    <label class="opt"><input type="radio" name="obfsProfile" value="1" checked /><b>Стабильный</b><i>4 · 40 · 70</i></label>
-                    <label class="opt"><input type="radio" name="obfsProfile" value="2" /><b>Стандартный</b><i>120 · 23 · 911</i></label>
-                    <label class="opt"><input type="radio" name="obfsProfile" value="3" /><b>Агрессивный</b><i>10 · 100 · 300</i></label>
-                  </div>
-                </div>
-
-                <div class="grid2">
-                  <div class="field">
-                    <label><b>Порт endpoint</b><i>UDP</i></label>
-                    <select id="endpointPort">
-                      <option value="2408" selected>2408</option>
-                      <option value="500">500</option>
-                      <option value="4500">4500</option>
-                      <option value="1701">1701</option>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label><b>Endpoint IP</b><i>из API или сканера</i></label>
-                    <select id="endpointIp">
-                      <option value="auto" selected>Авто (из API Cloudflare)</option>
-                      <optgroup label="Официальный ingress">
-                        <option value="162.159.193.1">162.159.193.1</option>
-                        <option value="162.159.193.2">162.159.193.2</option>
-                        <option value="162.159.193.5">162.159.193.5</option>
-                        <option value="162.159.193.10">162.159.193.10</option>
-                      </optgroup>
-                      <optgroup label="Consumer WARP">
-                        <option value="162.159.192.1">162.159.192.1</option>
-                        <option value="162.159.192.2">162.159.192.2</option>
-                        <option value="162.159.192.5">162.159.192.5</option>
-                      </optgroup>
-                      <optgroup label="Community">
-                        <option value="162.159.195.1">162.159.195.1</option>
-                        <option value="162.159.195.4">162.159.195.4</option>
-                        <option value="188.114.96.1">188.114.96.1</option>
-                        <option value="188.114.98.1">188.114.98.1</option>
-                      </optgroup>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="field">
-                  <label><b>DNS сервер</b><i id="dnsHint">dns.malw.link</i></label>
-                  <select id="dnsServer"></select>
-                </div>
-
-                <div class="field clash-only hidden">
-                  <label><b>Шифрованный DNS</b><i>DoH / DoT для Clash</i></label>
-                  <select id="dohPreset">
-                    <option value="">— как в поле выше</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <!-- I1 / Architect -->
-            <div class="card amnezia-only">
-              <div class="card-head"><b>Маскировка трафика I1</b><span class="meta">AmneziaWG</span></div>
-              <div class="card-body">
-                <div class="field">
-                  <label><b>Маска I1</b><i>подставляется в handshake</i></label>
-                  <select id="i1Preset"></select>
-                  <input type="text" id="customI1Domain" class="hidden" placeholder="Домен для QUIC-маски, например google.com" spellcheck="false" style="margin-top:8px" />
-                </div>
-              </div>
-            </div>
-
-            <div class="card amnezia-only">
-              <div class="card-head">
-                <b>Architect — цепочка I1–I5</b>
-                <span class="meta" id="chainSize">— / 4096 Б</span>
-              </div>
-              <div class="card-body">
-                <div class="hint" style="margin-top:0">
-                  Собирает цепочку целиком — I1–I5, H1–H4, S1–S4 и junk — под выбранный протокол.
-                  Каждая генерация даёт новые значения.
-                </div>
-                <div class="field" style="margin-top:13px">
-                  <label><b>Протокол мимикрии</b></label>
-                  <div class="tiles" id="archProfiles"></div>
-                </div>
-                <div class="grid2">
-                  <div class="field">
-                    <label><b>Интенсивность</b></label>
-                    <div class="seg">
-                      <label class="opt"><input type="radio" name="archIntensity" value="low" /><b>низкая</b></label>
-                      <label class="opt"><input type="radio" name="archIntensity" value="medium" checked /><b>средняя</b></label>
-                      <label class="opt"><input type="radio" name="archIntensity" value="high" /><b>высокая</b></label>
-                    </div>
-                  </div>
-                  <div class="field">
-                    <label><b>Уровень junk</b></label>
-                    <div class="range-row">
-                      <input type="range" id="archJunk" min="0" max="10" value="5" />
-                      <span class="range-val" id="archJunkVal">5</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="grid2">
-                  <div class="field">
-                    <label><b>Свой хост (SNI)</b><i>иначе — из пула профиля</i></label>
-                    <input type="text" id="archHost" placeholder="например, yandex.net" spellcheck="false" />
-                  </div>
-                  <div class="field">
-                    <label><b>Отпечаток браузера</b></label>
-                    <select id="archBrowser">
-                      <option value="">не задавать</option>
-                      <option value="chrome">Chrome</option>
-                      <option value="edge">Edge</option>
-                      <option value="firefox">Firefox</option>
-                      <option value="safari">Safari</option>
-                      <option value="yandex_desktop">Яндекс</option>
-                    </select>
-                  </div>
-                </div>
-                <label class="toggle" style="margin-bottom:13px"><input type="checkbox" id="archRouter" /> <span>Режим роутера — минимум шума для слабых устройств</span></label>
-                <div class="btn-row">
-                  <button class="btn" id="archGenBtn">Сгенерировать обфускацию</button>
-                  <button class="btn ghost" id="archClearBtn" style="flex:0 0 auto">Сбросить</button>
-                </div>
-                <div class="status" id="archStatus"></div>
-              </div>
-            </div>
-
-            <div class="card amnezia-only">
-              <div class="card-head"><b>Расширенная обфускация</b><span class="meta" id="awgVerMeta">AWG 1.5</span></div>
-              <div class="card-body">
-                <div class="field">
-                  <label><b>Поколение AmneziaWG</b><i>новее = сильнее, но нужен свежий клиент</i></label>
-                  <div class="seg wrap" id="awgVerSeg">
-                    <label class="opt"><input type="radio" name="awgVersion" value="1.0" /><b>AWG 1.0</b><i>junk + S/H</i></label>
-                    <label class="opt"><input type="radio" name="awgVersion" value="1.5" checked /><b>AWG 1.5</b><i>+ CPS I1</i></label>
-                    <label class="opt"><input type="radio" name="awgVersion" value="2.0" /><b>AWG 2.0</b><i>+ S3/S4, H-диапазоны</i></label>
-                    <label class="opt"><input type="radio" name="awgVersion" value="3.0" /><b>AWG 3.0</b><i>+ HeaderProtection</i></label>
-                  </div>
-                  <div class="notice hidden" id="awgWarn" style="margin-top:9px"><span class="mark">!</span><span id="awgWarnText"></span></div>
-                </div>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-head"><b>Маршрутизация</b><span class="meta" id="routeMeta">весь трафик через WARP</span></div>
-              <div class="card-body">
-                <div class="field">
-                  <label><b>Режим маршрутизации</b><i>что уходит в туннель</i></label>
-                  <div class="seg">
-                    <label class="opt"><input type="radio" name="splitMode" value="full" checked /><b>Весь трафик</b><i>Full Tunnel</i></label>
-                    <label class="opt"><input type="radio" name="splitMode" value="selective" /><b>Только выбранные</b><i>Split Tunnel</i></label>
-                  </div>
-                </div>
-                <div id="splitBox" class="hidden">
-                  <div class="field">
-                    <label><b>Сервисы</b><i id="splitCount">выбрано 0</i></label>
-                    <input type="text" id="catalogSearch" placeholder="Поиск сервиса…" spellcheck="false" />
-                    <div class="chips" style="margin-top:9px">
-                      <button type="button" class="chip-btn" data-preset="social">Часто нужно</button>
-                      <button type="button" class="chip-btn" data-preset="gaming">Игры</button>
-                      <button type="button" class="chip-btn" data-preset="ai">AI</button>
-                      <button type="button" class="chip-btn" data-preset="clear">Очистить</button>
-                    </div>
-                    <div class="scroll-box" id="splitGrid" style="margin-top:9px"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-head"><b>Дополнительно</b><span class="meta" id="advMeta">MTU 1280 · KA 25</span></div>
-              <div class="card-body">
-                <div class="grid2">
-                  <div class="field"><label><b>MTU</b><i id="mtuHint">рекомендуется 1360</i></label><input type="number" id="mtu" value="1280" min="1200" max="1500" /></div>
-                  <div class="field"><label><b>Keepalive</b><i>0 — выключить</i></label><input type="number" id="keepalive" value="25" min="0" max="65535" /></div>
-                </div>
-                <label class="toggle"><input type="checkbox" id="includeIpv6" checked /> <span>Включить IPv6 — адрес, DNS и маршруты</span></label>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-head"><b>Профиль</b><span class="meta" id="sumMeta">auto:2408 · full tunnel</span></div>
-              <div class="card-body">
-                <div class="sum" style="margin-bottom:13px">
-                  <div><span>Тип</span><b id="sumType">AmneziaWG</b></div>
-                  <div><span>Порт</span><b id="sumPort">2408</b></div>
-                  <div><span>DNS</span><b id="sumDns">dns.malw.link</b></div>
-                  <div><span>MTU</span><b id="sumMtu">1280</b></div>
-                </div>
-                <div class="kv"><span>Маскировка I1</span><b id="sumI1">—</b></div>
-                <div class="kv"><span>Маршрутизация</span><b id="sumRoute">Full Tunnel</b></div>
-                <div class="kv"><span>Keepalive</span><b id="sumKa">25 c</b></div>
-                <div class="kv"><span>IPv6</span><b id="sumIpv6">включён</b></div>
-                <div class="hint">Все параметры формы сохраняются между запусками. Генерация: ⌘/Ctrl + Enter</div>
-              </div>
-            </div>
-
-            <div class="errbox" id="errorBox"></div>
-          </section>
-
-          <!-- ═════ Результат ═════ -->
-          <section class="view" data-view="result">
-            <div id="resultEmpty" class="card"><div class="empty">
-              <b>Конфига пока нет</b>
-              Здесь появится текст конфига и действия с ним — скачать, скопировать, показать QR.
-            </div></div>
-            <div id="resultBox" class="hidden">
-              <div class="code">
-                <div class="code-head"><span id="resultFile">config.conf</span><span id="resultMeta"></span></div>
-                <textarea id="configOutput" readonly spellcheck="false"></textarea>
-              </div>
-              <div class="btn-row" style="margin-top:12px">
-                <button class="btn" id="downloadBtn">Скачать</button>
-                <button class="btn ghost" id="copyBtn">Копировать</button>
-                <button class="btn ghost" id="qrBtn">QR-код</button>
-                <button class="btn ghost" id="analyzeThisBtn">Анализировать</button>
-              </div>
-              <div id="qrWrap" class="hidden" style="text-align:center;margin-top:14px">
-                <img id="qrImg" alt="QR" style="width:250px;height:250px;image-rendering:pixelated;background:#fff;border-radius:11px;padding:9px" />
-              </div>
-              <div class="status" id="resultStatus"></div>
-            </div>
-          </section>
-
-          <!-- ═════ Поиск endpoint ═════ -->
-          <section class="view" data-view="scan">
-            <div class="card">
-              <div class="card-head"><b>Параметры сканирования</b><span class="meta">warpscout</span></div>
-              <div class="card-body">
-                <div class="grid2">
-                  <div class="field">
-                    <label><b>Протокол</b></label>
-                    <select id="wsProto">
-                      <option value="awg" selected>AmneziaWG</option>
-                      <option value="wg">WireGuard</option>
-                      <option value="masque">MASQUE</option>
-                      <option value="masque-h2">MASQUE-H2</option>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label><b>Страна / нода</b><i>опционально</i></label>
-                    <input type="text" id="wsFilter" placeholder="DE,NL или HEL" spellcheck="false" />
-                  </div>
-                </div>
-                <div class="toggles" style="margin-bottom:13px">
-                  <label class="toggle"><input type="checkbox" id="wsSpeed" /> <span>Тест скорости <span class="muted mono">-speed</span></span></label>
-                  <label class="toggle"><input type="checkbox" id="wsTunPing" /> <span>Пинг и потери <span class="muted mono">-P</span></span></label>
-                </div>
-                <div class="btn-row">
-                  <button class="btn" id="wsScanBtn" style="flex:2">Сканировать сеть</button>
-                  <button class="btn ghost" id="wsImportBtn">Импорт конфига</button>
-                  <button class="btn danger" id="wsStopBtn" disabled style="flex:0 0 auto">Стоп</button>
-                </div>
-                <div class="status" id="wsStatus"></div>
-                <div id="wsResults" class="rows hidden" style="margin-top:12px"></div>
-                <div id="wsLog" class="log hidden"></div>
-                <div class="hint" id="wsMissing" style="display:none;color:var(--warn)">Бинарник warpscout не найден — запустите <span class="mono">npm run fetch:warpscout</span>.</div>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-head"><b>Подбор обфускации</b><span class="meta">значения уходят в Architect</span></div>
-              <div class="card-body">
-                <div class="grid2">
-                  <div class="field" style="margin:0">
-                    <label><b>find-junk</b><i>Jc, Jmin, Jmax под канал</i></label>
-                    <button class="btn ghost" id="wsJunkBtn" style="width:100%">Запустить</button>
-                  </div>
-                  <div class="field" style="margin:0">
-                    <label><b>find-sni</b><i>домен маскировки, проходящий DPI</i></label>
-                    <button class="btn ghost" id="wsSniBtn" style="width:100%">Запустить</button>
-                  </div>
-                </div>
-                <div class="hint">При первом запуске warpscout самостоятельно регистрирует WARP-аккаунт в app-data.</div>
-              </div>
-            </div>
-          </section>
-
-          <!-- ═════ DPI ═════ -->
-          <section class="view" data-view="dpi">
-            <div class="card">
-              <div class="card-head"><b>Параметры</b><span class="meta" id="dpiState">Выключен</span></div>
-              <div class="card-body">
-                <div class="grid2">
-                  <div class="field"><label><b>WARP UDP порты</b></label><input type="text" id="dpiPorts" value="2408,500,4500,1701,4443,8443,8095,443" spellcheck="false" /></div>
-                  <div class="field"><label><b>fake-ttl</b><i>0 — не задавать</i></label><input type="number" id="dpiTtl" value="0" min="0" max="64" /></div>
-                </div>
-                <label class="toggle" style="margin-bottom:13px"><input type="checkbox" id="dpiQuic" /> <span>Добавить QUIC в набор payload</span></label>
-                <div class="btn-row">
-                  <button class="btn" id="dpiStartBtn" style="flex:2">Включить DPI-обход</button>
-                  <button class="btn danger" id="dpiStopBtn" disabled>Стоп</button>
-                </div>
-                <div class="status" id="dpiStatus"></div>
-                <div id="dpiLog" class="log hidden"></div>
-                <div class="notice" style="margin-top:12px"><span class="mark">!</span><span>При первом запуске скачиваются winws2, WinDivert и Lua-скрипты в app-data. Запуск требует прав администратора (UAC) и драйвера WinDivert. Работает в фоне до нажатия «Стоп».</span></div>
-              </div>
-            </div>
-          </section>
-
-          <!-- ═════ Импорт ═════ -->
-          <section class="view" data-view="import">
-            <div class="card">
-              <div class="card-head"><b>Конфиг или ссылка</b><span class="meta">.conf · vpn://</span></div>
-              <div class="card-body">
-                <textarea id="importInput" style="height:150px" placeholder="Вставьте .conf или vpn://…" spellcheck="false"></textarea>
-                <div class="btn-row" style="margin-top:12px">
-                  <button class="btn" id="importClashBtn" style="flex:2">Импортировать → Clash</button>
-                  <button class="btn ghost" id="importRawBtn">Только распаковать</button>
-                </div>
-                <div class="status" id="importStatus"></div>
-                <div class="hint">«Импортировать → Clash» конвертирует конфиг в Clash YAML с правилами роутинга. «Только распаковать» декодирует ссылку vpn:// в исходный .conf.</div>
-              </div>
-            </div>
-          </section>
-
-          <!-- ═════ Клиенты ═════ -->
-          <section class="view" data-view="clients">
-            <div class="rows" id="clientBtns"></div>
-          </section>
-
-          <!-- ═════ История ═════ -->
-          <section class="view" data-view="history">
-            <div class="rows" id="historyList"></div>
-            <div id="historyEmpty" class="card"><div class="empty"><b>История пуста</b>Сгенерируйте или импортируйте конфиг — он появится здесь.</div></div>
-          </section>
-
-          <!-- ═════ Инструменты ═════ -->
-          <section class="view" data-view="tools">
-            <div class="card">
-              <div class="card-head"><b>Проверка WARP+ ключа</b></div>
-              <div class="card-body">
-                <div class="field">
-                  <input type="text" id="secretKey" placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX" spellcheck="false" />
-                </div>
-                <div class="btn-row">
-                  <button class="btn" id="checkKeyBtn" style="flex:2">Проверить ключ</button>
-                  <button class="btn ghost" id="genTestBtn">Сген. TEST</button>
-                </div>
-                <div class="status" id="secretStatus"></div>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-head"><b>Генератор и чекер ключей</b></div>
-              <div class="card-body">
-                <div class="grid2">
-                  <div class="field"><label><b>Количество ключей</b></label><input type="number" id="bfCount" value="100" min="1" max="10000" /></div>
-                  <div class="field">
-                    <label><b>Потоки</b></label>
-                    <div class="range-row"><input type="range" id="bfThreads" min="1" max="100" value="30" /><span class="range-val" id="bfThreadsVal">30</span></div>
-                  </div>
-                </div>
-                <div class="field">
-                  <label><b>Прокси</b><i>IP:PORT · socks5:// · user:pass@</i></label>
-                  <div class="chips" style="margin-bottom:8px">
-                    <button type="button" class="chip-btn" data-proxy="mono_http">HTTP</button>
-                    <button type="button" class="chip-btn" data-proxy="mono_socks5">SOCKS5</button>
-                    <button type="button" class="chip-btn" data-proxy="speedx_socks4">SOCKS4</button>
-                    <button type="button" class="chip-btn" data-proxy="all">Все источники</button>
-                    <button type="button" class="chip-btn" id="proxyClearBtn">Очистить</button>
-                    <span class="hint" id="proxyLoadStatus" style="margin:0;align-self:center"></span>
-                  </div>
-                  <textarea id="bfProxies" style="height:90px" placeholder="1.2.3.4:8080&#10;socks5://9.10.11.12:1080"></textarea>
-                  <div class="btn-row" style="margin-top:8px">
-                    <button class="btn ghost" id="proxyCheckBtn" style="flex:2">Проверить прокси</button>
-                    <button class="btn danger" id="proxyStopBtn" disabled>Стоп</button>
-                  </div>
-                  <div class="progress hidden" id="proxyProgress"><div></div></div>
-                  <div class="hint" id="proxyCheckStatus"></div>
-                </div>
-                <div class="btn-row">
-                  <button class="btn" id="bfStartBtn" style="flex:2">Сгенерировать и проверить</button>
-                  <button class="btn danger" id="bfStopBtn" disabled>Стоп</button>
-                </div>
-                <div class="progress hidden" id="bfProgress"><div></div></div>
-                <div class="hint" id="bfCounters"></div>
-                <div id="bfLog" class="log hidden"></div>
-                <div class="field hidden" id="bfValidWrap" style="margin-top:13px">
-                  <label><b style="color:var(--ok)">Найденные WARP+ ключи</b></label>
-                  <textarea id="bfValidKeys" readonly style="height:100px;color:var(--ok)"></textarea>
-                  <button class="btn ghost" id="copyBfBtn" style="width:100%;margin-top:8px">Копировать ключи</button>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <!-- ═════ Анализатор ═════ -->
-          <section class="view" data-view="analyzer">
-            <div class="card">
-              <div class="card-head"><b>Конфиг для диагностики</b><span class="meta">.conf</span></div>
-              <div class="card-body">
-                <textarea id="analyzerInput" style="height:150px" placeholder="Вставьте .conf для диагностики…" spellcheck="false"></textarea>
-                <div class="btn-row" style="margin-top:12px">
-                  <button class="btn" id="analyzerBtn" style="flex:2">Анализировать</button>
-                  <button class="btn ghost" id="analyzerFromResult">Взять из «Результата»</button>
-                </div>
-                <div class="status" id="analyzerStatus"></div>
-              </div>
-            </div>
-            <div id="analyzerReport">
-              <div class="card"><div class="empty">
-                <b>Отчёт появится здесь</b>
-                Определим версию профиля, разберём цепочку CPS по тегам, оценим DPI-стойкость и stealth,
-                прогоним проверки параметров и подскажем потолок MTU.
-              </div></div>
-            </div>
-          </section>
-
         </div>
-      </main>
+
     </div>
   </div>
 
+  <div style="flex: 1 1 0%; min-height: 0px; display: flex;">
+
+    <div style="flex: 0 0 218px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 10px;">
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+
+        <div class="scp1 nav-item" data-view="generate" style="display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 550; letter-spacing: -0.008em; transition: background 0.16s, color 0.16s; color: var(--accent); background: linear-gradient(90deg,var(--accent) 0 2px,var(--sel) 2px 100%);">
+          <svg width="17" height="17" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linecap: round; flex: 0 0 17px;"><rect x="2.8" y="3.2" width="12.4" height="11.6" rx="3"></rect><line x1="5.8" y1="7.2" x2="12.2" y2="7.2"></line><line x1="5.8" y1="10.8" x2="9.6" y2="10.8"></line></svg>
+          <span>Генератор</span>
+        </div>
+
+        <div class="scp1 nav-item" data-view="result" style="display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 550; letter-spacing: -0.008em; transition: background 0.16s, color 0.16s; color: var(--text-2); background: transparent;">
+          <svg width="17" height="17" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 17px;"><rect x="2.8" y="2.6" width="12.4" height="12.8" rx="3"></rect><polyline points="6,9.2 8.2,11.3 12.2,6.9"></polyline></svg>
+          <span>Результат</span>
+
+        </div>
+
+        <div class="scp1 nav-item" data-view="scan" style="display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 550; letter-spacing: -0.008em; transition: background 0.16s, color 0.16s; color: var(--text-2); background: transparent;">
+          <svg width="17" height="17" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linecap: round; flex: 0 0 17px;"><circle cx="8.2" cy="8.2" r="5"></circle><line x1="12" y1="12" x2="15.2" y2="15.2"></line></svg>
+          <span>Поиск endpoint</span>
+
+        </div>
+
+
+          <div class="scp1 nav-item" data-view="dpi" style="display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 550; letter-spacing: -0.008em; transition: background 0.16s, color 0.16s; color: var(--text-2); background: transparent;">
+            <svg width="17" height="17" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linejoin: round; flex: 0 0 17px;"><rect x="4.3" y="4.3" width="9.4" height="9.4" rx="2" transform="rotate(45 9 9)"></rect></svg>
+            <span>DPI-обход</span>
+
+          </div>
+
+
+        <div class="scp1 nav-item" data-view="import" style="display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 550; letter-spacing: -0.008em; transition: background 0.16s, color 0.16s; color: var(--text-2); background: transparent;">
+          <svg width="17" height="17" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 17px;"><line x1="9" y1="3" x2="9" y2="10.6"></line><polyline points="6.2,8 9,10.8 11.8,8"></polyline><path d="M3.4 12.4v1.2a1.6 1.6 0 0 0 1.6 1.6h8a1.6 1.6 0 0 0 1.6-1.6v-1.2"></path></svg>
+          <span>Импорт</span>
+        </div>
+
+        <div class="scp1 nav-item" data-view="clients" style="display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 550; letter-spacing: -0.008em; transition: background 0.16s, color 0.16s; color: var(--text-2); background: transparent;">
+          <svg width="17" height="17" style="fill: none; stroke: currentcolor; stroke-width: 1.5; flex: 0 0 17px;"><rect x="2.6" y="3.6" width="8" height="7" rx="2"></rect><rect x="7.4" y="7.4" width="8" height="7" rx="2"></rect></svg>
+          <span>Клиенты</span>
+        </div>
+
+        <div class="scp1 nav-item" data-view="history" style="display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 550; letter-spacing: -0.008em; transition: background 0.16s, color 0.16s; color: var(--text-2); background: transparent;">
+          <svg width="17" height="17" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linecap: round; flex: 0 0 17px;"><circle cx="9" cy="9" r="6.1"></circle><polyline points="9,5.4 9,9 11.6,10.6"></polyline></svg>
+          <span>История</span>
+          <span style="margin-left: auto; font-size: 11px; font-weight: 600; color: var(--text-3);">3</span>
+        </div>
+
+        <div class="scp1 nav-item" data-view="tools" style="display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 550; letter-spacing: -0.008em; transition: background 0.16s, color 0.16s; color: var(--text-2); background: transparent;">
+          <svg width="17" height="17" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linecap: round; flex: 0 0 17px;"><line x1="3" y1="6.2" x2="15" y2="6.2"></line><line x1="3" y1="11.8" x2="15" y2="11.8"></line><circle cx="7" cy="6.2" r="1.9" style="fill: var(--panel);"></circle><circle cx="11.6" cy="11.8" r="1.9" style="fill: var(--panel);"></circle></svg>
+          <span>Инструменты</span>
+        </div>
+
+        <div class="scp1 nav-item" data-view="analyzer" style="display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 550; letter-spacing: -0.008em; transition: background 0.16s, color 0.16s; color: var(--text-2); background: transparent;">
+          <svg width="17" height="17" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linecap: round; flex: 0 0 17px;"><circle cx="8.5" cy="8.5" r="6"></circle><line x1="8.5" y1="5.4" x2="8.5" y2="9"></line><line x1="8.5" y1="11.4" x2="8.5" y2="11.4"></line></svg>
+          <span>Анализатор</span>
+        </div>
+      </div>
+
+      <div style="margin-top: auto; padding: 13px 15px; border-radius: 15px; background: var(--panel-3); border: 1px solid var(--line); box-shadow: inset 0 1px 0 var(--hl); display: flex; flex-direction: column; gap: 7px;">
+        <div id="accountBadge" style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 7px; height: 7px; border-radius: 99px; background: var(--text-3);"></div>
+          <div style="font-size: 12px; font-weight: 600; letter-spacing: -0.01em;">Free</div>
+        </div>
+        <div id="accountNote" style="font-size: 11px; color: var(--text-3); line-height: 1.4;">Бесплатный аккаунт Cloudflare</div>
+      </div>
+    </div>
+
+    <div style="flex: 1 1 0%; min-width: 0px; display: flex; flex-direction: column; overflow: hidden;">
+      <div style="flex: 1 1 0%; min-height: 0px; overflow: hidden auto;">
+<section class="view active" data-view="generate">
+<div data-screen-label="Генератор" style="animation: 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 0s 1 normal none running fadeUp;">
+
+          <div style="position: sticky; top: 0px; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 26px; background: var(--bar); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);">
+            <div style="display: flex; align-items: baseline; gap: 11px; min-width: 0px;">
+              <div style="font-size: 16px; font-weight: 680; letter-spacing: -0.028em; white-space: nowrap; flex: 0 0 auto;">Генератор</div>
+              <div style="font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Cloudflare WARP · AmneziaWG</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto;"><div class="scp0" style="padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 600; color: var(--text-2); cursor: pointer; transition: background 0.14s, color 0.14s, border-color 0.14s; white-space: nowrap;" id="resetBtn">Сброс</div><div class="scp3 scp4" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 10px; background: var(--accent); color: var(--on-accent); box-shadow: rgba(0, 0, 0, 0.14) 0px -1px 0px inset; transition: transform 0.12s, opacity 0.12s;" id="generateBtn"><span>Сгенерировать конфиг</span></div></div>
+          </div>
+
+            <div style="padding: 18px 26px 40px; display: grid; grid-template-columns: minmax(0px, 1fr) minmax(0px, 296px); gap: 20px; align-items: start; max-width: 1180px;">
+
+            <div style="display: flex; flex-direction: column; gap: 14px; min-width: 0px;">
+
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px 11px; border-bottom: 1px solid var(--line);">
+                  <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3);">Аккаунт</div>
+                  <div style="font-size: 10.5px; font-weight: 650; padding: 3px 9px; border-radius: 99px; background: var(--panel-3); color: var(--text-2);">Free</div>
+                </div>
+                <div style="padding: 2px 18px 14px;">
+                  <div style="display: grid; grid-template-columns: 154px minmax(0px, 1fr); gap: 18px; align-items: center; padding: 13px 0px;">
+                    <div style="min-width: 0px;">
+                      <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.012em;">Ключ WARP+</div>
+                      <div style="font-size: 11px; color: var(--text-3); margin-top: 2px;">пусто — бесплатный аккаунт</div>
+                    </div>
+                    <div style="min-width: 0px; max-width: 430px;"><input placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX" spellcheck="false" class="scp5" value="" style="width: 100%; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); box-shadow: rgba(10, 12, 27, 0.05) 0px 1px 2px inset; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; outline: none;" id="licenseKey"></div>
+                  </div></div>
+              </div>
+
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px 11px; border-bottom: 1px solid var(--line);">
+                  <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3);">Конфигурация</div>
+
+                </div>
+                <div style="padding: 2px 18px 14px;">
+                  <div style="display: grid; grid-template-columns: 154px minmax(0px, 1fr); gap: 18px; align-items: center; padding: 13px 0px;">
+                    <div style="min-width: 0px;">
+                      <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.012em;">Название</div>
+                      <div style="font-size: 11px; color: var(--text-3); margin-top: 2px;">можно изменить позже</div>
+                    </div>
+                    <div style="min-width: 0px; max-width: 430px;"><input placeholder="AmneziaWG · 10.08 21:44" spellcheck="false" class="scp5" value="" style="width: 100%; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); box-shadow: rgba(10, 12, 27, 0.05) 0px 1px 2px inset; font-size: 12.5px; outline: none;" id="configName"></div>
+                  </div>
+                  <div style="padding: 13px 0px;">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px;">
+                      <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.012em;">Тип конфига</div>
+                      <div style="font-size: 11px; color: var(--text-3);">целевой клиент</div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 7px; max-width: 660px;">
+
+                        <div class="scp6" style="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-group="configType" data-value="amnezia" data-on="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-off="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;">
+                          <div style="font-size: 12.5px; font-weight: 650; letter-spacing: -0.015em; line-height: 1.25; color: var(--accent);">AmneziaWG</div>
+                          <div style="font-size: 10.5px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">обфускация + I1</div>
+                        </div>
+
+                        <div class="scp6" style="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-group="configType" data-value="wireguard" data-on="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-off="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;">
+                          <div style="font-size: 12.5px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.25; color: var(--text);">WireGuard</div>
+                          <div style="font-size: 10.5px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">vanilla</div>
+                        </div>
+
+                        <div class="scp6" style="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-group="configType" data-value="clash" data-on="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-off="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;">
+                          <div style="font-size: 12.5px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.25; color: var(--text);">Clash / Mihomo</div>
+                          <div style="font-size: 10.5px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">.yaml</div>
+                        </div>
+
+                    </div>
+                  </div>
+                  <div style="padding: 13px 0px; border-top: 1px solid var(--line);">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px;">
+                      <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.012em;">Профиль обфускации</div>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+
+                        <div style="font-size: 11px; color: var(--text-3);">Jc · Jmin · Jmax</div>
+                      </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 7px; max-width: 660px;">
+
+                        <div class="scp6" style="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-group="obfsProfile" data-value="1" data-on="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-off="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;">
+                          <div style="font-size: 12.5px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.25; color: var(--text);">Стабильный</div>
+                          <div style="font-size: 10.5px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">3 · 50 · 1000</div>
+                        </div>
+
+                        <div class="scp6" style="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-group="obfsProfile" data-value="2" data-on="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-off="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;">
+                          <div style="font-size: 12.5px; font-weight: 650; letter-spacing: -0.015em; line-height: 1.25; color: var(--accent);">Стандартный</div>
+                          <div style="font-size: 10.5px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">5 · 40 · 70</div>
+                        </div>
+
+                        <div class="scp6" style="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-group="obfsProfile" data-value="3" data-on="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-off="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;">
+                          <div style="font-size: 12.5px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.25; color: var(--text);">Агрессивный</div>
+                          <div style="font-size: 10.5px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">8 · 100 · 1280</div>
+                        </div>
+
+                    </div>
+                  </div>
+                  <div style="padding: 13px 0px; border-top: 1px solid var(--line);">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px;">
+                      <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.012em;">Порт endpoint</div>
+                      <div style="font-size: 11px; color: var(--text-3);">UDP</div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(4, minmax(0px, 1fr)); gap: 7px; max-width: 430px;">
+
+                        <div class="scp7" style="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 12.5px; font-weight: 650; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;" data-group="endpointPort" data-value="2408" data-on="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 12.5px; font-weight: 650; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;" data-off="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12.5px; font-weight: 500; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;">2408</div>
+
+                        <div class="scp7" style="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12.5px; font-weight: 500; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;" data-group="endpointPort" data-value="500" data-on="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 12.5px; font-weight: 650; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;" data-off="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12.5px; font-weight: 500; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;">500</div>
+
+                        <div class="scp7" style="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12.5px; font-weight: 500; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;" data-group="endpointPort" data-value="4500" data-on="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 12.5px; font-weight: 650; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;" data-off="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12.5px; font-weight: 500; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;">4500</div>
+
+                        <div class="scp7" style="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12.5px; font-weight: 500; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;" data-group="endpointPort" data-value="1701" data-on="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 12.5px; font-weight: 650; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;" data-off="text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12.5px; font-weight: 500; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; cursor: pointer;">1701</div>
+
+                    </div>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 154px minmax(0px, 1fr); gap: 18px; align-items: center; padding: 13px 0px; border-top: 1px solid var(--line);">
+                    <div style="min-width: 0px;">
+                      <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.012em;">Endpoint IP</div>
+                      <div style="font-size: 11px; color: var(--text-3); margin-top: 2px;">из API или сканера</div>
+                    </div>
+                    <div style="min-width: 0px; max-width: 430px;"><div style="position: relative;" class="sel-wrap">
+                        <div class="scp7" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; font-size: 12.5px; font-weight: 500;">
+                          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" data-sel-label="endpointIp">Авто (из API Cloudflare)</span>
+                          <div style="flex: 0 0 7px; width: 7px; height: 7px; border-right: 1.6px solid var(--text-3); border-bottom: 1.6px solid var(--text-3); transform: rotate(45deg) translate(-2px, -2px);"></div>
+                        </div>
+
+                      <select id="endpointIp"></select></div></div>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 154px minmax(0px, 1fr); gap: 18px; align-items: center; padding: 13px 0px; border-top: 1px solid var(--line);">
+                    <div style="min-width: 0px;">
+                      <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.012em;">DNS сервер</div>
+
+                    </div>
+                    <div style="min-width: 0px; max-width: 430px;"><div style="position: relative;" class="sel-wrap">
+                        <div class="scp7" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; font-size: 12.5px; font-weight: 500;">
+                          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" data-sel-label="dnsServer">dns.malw.link · 176.99.11.77</span>
+                          <div style="flex: 0 0 7px; width: 7px; height: 7px; border-right: 1.6px solid var(--text-3); border-bottom: 1.6px solid var(--text-3); transform: rotate(45deg) translate(-2px, -2px);"></div>
+                        </div>
+
+                      <select id="dnsServer"></select></div></div>
+                  </div></div>
+              </div>
+
+
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px 11px; border-bottom: 1px solid var(--line);">
+                  <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3);">Маскировка трафика I1</div>
+                  <div style="font-size: 10.5px; font-weight: 650; padding: 3px 9px; border-radius: 99px; background: var(--soft); color: var(--accent);">AmneziaWG</div>
+                </div>
+                <div style="padding: 2px 18px 14px;">
+                  <div style="display: grid; grid-template-columns: 154px minmax(0px, 1fr); gap: 18px; align-items: center; padding: 13px 0px;">
+                    <div style="min-width: 0px;">
+                      <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.012em;">Маска I1</div>
+                      <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
+                        <div style="font-size: 11px; color: var(--text-3);">подставляется в handshake</div>
+
+                      </div>
+                    </div>
+                    <div style="min-width: 0px; max-width: 430px;"><div style="position: relative;" class="sel-wrap">
+                        <div class="scp7" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; font-size: 12.5px; font-weight: 500;">
+                          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" data-sel-label="i1Preset">Случайная валидная QUIC-маска</span>
+                          <div style="flex: 0 0 7px; width: 7px; height: 7px; border-right: 1.6px solid var(--text-3); border-bottom: 1.6px solid var(--text-3); transform: rotate(45deg) translate(-2px, -2px);"></div>
+                        </div>
+
+                      <select id="i1Preset"></select></div></div>
+                  </div></div>
+              </div>
+
+
+
+
+
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl); overflow: hidden;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 13px 18px; border-bottom: 1px solid var(--line); background: var(--panel-2);">
+                  <div style="display: flex; align-items: center; gap: 9px; min-width: 0px;">
+                    <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3);">Architect</div>
+                    <div style="font-size: 10px; font-weight: 650; padding: 2px 7px; border-radius: 99px; background: var(--sel); color: var(--accent);">рекомендуется</div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 9px; flex: 0 0 auto; padding: 4px 5px 4px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel);">
+                    <div style="font-size: 11px; color: var(--text-3); white-space: nowrap;">цепочка I1–I5</div>
+                    <div style="width: 74px; height: 4px; border-radius: 99px; background: var(--panel-3); overflow: hidden;">
+                      <div style="height: 100%; border-radius: 99px; width: 0%; background: var(--accent); transition: width 0.3s;"></div>
+                    </div>
+                    <div style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 11px; font-weight: 650; color: var(--accent); white-space: nowrap; padding-right: 7px;"><span id="chainSize">0 / 4096 Б</span></div>
+                  </div>
+                </div>
+
+                <div style="padding: 15px 18px 17px;">
+                  <div style="font-size: 11.5px; color: var(--text-3); line-height: 1.5; margin-bottom: 12px; max-width: 640px;">Собирает цепочку целиком — I1–I5, H1–H4, S1–S4 и junk — под выбранный протокол. Каждая генерация даёт новые значения.</div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(162px, 1fr)); gap: 8px;">
+
+                      <div class="scp6 sel-wrap" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="quic_initial" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--accent); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 650; color: var(--accent); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span data-sel-label="archBrowser">QUIC Initial</span></div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">RFC 9000 · основной для обхода DPI</div>
+                      <select id="archBrowser"></select></div>
+
+                      <div class="scp6" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="quic_0rtt" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 500; color: var(--text); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">QUIC 0-RTT</div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">ранние данные, короткий handshake</div>
+                      </div>
+
+                      <div class="scp6" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="tls_client_hello" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 500; color: var(--text); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">TLS ClientHello</div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">TLS 1.3 · HTTPS handshake</div>
+                      </div>
+
+                      <div class="scp6" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="http3" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 500; color: var(--text); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">HTTP/3</div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">QUIC-транспорт, веб-трафик</div>
+                      </div>
+
+                      <div class="scp6" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="dtls" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 500; color: var(--text); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">DTLS 1.3</div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">WebRTC, VoIP</div>
+                      </div>
+
+                      <div class="scp6" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="sip" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 500; color: var(--text); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">SIP</div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">сигнализация VoIP</div>
+                      </div>
+
+                      <div class="scp6" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="dns_query" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 500; color: var(--text); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">DNS query</div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">короткий UDP-запрос</div>
+                      </div>
+
+                      <div class="scp6" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="wireguard_noise" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 500; color: var(--text); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">WireGuard Noise</div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">Noise_IK · нативный силуэт</div>
+                      </div>
+
+                      <div class="scp6" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="tls_to_quic" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 500; color: var(--text); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">TLS → QUIC</div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">смена протокола внутри цепочки</div>
+                      </div>
+
+                      <div class="scp6" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="quic_burst" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 500; color: var(--text); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">QUIC burst</div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">серия пакетов подряд</div>
+                      </div>
+
+                      <div class="scp6" style="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-group="archProfile" data-value="random" data-on="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;" data-off="position: relative; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, transform 0.14s;">
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0px;">
+                          <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); flex: 0 0 6px;"></div>
+                          <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 500; color: var(--text); letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Случайный</div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-3); margin-top: 5px; line-height: 1.4; min-height: 28px;">профиль выбирается при генерации</div>
+                      </div>
+
+                  </div>
+
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(226px, 1fr)); gap: 15px 22px; margin-top: 16px; padding-top: 15px; border-top: 1px solid var(--line);">
+                    <div data-group="archIntensity" data-value="low" data-on="" data-off="null">
+                      <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 8px;">Интенсивность</div>
+                      <div style="display: flex; gap: 5px; padding: 3px; border-radius: 11px; background: var(--panel-2); border: 1px solid var(--line);">
+
+                          <div style="flex: 1 1 0%; text-align: center; padding: 6px 8px; border-radius: 8px; background: transparent; color: var(--text); font-size: 12px; font-weight: 500; cursor: pointer; box-shadow: none; transition: background 0.14s;">низкая</div>
+
+                          <div style="flex: 1 1 0%; text-align: center; padding: 6px 8px; border-radius: 8px; background: var(--panel); color: var(--accent); font-size: 12px; font-weight: 650; cursor: pointer; box-shadow: var(--shadow-sm); transition: background 0.14s;">средняя</div>
+
+                          <div style="flex: 1 1 0%; text-align: center; padding: 6px 8px; border-radius: 8px; background: transparent; color: var(--text); font-size: 12px; font-weight: 500; cursor: pointer; box-shadow: none; transition: background 0.14s;">высокая</div>
+
+                      </div>
+                    </div>
+                    <div data-group="archIntensity" data-value="medium" data-on="" data-off="null">
+                      <div style="display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 8px;"><span>Уровень junk</span><span style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; color: var(--accent); font-weight: 650;">5</span></div>
+                      <div style="position: relative; height: 20px; display: flex; align-items: center;">
+                        <div style="position: absolute; left: 0px; right: 0px; height: 4px; border-radius: 99px; background: var(--panel-3);"></div>
+                        <div style="position: absolute; left: 0px; height: 4px; border-radius: 99px; background: var(--accent); width: 50%;"></div>
+                        <input type="range" min="0" max="10" value="5" style="position: relative; width: 100%; appearance: none; background: transparent; outline: none; margin: 0px; height: 20px; cursor: pointer;" id="archJunk">
+                      </div>
+                      <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; margin-top: 2px;"><span>0</span><span>5</span><span>10</span></div>
+                    </div>
+                    <div data-group="archIntensity" data-value="high" data-on="" data-off="null">
+                      <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 8px;">Свой хост (SNI)</div>
+                      <input placeholder="иначе — из пула профиля" spellcheck="false" class="scp5" value="" style="width: 100%; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); box-shadow: rgba(10, 12, 27, 0.05) 0px 1px 2px inset; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; outline: none;" id="archHost">
+                    </div>
+                  </div>
+
+                  <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px;">
+                    <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-right: 2px;">Отпечаток браузера</div>
+
+                      <div class="scp7" style="padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 11.5px; font-weight: 500; cursor: pointer; transition: border-color 0.14s;">не задавать</div>
+
+                      <div class="scp7" style="padding: 5px 10px; border-radius: 8px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 11.5px; font-weight: 650; cursor: pointer; transition: border-color 0.14s;">Chrome</div>
+
+                      <div class="scp7" style="padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 11.5px; font-weight: 500; cursor: pointer; transition: border-color 0.14s;">Edge</div>
+
+                      <div class="scp7" style="padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 11.5px; font-weight: 500; cursor: pointer; transition: border-color 0.14s;">Firefox</div>
+
+                      <div class="scp7" style="padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 11.5px; font-weight: 500; cursor: pointer; transition: border-color 0.14s;">Safari</div>
+
+                      <div class="scp7" style="padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 11.5px; font-weight: 500; cursor: pointer; transition: border-color 0.14s;">Яндекс</div>
+
+                  </div>
+
+                  <div style="margin-top: 15px; padding: 11px 13px 13px; border-radius: 13px; border: 1px solid var(--line); background: var(--panel-2);">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 9px;">
+                      <div style="display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; min-width: 0px;">
+                        <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2);">Подобрать по сети</div>
+                        <div style="font-size: 11px; color: var(--text-3);">— warpscout меряет на живом канале <span style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace;">endpoint · auto</span></div>
+                      </div>
+                      <div style="font-size: 11.5px; font-weight: 600; color: var(--accent); cursor: pointer; white-space: nowrap; flex: 0 0 auto;">Поиск endpoint →</div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px;">
+
+                        <div class="scp7" style="padding: 9px 11px 10px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s;" id="genJunkBtn">
+                          <div style="display: flex; align-items: center; gap: 8px; min-width: 0px;">
+                            <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); animation: auto ease 0s 1 normal none running none; flex: 0 0 6px;"></div>
+                            <div style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12px; font-weight: 650; letter-spacing: -0.01em;">find-junk</div>
+                            <div style="margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0px;">запустить</div>
+                          </div>
+                          <div style="font-size: 10.5px; color: var(--text-3); margin-top: 5px; line-height: 1.4;">меряет junk на канале — Jc, Jmin, Jmax</div>
+                        </div>
+
+                        <div class="scp7" style="padding: 9px 11px 10px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s;" id="genSniBtn">
+                          <div style="display: flex; align-items: center; gap: 8px; min-width: 0px;">
+                            <div style="width: 6px; height: 6px; border-radius: 99px; background: var(--line-2); animation: auto ease 0s 1 normal none running none; flex: 0 0 6px;"></div>
+                            <div style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12px; font-weight: 650; letter-spacing: -0.01em;">find-sni</div>
+                            <div style="margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0px;">запустить</div>
+                          </div>
+                          <div style="font-size: 10.5px; color: var(--text-3); margin-top: 5px; line-height: 1.4;">ищет домен маскировки, проходящий DPI</div>
+                        </div>
+
+                    </div>
+                  </div>
+
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);">
+                    <div style="display: flex; align-items: center; gap: 9px; cursor: pointer; user-select: none;" id="archRouter" data-toggle="off">
+                      <div style="width: 15px; height: 15px; border-radius: 5px; background: transparent; border: 1.5px solid var(--line-2); display: grid; place-items: center;">
+                        <div style="width: 5px; height: 5px; border-radius: 1px; background: transparent;"></div>
+                      </div>
+                      <div style="font-size: 12.5px;">Режим роутера <span style="color: var(--text-3);">— минимум шума для слабых устройств</span></div>
+                    </div>
+                    <div class="scp8 scp4" style="padding: 8px 16px; border-radius: 10px; background: var(--accent); color: var(--on-accent); box-shadow: rgba(0, 0, 0, 0.14) 0px -1px 0px inset; font-size: 12.5px; font-weight: 650; cursor: pointer; white-space: nowrap; transition: transform 0.12s, opacity 0.12s;" id="archGenBtn">Сгенерировать обфускацию</div>
+                  </div>
+
+                </div>
+              </div>
+
+
+
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl);">
+                <div class="scp1" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; cursor: pointer; border-radius: 15px;">
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3);">Расширенная обфускация</div>
+                    <div style="font-size: 10.5px; font-weight: 650; padding: 2px 8px; border-radius: 99px; background: var(--sel); color: var(--accent);">AWG 1.5</div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 11.5px; color: var(--text-3); font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace;">Jc 5 · H 1/2/3/4 · CPS</span>
+                    <div style="width: 7px; height: 7px; border-right: 1.6px solid var(--text-3); border-bottom: 1.6px solid var(--text-3); transform: rotate(45deg) translate(-2px, -2px);"></div>
+                  </div>
+                </div>
+
+              </div>
+
+            <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px 11px; border-bottom: 1px solid var(--line);">
+                  <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3);">Маршрутизация</div>
+                  <div style="font-size: 11px; color: var(--text-3);">весь трафик через WARP</div>
+                </div>
+                <div style="padding: 2px 18px 14px;">
+                  <div style="padding: 13px 0px;">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px;">
+                      <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.012em;">Режим маршрутизации</div>
+                      <div style="font-size: 11px; color: var(--text-3);">что уходит в туннель</div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(2, minmax(0px, 1fr)); gap: 7px; max-width: 520px;">
+
+                        <div class="scp6" style="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-group="splitMode" data-value="full" data-on="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-off="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;">
+                          <div style="font-size: 12.5px; font-weight: 650; letter-spacing: -0.015em; line-height: 1.25; color: var(--accent);">Весь трафик</div>
+                          <div style="font-size: 10.5px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Full Tunnel</div>
+                        </div>
+
+                        <div class="scp6" style="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-group="splitMode" data-value="selective" data-on="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--accent); background: var(--sel); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;" data-off="padding: 9px 11px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; min-width: 0px; transition: border-color 0.14s, background 0.14s, transform 0.14s;">
+                          <div style="font-size: 12.5px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.25; color: var(--text);">Только выбранные сервисы</div>
+                          <div style="font-size: 10.5px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Split Tunnel</div>
+                        </div>
+
+                    </div>
+                  </div></div>
+              </div>
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl);">
+                <div class="scp1" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; cursor: pointer; border-radius: 15px;">
+                  <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3);">Дополнительно</div>
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 11.5px; color: var(--text-3); font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace;">MTU 1280 · KA 25</span>
+                    <div style="width: 7px; height: 7px; border-right: 1.6px solid var(--text-3); border-bottom: 1.6px solid var(--text-3); transform: rotate(45deg) translate(-2px, -2px);"></div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <div style="position: sticky; top: 70px; display: flex; flex-direction: column; gap: 14px; min-width: 0px;">
+              <div style="border-radius: 16px; background: var(--hero-bg); box-shadow: var(--shadow);">
+                <div style="padding: 18px 20px 16px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="width: 5px; height: 5px; border-radius: 99px; background: var(--on-hero); opacity: 0.45;"></div>
+                    <div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--on-hero); opacity: 0.5;">Профиль</div>
+                  </div>
+                  <div style="font-size: 24px; font-weight: 700; letter-spacing: -0.04em; margin-top: 10px; color: var(--on-hero);">AmneziaWG</div>
+                  <div style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 11.5px; margin-top: 5px; color: var(--on-hero); opacity: 0.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">auto:2408  ·  full tunnel</div>
+                  <div style="display: grid; grid-template-columns: repeat(3, minmax(0px, 1fr)); margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--hero-line);">
+
+                      <div style="min-width: 0px; padding-left: 0px; border-left: 1px solid transparent;">
+                        <div style="font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-hero); opacity: 0.45;">Порт</div>
+                        <div style="font-size: 12.5px; font-weight: 650; letter-spacing: -0.015em; margin-top: 3px; color: var(--on-hero); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">2408</div>
+                      </div>
+
+                      <div style="min-width: 0px; padding-left: 13px; border-left: 1px solid var(--hero-line);">
+                        <div style="font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-hero); opacity: 0.45;">DNS</div>
+                        <div style="font-size: 12.5px; font-weight: 650; letter-spacing: -0.015em; margin-top: 3px; color: var(--on-hero); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">dns.malw.link</div>
+                      </div>
+
+                      <div style="min-width: 0px; padding-left: 13px; border-left: 1px solid var(--hero-line);">
+                        <div style="font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--on-hero); opacity: 0.45;">MTU</div>
+                        <div style="font-size: 12.5px; font-weight: 650; letter-spacing: -0.015em; margin-top: 3px; color: var(--on-hero); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">1280</div>
+                      </div>
+
+                  </div>
+                </div>
+              </div>
+
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px 11px; border-bottom: 1px solid var(--line);">
+                  <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3);">Параметры</div>
+
+                </div>
+                <div style="padding: 2px 18px 12px;"><div style="display: flex; flex-direction: column;">
+
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 0px; border-top: 1px solid transparent;">
+                      <div style="font-size: 12px; color: var(--text-3); flex: 0 0 auto;">Маскировка I1</div>
+                      <div style="font-size: 12px; font-weight: 600; text-align: right; letter-spacing: -0.01em; min-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: inherit;">Случайная валидная QUIC-маска</div>
+                    </div>
+
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 0px; border-top: 1px solid var(--line);">
+                      <div style="font-size: 12px; color: var(--text-3); flex: 0 0 auto;">Маршрутизация</div>
+                      <div style="font-size: 12px; font-weight: 600; text-align: right; letter-spacing: -0.01em; min-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: inherit;">Full Tunnel</div>
+                    </div>
+
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 0px; border-top: 1px solid var(--line);">
+                      <div style="font-size: 12px; color: var(--text-3); flex: 0 0 auto;">Keepalive</div>
+                      <div style="font-size: 12px; font-weight: 600; text-align: right; letter-spacing: -0.01em; min-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace;">25 c</div>
+                    </div>
+
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 0px; border-top: 1px solid var(--line);">
+                      <div style="font-size: 12px; color: var(--text-3); flex: 0 0 auto;">IPv6</div>
+                      <div style="font-size: 12px; font-weight: 600; text-align: right; letter-spacing: -0.01em; min-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: inherit;">выключен</div>
+                    </div>
+
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 0px; border-top: 1px solid var(--line);">
+                      <div style="font-size: 12px; color: var(--text-3); flex: 0 0 auto;">Аккаунт</div>
+                      <div style="font-size: 12px; font-weight: 600; text-align: right; letter-spacing: -0.01em; min-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: inherit;">Free</div>
+                    </div>
+
+                </div></div>
+              </div>
+              <div style="font-size: 11.5px; color: var(--text-3); line-height: 1.5; padding: 0px 2px;">Все параметры формы сохраняются между запусками. Генерация: <span style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; color: var(--text-2);">⌘/Ctrl + Enter</span></div>
+            </div>
+            </div>
+          </div>
+</section>
+
+<section class="view" data-view="result">
+<div data-screen-label="Результат" style="animation: 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 0s 1 normal none running fadeUp;">
+
+          <div style="position: sticky; top: 0px; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 26px; background: var(--bar); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);">
+            <div style="display: flex; align-items: baseline; gap: 11px; min-width: 0px;">
+              <div style="font-size: 16px; font-weight: 680; letter-spacing: -0.028em; white-space: nowrap; flex: 0 0 auto;">Результат</div>
+              <div style="font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">ничего ещё не сгенерировано</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto;"></div>
+          </div>
+            <div style="padding: 18px 26px 40px; max-width: 1000px;">
+
+
+
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl); padding: 22px 24px 24px; max-width: 480px;">
+                <div style="font-size: 15px; font-weight: 680; letter-spacing: -0.024em;">Конфига пока нет</div>
+                <div style="font-size: 12.5px; color: var(--text-2); margin-top: 7px; line-height: 1.55;">Здесь появится текст конфига и действия с ним — скачать, скопировать, показать QR.</div>
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 16px;">
+                  <div class="scp6" style="display: flex; align-items: center; gap: 12px; padding: 11px 13px; border-radius: 11px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; transition: border-color 0.14s, transform 0.14s;" id="goGenerate">
+                  <div style="flex: 1 1 0%; min-width: 0px;">
+                    <div style="font-size: 12.5px; font-weight: 650; letter-spacing: -0.015em;">Сгенерировать</div>
+                    <div style="font-size: 11px; color: var(--text-3); margin-top: 2px;">Cloudflare WARP · AmneziaWG, WireGuard, Clash</div>
+                  </div>
+                  <div style="font-size: 12.5px; color: var(--accent); flex: 0 0 auto;">→</div>
+                </div>
+                  <div class="scp6" style="display: flex; align-items: center; gap: 12px; padding: 11px 13px; border-radius: 11px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; transition: border-color 0.14s, transform 0.14s;" id="goImport">
+                  <div style="flex: 1 1 0%; min-width: 0px;">
+                    <div style="font-size: 12.5px; font-weight: 650; letter-spacing: -0.015em;">Импортировать</div>
+                    <div style="font-size: 11px; color: var(--text-3); margin-top: 2px;">вставить .conf или ссылку vpn://</div>
+                  </div>
+                  <div style="font-size: 12.5px; color: var(--accent); flex: 0 0 auto;">→</div>
+                </div>
+                  <div class="scp6" style="display: flex; align-items: center; gap: 12px; padding: 11px 13px; border-radius: 11px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; transition: border-color 0.14s, transform 0.14s;" id="goHistory">
+                  <div style="flex: 1 1 0%; min-width: 0px;">
+                    <div style="font-size: 12.5px; font-weight: 650; letter-spacing: -0.015em;">Взять из истории</div>
+                    <div style="font-size: 11px; color: var(--text-3); margin-top: 2px;">3 сохранённых конфига</div>
+                  </div>
+                  <div style="font-size: 12.5px; color: var(--accent); flex: 0 0 auto;">→</div>
+                </div>
+                </div>
+              </div>
+
+              </div>
+          </div>
+</section>
+
+<section class="view" data-view="scan">
+<div data-screen-label="Поиск endpoint" style="animation: 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 0s 1 normal none running fadeUp;">
+
+          <div style="position: sticky; top: 0px; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 26px; background: var(--bar); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);">
+            <div style="display: flex; align-items: baseline; gap: 11px; min-width: 0px;">
+              <div style="font-size: 16px; font-weight: 680; letter-spacing: -0.028em; white-space: nowrap; flex: 0 0 auto;">Поиск endpoint</div>
+              <div style="font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">warpscout · сканер endpoint'ов</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto;" id="wsScanBtn"><div class="scp3 scp4" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 10px; background: var(--accent); color: var(--on-accent); box-shadow: rgba(0, 0, 0, 0.14) 0px -1px 0px inset; transition: transform 0.12s, opacity 0.12s;"><span>Сканировать сеть</span></div></div>
+          </div>
+            <div style="padding: 18px 26px 40px; max-width: 1120px;">
+
+
+            <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px 22px 22px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl); margin-bottom: 16px;">
+              <div style="display: grid; grid-template-columns: minmax(0px, 1.3fr) minmax(0px, 1fr); gap: 18px;">
+                <div>
+                  <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 8px;">Протокол</div>
+                  <div style="display: flex; gap: 6px;">
+
+                      <div class="scp7" style="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer;" data-group="wsProto" data-value="awg" data-on="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer;" data-off="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;">AmneziaWG</div>
+
+                      <div class="scp7" style="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;" data-group="wsProto" data-value="wg" data-on="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer;" data-off="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;">WireGuard</div>
+
+                      <div class="scp7" data-group="wsProto" data-value="masque" data-on="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer;" data-off="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;" style="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;">MASQUE</div>
+
+                      <div class="scp7" data-group="wsProto" data-value="masque-h2" data-on="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--accent); background: var(--sel); color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer;" data-off="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;" style="flex: 1 1 0%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer;">MASQUE-H2</div>
+
+                  </div>
+                </div>
+                <div>
+                  <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 8px;">Страна / нода <span style="color: var(--text-3); font-weight: 450;">— опционально</span></div>
+                  <input placeholder="DE,NL или HEL" spellcheck="false" class="scp5" value="" id="wsFilter" style="width: 100%; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); box-shadow: rgba(10, 12, 27, 0.05) 0px 1px 2px inset; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; outline: none;">
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 22px; margin-top: 16px;" id="wsSpeed" data-toggle="off">
+                <div style="display: flex; align-items: center; gap: 9px; cursor: pointer; user-select: none;">
+                  <div style="width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--accent); background: var(--accent); display: grid; place-items: center;"><div style="width: 6px; height: 6px; border-radius: 1.5px; background: var(--on-accent);"></div></div>
+                  <div><span style="font-size: 12.5px; font-weight: 550;">Тест скорости</span> <span style="font-size: 11.5px; color: var(--text-3); font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace;">-speed</span></div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 9px; cursor: pointer; user-select: none;" id="wsTunPing" data-toggle="off">
+                  <div style="width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--line-2); background: transparent; display: grid; place-items: center;"><div style="width: 6px; height: 6px; border-radius: 1.5px; background: transparent;"></div></div>
+                  <div><span style="font-size: 12.5px; font-weight: 550;">Пинг и потери</span> <span style="font-size: 11.5px; color: var(--text-3); font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace;">-P</span></div>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(276px, 1fr)); gap: 16px 22px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line);">
+                <div>
+                  <div style="display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; margin-bottom: 8px;">
+                    <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2);">Подбор обфускации</div>
+                    <div style="font-size: 11px; color: var(--text-3);">— значения уходят в Architect</div>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                    <div class="scpc" style="box-sizing: border-box; min-height: 56px; padding: 9px 12px 10px; border-radius: 11px; border: 1px solid var(--line-2); cursor: pointer; transition: background 0.14s, border-color 0.14s;" id="wsJunkBtn">
+                      <div style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; font-weight: 650; letter-spacing: -0.01em;">find-junk</div>
+                      <div style="font-size: 10.5px; color: var(--text-3); margin-top: 5px; line-height: 1.4;">Jc, Jmin, Jmax под канал</div>
+                    </div>
+                    <div class="scpc" style="box-sizing: border-box; min-height: 56px; padding: 9px 12px 10px; border-radius: 11px; border: 1px solid var(--line-2); cursor: pointer; transition: background 0.14s, border-color 0.14s;" id="wsSniBtn">
+                      <div style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; font-weight: 650; letter-spacing: -0.01em;">find-sni</div>
+                      <div style="font-size: 10.5px; color: var(--text-3); margin-top: 5px; line-height: 1.4;">домен маскировки, проходящий DPI</div>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 8px;">Ещё</div>
+                  <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                    <div class="scp0" style="box-sizing: border-box; min-height: 56px; display: flex; align-items: center; padding: 0px 16px; border-radius: 11px; border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 600; color: var(--text-2); cursor: pointer; transition: background 0.14s, color 0.14s, border-color 0.14s;" id="wsImportBtn">Импорт конфига</div>
+                    <div class="scp1" style="box-sizing: border-box; min-height: 56px; display: flex; align-items: center; padding: 0px 16px; border-radius: 11px; border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 600; color: var(--text-3); cursor: pointer;" id="wsStopBtn">Стоп</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+
+
+
+
+
+            <div style="margin-top: 16px; font-size: 11.5px; color: var(--text-3); line-height: 1.5;">При первом запуске warpscout самостоятельно регистрирует WARP-аккаунт в app-data.</div>
+          </div>
+            </div>
+</section>
+
+<section class="view" data-view="dpi">
+<div data-screen-label="DPI-обход" style="animation: 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 0s 1 normal none running fadeUp;">
+
+          <div style="position: sticky; top: 0px; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 26px; background: var(--bar); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);">
+            <div style="display: flex; align-items: baseline; gap: 11px; min-width: 0px;">
+              <div style="font-size: 16px; font-weight: 680; letter-spacing: -0.028em; white-space: nowrap; flex: 0 0 auto;">DPI-обход</div>
+              <div style="font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Windows · winws2 / zapret2 · <span id="dpiState">Выключен</span></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto;"><div class="scp0" style="padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 600; color: var(--text-2); cursor: pointer; transition: background 0.14s, color 0.14s, border-color 0.14s; white-space: nowrap;" id="dpiStopBtn">Стоп</div><div class="scp3 scp4" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 10px; background: var(--accent); color: var(--on-accent); box-shadow: rgba(0, 0, 0, 0.14) 0px -1px 0px inset; transition: transform 0.12s, opacity 0.12s;" id="dpiStartBtn"><span>Включить DPI-обход</span></div></div>
+          </div>
+            <div style="padding: 18px 26px 40px; max-width: 860px;">
+            <div style="display: flex; align-items: flex-start; gap: 11px; padding: 14px 16px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--line-2); margin-bottom: 16px;">
+              <div style="flex: 0 0 18px; width: 18px; height: 18px; border-radius: 99px; background: var(--warn); display: grid; place-items: center; color: rgb(255, 255, 255); font-size: 12px; font-weight: 700; line-height: 1;">!</div>
+              <div style="font-size: 12.5px; color: var(--text-2); line-height: 1.5;">При первом запуске скачиваются winws2, WinDivert и Lua-скрипты в app-data. Запуск требует прав администратора (UAC) и установленного драйвера WinDivert. Работает в фоне до нажатия «Стоп».</div>
+            </div>
+
+            <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px 22px 22px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl);">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3);">Параметры</div>
+                <div style="display: flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line);">
+                  <div style="width: 7px; height: 7px; border-radius: 99px; background: var(--text-3);"></div>
+                  <span style="font-size: 11.5px; font-weight: 600; color: var(--text-3);">Выключен</span>
+                </div>
+              </div>
+
+              <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 7px;">WARP UDP порты</div>
+              <input spellcheck="false" class="scp5" value="2408,500,4500,1701,4443,8443,8095,443" id="dpiPorts" style="width: 100%; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); box-shadow: rgba(10, 12, 27, 0.05) 0px 1px 2px inset; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; outline: none;">
+
+              <div style="display: grid; grid-template-columns: 200px 1fr; gap: 18px; align-items: center; margin-top: 16px;">
+                <div>
+                  <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 7px;">fake-ttl <span style="color: var(--text-3); font-weight: 450;">· 0 = не задавать</span></div>
+                  <input class="scp5" value="0" id="dpiTtl" style="width: 100%; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); box-shadow: rgba(10, 12, 27, 0.05) 0px 1px 2px inset; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; outline: none;">
+                </div>
+                <div style="display: flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; margin-top: 20px;" id="dpiQuic" data-toggle="off">
+                  <div style="width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--line-2); background: transparent; display: grid; place-items: center;"><div style="width: 6px; height: 6px; border-radius: 1.5px; background: transparent;"></div></div>
+                  <span style="font-size: 12.5px; font-weight: 550;">Добавить QUIC в набор payload</span>
+                </div>
+              </div>
+
+
+            </div>
+          </div>
+            </div>
+</section>
+
+<section class="view" data-view="import">
+<div data-screen-label="Импорт" style="animation: 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 0s 1 normal none running fadeUp;">
+            <div style="position: sticky; top: 0px; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 26px; background: var(--bar); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);">
+              <div style="display: flex; align-items: baseline; gap: 11px; min-width: 0px;">
+                <div style="font-size: 16px; font-weight: 680; letter-spacing: -0.028em; white-space: nowrap; flex: 0 0 auto;">Импорт</div>
+                <div style="font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">WireGuard / AmneziaWG / vpn://</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto;">
+                <div class="scp0" style="padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 600; color: var(--text-2); cursor: pointer; white-space: nowrap; transition: background 0.14s, color 0.14s, border-color 0.14s;" id="importRawBtn">Только распаковать</div>
+                <div class="scp8 scp4" style="padding: 8px 16px; border-radius: 10px; background: var(--accent); color: var(--on-accent); box-shadow: rgba(0, 0, 0, 0.14) 0px -1px 0px inset; font-size: 12.5px; font-weight: 650; cursor: pointer; white-space: nowrap; transition: transform 0.12s, opacity 0.12s;" id="importClashBtn">Импортировать → Clash</div>
+              </div>
+            </div>
+            <div style="padding: 18px 26px 40px; max-width: 900px;">
+              <div style="background: var(--code-bg); border: 1px solid var(--code-line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; min-width: 0px;">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--code-line); background: var(--code-head);">
+                  <div style="display: flex; gap: 6px; flex: 0 0 auto;">
+                    <div style="width: 9px; height: 9px; border-radius: 99px; background: rgb(255, 95, 87);"></div>
+                    <div style="width: 9px; height: 9px; border-radius: 99px; background: rgb(254, 188, 46);"></div>
+                    <div style="width: 9px; height: 9px; border-radius: 99px; background: rgb(40, 200, 64);"></div>
+                  </div>
+                  <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 600; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; color: var(--code-dim2);">вставьте .conf или vpn://</div>
+                </div>
+                <textarea placeholder="[Interface]
+PrivateKey = …
+
+— или —
+
+vpn://eyJjb250YWluZXJzIjpb…" spellcheck="false" id="importInput" style="width: 100%; height: 340px; resize: vertical; display: block; padding: 16px 18px; border: 0px; background: transparent; color: var(--code-fg); font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.75; outline: none; overscroll-behavior: contain; caret-color: var(--accent);"></textarea>
+
+              </div>
+
+              <div style="font-size: 11.5px; color: var(--text-3); margin-top: 12px; line-height: 1.55; max-width: 620px;">«Импортировать → Clash» конвертирует конфиг в Clash YAML с правилами роутинга. «Только распаковать» декодирует ссылку <span style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; color: var(--text-2);">vpn://</span> в исходный .conf.</div>
+            </div>
+          </div>
+</section>
+
+<section class="view" data-view="clients">
+<div data-screen-label="Клиенты" style="animation: 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 0s 1 normal none running fadeUp;">
+
+          <div style="position: sticky; top: 0px; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 26px; background: var(--bar); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);">
+            <div style="display: flex; align-items: baseline; gap: 11px; min-width: 0px;">
+              <div style="font-size: 16px; font-weight: 680; letter-spacing: -0.028em; white-space: nowrap; flex: 0 0 auto;">Клиенты</div>
+              <div style="font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">загрузки для Windows</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto;"></div>
+          </div>
+            <div style="padding: 18px 26px 40px; max-width: 900px;">
+
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0px, 1fr)); gap: 12px;">
+
+                <div class="scp7" style="background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 14px; cursor: pointer;" data-client="0">
+                  <div style="flex: 0 0 40px; width: 42px; height: 42px; border-radius: 13px; background: var(--tile-a); display: grid; place-items: center; color: var(--on-tile); box-shadow: none; font-size: 14px; font-weight: 700; letter-spacing: -0.03em;">WG</div>
+                  <div style="min-width: 0px; flex: 1 1 0%;">
+                    <div style="font-size: 13.5px; font-weight: 650; letter-spacing: -0.015em;">WireGuard</div>
+                    <div style="font-size: 11.5px; color: var(--text-3); margin-top: 2px;">Официальный клиент · vanilla конфиг</div>
+                  </div>
+                  <div style="font-size: 12px; font-weight: 600; color: var(--accent); flex: 0 0 auto;">Скачать →</div>
+                </div>
+
+                <div class="scp7" style="background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 14px; cursor: pointer;" data-client="1">
+                  <div style="flex: 0 0 40px; width: 42px; height: 42px; border-radius: 13px; background: var(--tile-a); display: grid; place-items: center; color: var(--on-tile); box-shadow: none; font-size: 14px; font-weight: 700; letter-spacing: -0.03em;">AV</div>
+                  <div style="min-width: 0px; flex: 1 1 0%;">
+                    <div style="font-size: 13.5px; font-weight: 650; letter-spacing: -0.015em;">AmneziaVPN</div>
+                    <div style="font-size: 11.5px; color: var(--text-3); margin-top: 2px;">Поддержка AmneziaWG и обфускации</div>
+                  </div>
+                  <div style="font-size: 12px; font-weight: 600; color: var(--accent); flex: 0 0 auto;">Скачать →</div>
+                </div>
+
+                <div class="scp7" style="background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 14px; cursor: pointer;" data-client="2">
+                  <div style="flex: 0 0 40px; width: 42px; height: 42px; border-radius: 13px; background: var(--tile-a); display: grid; place-items: center; color: var(--on-tile); box-shadow: none; font-size: 14px; font-weight: 700; letter-spacing: -0.03em;">CV</div>
+                  <div style="min-width: 0px; flex: 1 1 0%;">
+                    <div style="font-size: 13.5px; font-weight: 650; letter-spacing: -0.015em;">Clash Verge</div>
+                    <div style="font-size: 11.5px; color: var(--text-3); margin-top: 2px;">Правила роутинга, .yaml профили</div>
+                  </div>
+                  <div style="font-size: 12px; font-weight: 600; color: var(--accent); flex: 0 0 auto;">Скачать →</div>
+                </div>
+
+                <div class="scp7" style="background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 14px; cursor: pointer;" data-client="3">
+                  <div style="flex: 0 0 40px; width: 42px; height: 42px; border-radius: 13px; background: var(--tile-a); display: grid; place-items: center; color: var(--on-tile); box-shadow: none; font-size: 14px; font-weight: 700; letter-spacing: -0.03em;">WS</div>
+                  <div style="min-width: 0px; flex: 1 1 0%;">
+                    <div style="font-size: 13.5px; font-weight: 650; letter-spacing: -0.015em;">WireSock</div>
+                    <div style="font-size: 11.5px; color: var(--text-3); margin-top: 2px;">Split tunnel на Windows</div>
+                  </div>
+                  <div style="font-size: 12px; font-weight: 600; color: var(--accent); flex: 0 0 auto;">Скачать →</div>
+                </div>
+
+            </div>
+          </div>
+            </div>
+</section>
+
+<section class="view" data-view="history">
+<div data-screen-label="История" style="animation: 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 0s 1 normal none running fadeUp;">
+
+          <div style="position: sticky; top: 0px; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 26px; background: var(--bar); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);">
+            <div style="display: flex; align-items: baseline; gap: 11px; min-width: 0px;">
+              <div style="font-size: 16px; font-weight: 680; letter-spacing: -0.028em; white-space: nowrap; flex: 0 0 auto;">История</div>
+              <div style="font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">локально · до 20 записей</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto;" id="historyClearBtn"><div class="scp1" style="padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 600; color: var(--err); cursor: pointer;">Очистить всё</div></div>
+          </div>
+            <div style="padding: 18px 26px 40px; max-width: 1000px;">
+
+
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl);">
+                <div style="display: grid; grid-template-columns: minmax(70px, 104px) minmax(0px, 172px) minmax(0px, 96px) minmax(64px, 1fr) 168px; align-items: center; gap: 12px; padding: 9px 18px; border-bottom: 1px solid var(--line); background: var(--panel-2); font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3);">
+                  <div>Тип</div><div>Endpoint</div><div>Дата</div><div>Тег</div><div></div>
+                </div>
+
+                  <div>
+
+                      <div class="scp1" id="historyList" style="display: grid; grid-template-columns: minmax(70px, 104px) minmax(0px, 172px) minmax(0px, 96px) minmax(64px, 1fr) 168px; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--line);">
+                        <div style="justify-self: start; font-size: 11px; font-weight: 650; padding: 3px 9px; border-radius: 99px; background: var(--soft); color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;">AmneziaWG</div>
+                        <div style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">188.114.97.3:2408</div>
+                        <div style="font-size: 11.5px; color: var(--text-3); min-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">10.08 · 14:22</div>
+                        <input placeholder="тег" class="scpe scpa" value="основной" style="width: 100%; min-width: 0px; padding: 5px 9px; border-radius: 8px; border: 1px solid transparent; background: transparent; font-size: 12px; color: var(--text-2); outline: none;">
+                        <div style="display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; min-width: 0px;">
+                          <div class="scp9" style="flex: 0 0 auto; padding: 6px 11px; border-radius: 9px; border: 1px solid var(--line-2); font-size: 11.5px; font-weight: 600; color: var(--text-2); cursor: pointer; white-space: nowrap;">Открыть</div>
+                          <div title="Копировать" class="scpf" style="width: 29px; height: 27px; flex: 0 0 29px; display: grid; place-items: center; border-radius: 9px; border: 1px solid var(--line-2); color: var(--text-3); cursor: pointer;"><svg width="14" height="14" style="fill: none; stroke: currentcolor; stroke-width: 1.4;"><rect x="4.4" y="4.4" width="7.2" height="7.2" rx="2"></rect><path d="M9.4 2.4H4a1.6 1.6 0 0 0-1.6 1.6v5.4"></path></svg></div>
+                          <div title="Удалить" class="scpg" style="width: 29px; height: 27px; flex: 0 0 29px; display: grid; place-items: center; border-radius: 9px; border: 1px solid var(--line-2); color: var(--text-3); cursor: pointer;"><svg width="14" height="14" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linecap: round;"><line x1="2.4" y1="4.2" x2="11.6" y2="4.2"></line><path d="M4 4.2 L4.5 11.4 A1.4 1.4 0 0 0 5.9 12.6 H8.1 A1.4 1.4 0 0 0 9.5 11.4 L10 4.2"></path><line x1="5.6" y1="2.2" x2="8.4" y2="2.2"></line></svg></div>
+                        </div>
+                      </div>
+
+
+                  </div>
+
+                  <div>
+
+                      <div class="scp1" style="display: grid; grid-template-columns: minmax(70px, 104px) minmax(0px, 172px) minmax(0px, 96px) minmax(64px, 1fr) 168px; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--line);">
+                        <div style="justify-self: start; font-size: 11px; font-weight: 650; padding: 3px 9px; border-radius: 99px; background: var(--soft); color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;">Clash</div>
+                        <div style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">162.159.192.1:2408</div>
+                        <div style="font-size: 11.5px; color: var(--text-3); min-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">09.08 · 21:04</div>
+                        <input placeholder="тег" class="scpe scpa" value="ноут" style="width: 100%; min-width: 0px; padding: 5px 9px; border-radius: 8px; border: 1px solid transparent; background: transparent; font-size: 12px; color: var(--text-2); outline: none;">
+                        <div style="display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; min-width: 0px;">
+                          <div class="scp9" style="flex: 0 0 auto; padding: 6px 11px; border-radius: 9px; border: 1px solid var(--line-2); font-size: 11.5px; font-weight: 600; color: var(--text-2); cursor: pointer; white-space: nowrap;">Открыть</div>
+                          <div title="Копировать" class="scpf" style="width: 29px; height: 27px; flex: 0 0 29px; display: grid; place-items: center; border-radius: 9px; border: 1px solid var(--line-2); color: var(--text-3); cursor: pointer;"><svg width="14" height="14" style="fill: none; stroke: currentcolor; stroke-width: 1.4;"><rect x="4.4" y="4.4" width="7.2" height="7.2" rx="2"></rect><path d="M9.4 2.4H4a1.6 1.6 0 0 0-1.6 1.6v5.4"></path></svg></div>
+                          <div title="Удалить" class="scpg" style="width: 29px; height: 27px; flex: 0 0 29px; display: grid; place-items: center; border-radius: 9px; border: 1px solid var(--line-2); color: var(--text-3); cursor: pointer;"><svg width="14" height="14" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linecap: round;"><line x1="2.4" y1="4.2" x2="11.6" y2="4.2"></line><path d="M4 4.2 L4.5 11.4 A1.4 1.4 0 0 0 5.9 12.6 H8.1 A1.4 1.4 0 0 0 9.5 11.4 L10 4.2"></path><line x1="5.6" y1="2.2" x2="8.4" y2="2.2"></line></svg></div>
+                        </div>
+                      </div>
+
+
+                  </div>
+
+                  <div>
+
+                      <div class="scp1" style="display: grid; grid-template-columns: minmax(70px, 104px) minmax(0px, 172px) minmax(0px, 96px) minmax(64px, 1fr) 168px; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--line);">
+                        <div style="justify-self: start; font-size: 11px; font-weight: 650; padding: 3px 9px; border-radius: 99px; background: var(--soft); color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;">WireGuard</div>
+                        <div style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">162.159.193.10:500</div>
+                        <div style="font-size: 11.5px; color: var(--text-3); min-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">07.08 · 11:37</div>
+                        <input placeholder="тег" class="scpe scpa" value="" style="width: 100%; min-width: 0px; padding: 5px 9px; border-radius: 8px; border: 1px solid transparent; background: transparent; font-size: 12px; color: var(--text-2); outline: none;">
+                        <div style="display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; min-width: 0px;">
+                          <div class="scp9" style="flex: 0 0 auto; padding: 6px 11px; border-radius: 9px; border: 1px solid var(--line-2); font-size: 11.5px; font-weight: 600; color: var(--text-2); cursor: pointer; white-space: nowrap;">Открыть</div>
+                          <div title="Копировать" class="scpf" style="width: 29px; height: 27px; flex: 0 0 29px; display: grid; place-items: center; border-radius: 9px; border: 1px solid var(--line-2); color: var(--text-3); cursor: pointer;"><svg width="14" height="14" style="fill: none; stroke: currentcolor; stroke-width: 1.4;"><rect x="4.4" y="4.4" width="7.2" height="7.2" rx="2"></rect><path d="M9.4 2.4H4a1.6 1.6 0 0 0-1.6 1.6v5.4"></path></svg></div>
+                          <div title="Удалить" class="scpg" style="width: 29px; height: 27px; flex: 0 0 29px; display: grid; place-items: center; border-radius: 9px; border: 1px solid var(--line-2); color: var(--text-3); cursor: pointer;"><svg width="14" height="14" style="fill: none; stroke: currentcolor; stroke-width: 1.5; stroke-linecap: round;"><line x1="2.4" y1="4.2" x2="11.6" y2="4.2"></line><path d="M4 4.2 L4.5 11.4 A1.4 1.4 0 0 0 5.9 12.6 H8.1 A1.4 1.4 0 0 0 9.5 11.4 L10 4.2"></path><line x1="5.6" y1="2.2" x2="8.4" y2="2.2"></line></svg></div>
+                        </div>
+                      </div>
+
+
+                  </div>
+
+              </div>
+
+
+
+            </div>
+          </div>
+</section>
+
+<section class="view" data-view="tools">
+<div data-screen-label="Инструменты" style="animation: 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 0s 1 normal none running fadeUp;">
+
+          <div style="position: sticky; top: 0px; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 26px; background: var(--bar); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);">
+            <div style="display: flex; align-items: baseline; gap: 11px; min-width: 0px;">
+              <div style="font-size: 16px; font-weight: 680; letter-spacing: -0.028em; white-space: nowrap; flex: 0 0 auto;">Инструменты</div>
+              <div style="font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">ключи WARP+ и прокси</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto;"></div>
+          </div>
+            <div style="padding: 18px 26px 40px; max-width: 1080px;">
+
+
+            <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px 22px 22px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl); margin-bottom: 16px;">
+              <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3); margin-bottom: 13px;">Проверка WARP+ ключа</div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX" spellcheck="false" class="scp5" value="" id="secretKey" style="flex: 1 1 0%; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); box-shadow: rgba(10, 12, 27, 0.05) 0px 1px 2px inset; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; outline: none;">
+                <div class="scp0" style="flex: 0 0 auto; padding: 10px 16px; border-radius: 11px; border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 600; color: var(--text-2); cursor: pointer; transition: background 0.14s, color 0.14s, border-color 0.14s;" id="genTestBtn">Сген. TEST</div>
+                <div class="scpi scph" style="flex: 0 0 auto; padding: 10px 16px; border-radius: 12px; background: var(--accent); color: var(--on-accent); box-shadow: rgba(0, 0, 0, 0.14) 0px -1px 0px inset; transition: transform 0.12s, opacity 0.12s;" id="checkKeyBtn">Проверить ключ</div>
+              </div>
+
+            </div>
+
+            <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px 22px 22px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl);">
+              <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3); margin-bottom: 14px;">Генератор и чекер ключей</div>
+
+              <div style="display: grid; grid-template-columns: 160px minmax(0px, 1fr); gap: 20px; align-items: center; margin-bottom: 16px;">
+                <div>
+                  <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 7px;">Количество ключей</div>
+                  <input class="scp5" value="50" id="bfCount" style="width: 100%; padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel-2); box-shadow: rgba(10, 12, 27, 0.05) 0px 1px 2px inset; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12.5px; outline: none;">
+                </div>
+                <div>
+                  <div style="display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 9px;"><span>Потоки</span><span style="font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; color: var(--accent); font-weight: 650;">20</span></div>
+                  <div style="position: relative; height: 20px; display: flex; align-items: center;">
+                    <div style="position: absolute; left: 0px; right: 0px; height: 4px; border-radius: 99px; background: var(--panel-3);"></div>
+                    <div style="position: absolute; left: 0px; height: 4px; border-radius: 99px; background: var(--accent); width: 20%;"></div>
+                    <input type="range" min="1" max="100" value="20" id="bfThreads" style="position: relative; width: 100%; appearance: none; background: transparent; outline: none; margin: 0px; height: 20px; cursor: pointer;">
+                  </div>
+                </div>
+              </div>
+
+              <div style="font-size: 11.5px; font-weight: 550; color: var(--text-2); margin-bottom: 7px;">Прокси</div>
+              <textarea placeholder="host:port или user:pass@host:port — по одному в строке" spellcheck="false" class="scp5" id="bfProxies" style="width: 100%; height: 110px; resize: vertical; overscroll-behavior: contain; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); box-shadow: rgba(10, 12, 27, 0.05) 0px 1px 2px inset; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.65; outline: none;"></textarea>
+
+              <div style="display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px;">
+
+                  <div class="scpc" style="padding: 6px 12px; border-radius: 9px; border: 1px solid var(--line-2); font-size: 11.5px; font-weight: 600; color: var(--text-2); cursor: pointer;" id="pxsrc0">HTTP</div>
+
+                  <div class="scpc" style="padding: 6px 12px; border-radius: 9px; border: 1px solid var(--line-2); font-size: 11.5px; font-weight: 600; color: var(--text-2); cursor: pointer;" id="pxsrc1">SOCKS5</div>
+
+                  <div class="scpc" style="padding: 6px 12px; border-radius: 9px; border: 1px solid var(--line-2); font-size: 11.5px; font-weight: 600; color: var(--text-2); cursor: pointer;" id="pxsrc2">SOCKS4</div>
+
+                  <div class="scpc" style="padding: 6px 12px; border-radius: 9px; border: 1px solid var(--line-2); font-size: 11.5px; font-weight: 600; color: var(--text-2); cursor: pointer;" id="pxsrc3">Все источники</div>
+
+                  <div class="scpc" style="padding: 6px 12px; border-radius: 9px; border: 1px solid var(--line-2); font-size: 11.5px; font-weight: 600; color: var(--err); cursor: pointer;" id="proxyClearBtn">Очистить</div>
+
+              </div>
+
+              <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line);">
+                <div class="scp0" style="padding: 10px 16px; border-radius: 11px; border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 600; color: var(--text-2); cursor: pointer; transition: background 0.14s, color 0.14s, border-color 0.14s;" id="proxyCheckBtn">Проверить прокси</div>
+                <div class="scpj scph" style="padding: 10px 18px; border-radius: 12px; background: var(--accent); color: var(--on-accent); box-shadow: rgba(0, 0, 0, 0.14) 0px -1px 0px inset; transition: transform 0.12s, opacity 0.12s;" id="bfStartBtn">
+
+                  <span>Сгенерировать и проверить</span>
+                </div>
+                <div class="scp0" style="padding: 10px 16px; border-radius: 11px; border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 600; color: var(--text-2); cursor: pointer; transition: background 0.14s, color 0.14s, border-color 0.14s;" id="bfStopBtn">Стоп</div>
+              </div>
+
+
+            </div>
+          </div>
+            </div>
+</section>
+
+<section class="view" data-view="analyzer">
+<div data-screen-label="Анализатор" style="animation: 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) 0s 1 normal none running fadeUp;">
+            <div style="position: sticky; top: 0px; z-index: 25; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 26px; background: var(--bar); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line);">
+              <div style="display: flex; align-items: baseline; gap: 11px; min-width: 0px;">
+                <div style="font-size: 16px; font-weight: 680; letter-spacing: -0.028em; white-space: nowrap; flex: 0 0 auto;">Анализатор конфига</div>
+                <div style="font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">вставьте .conf для диагностики</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto;" id="analyzerBtn">
+
+                <div class="scp3 scp4" style="padding: 8px 16px; border-radius: 10px; background: var(--accent); color: var(--on-accent); box-shadow: rgba(0, 0, 0, 0.14) 0px -1px 0px inset; transition: transform 0.12s, opacity 0.12s;">Анализировать</div>
+              </div>
+            </div>
+            <div style="padding: 18px 26px 40px; max-width: 1240px; display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; align-items: start;">
+
+              <div style="background: var(--code-bg); border: 1px solid var(--code-line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; min-width: 0px;">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--code-line); background: var(--code-head);">
+                  <div style="display: flex; gap: 6px; flex: 0 0 auto;">
+                    <div style="width: 9px; height: 9px; border-radius: 99px; background: rgb(255, 95, 87);"></div>
+                    <div style="width: 9px; height: 9px; border-radius: 99px; background: rgb(254, 188, 46);"></div>
+                    <div style="width: 9px; height: 9px; border-radius: 99px; background: rgb(40, 200, 64);"></div>
+                  </div>
+                  <div style="flex: 1 1 0%; min-width: 0px; font-size: 12px; font-weight: 600; font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; color: var(--code-dim2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">config.conf</div>
+                  <div class="scpk" style="flex: 0 0 auto; padding: 4px 10px; border-radius: 7px; border: 1px solid var(--code-line); font-size: 11px; font-weight: 600; color: var(--code-dim2); cursor: pointer; white-space: nowrap; transition: background 0.14s, color 0.14s;" id="analyzerFromResult">Взять из «Результата»</div>
+                </div>
+                <textarea placeholder="[Interface]
+PrivateKey = …
+Jc = 5
+I1 = &lt;b 0xc3000000…&gt;&lt;r 200&gt;" spellcheck="false" id="analyzerInput" style="width: 100%; height: 390px; resize: vertical; display: block; padding: 16px 18px; border: 0px; background: transparent; overscroll-behavior: contain; color: var(--code-fg); font-family: ui-monospace, &quot;SF Mono&quot;, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.75; outline: none; caret-color: rgb(95, 143, 255);"></textarea>
+
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 14px; min-width: 0px;" id="analyzerReport">
+
+                  <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-sm),inset 0 1px 0 var(--hl); padding: 22px 24px 24px;">
+                    <div style="font-size: 14.5px; font-weight: 680; letter-spacing: -0.022em;">Отчёт появится здесь</div>
+                    <div style="font-size: 12.5px; color: var(--text-2); line-height: 1.55; margin-top: 8px; max-width: 460px;">Определим версию профиля, разберём цепочку CPS по тегам, оценим DPI-стойкость и stealth, прогоним проверки параметров и подскажем потолок MTU.</div>
+                  </div>
+
+
+
+              </div>
+            </div>
+          </div>
+</section></div>
+    </div>
+  </div></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 
