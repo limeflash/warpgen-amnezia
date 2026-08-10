@@ -6,6 +6,7 @@ import { normalizeSplitTargets, resolveSplitAllowedIPs } from "./split";
 import { isIP, normalizeInterfaceAddress } from "./ip";
 import { clashFromWarp, WARP_PUBLIC_KEY } from "./clash";
 import { buildObfuscationLines, JUNK_PRESETS, DEFAULT_VERSION, type AwgVersion, type ObfuscationOptions } from "./obfuscation";
+import { generateSignature, type SignatureOptions } from "./signature";
 
 export type ConfigType = "amnezia" | "wireguard" | "clash";
 export type SplitMode = "full" | "selective";
@@ -30,6 +31,12 @@ export interface GenerateOptions {
   awgVersion?: AwgVersion;
   /** Advanced obfuscation overrides (S1–S4, H1–H4, I2–I5, AWG 3.0 fields). */
   obfuscation?: Omit<ObfuscationOptions, "version" | "junk" | "i1">;
+  /**
+   * Generate the whole obfuscation set (I1–I5 chain + H/S/junk) with the
+   * AmneziaWG Architect generator, mimicking a real protocol. Overrides
+   * obfsProfile / i1Preset when set.
+   */
+  signature?: SignatureOptions;
 }
 
 export interface SplitTunnelInfo {
@@ -78,10 +85,15 @@ export async function generateConfig(opts: GenerateOptions): Promise<GenerateRes
   const finalDnsLine = includeIpv6 ? rawDnsLine : dnsLineIPv4Only(rawDnsLine);
 
   const awgVersion: AwgVersion = opts.awgVersion ?? DEFAULT_VERSION;
-  const junk = opts.customJunk ?? JUNK_PRESETS[opts.obfsProfile ?? "1"] ?? JUNK_PRESETS["1"];
+  // Architect mode generates the whole set (I1–I5 + H/S/junk) mimicking a protocol.
+  const architect = opts.signature ? generateSignature(awgVersion, opts.signature) : null;
+  const junk = architect?.junk ?? opts.customJunk ?? JUNK_PRESETS[opts.obfsProfile ?? "1"] ?? JUNK_PRESETS["1"];
 
   // Resolve the I1 mask (valid QUIC / capture / DNS / STUN…) before touching CF.
-  const i1 = isAmnezia ? await resolveI1(opts.i1Preset || DEFAULT_I1_KEY, opts.customI1Domain) : "";
+  // In Architect mode I1 comes from the generated signature chain instead.
+  const i1 = !isAmnezia
+    ? ""
+    : (architect?.obfuscation.i1 ?? (await resolveI1(opts.i1Preset || DEFAULT_I1_KEY, opts.customI1Domain)));
 
   // 1. Keys + register a fresh Cloudflare device.
   const { priv, pub } = generateWireGuardKeys();
@@ -214,7 +226,9 @@ export async function generateConfig(opts: GenerateOptions): Promise<GenerateRes
   // 5. Assemble the config text.
   const interfaceLines: string[] = ["[Interface]", `PrivateKey = ${priv}`];
   if (isAmnezia) {
-    interfaceLines.push(...buildObfuscationLines({ ...opts.obfuscation, version: awgVersion, junk, i1 }));
+    interfaceLines.push(
+      ...buildObfuscationLines({ ...architect?.obfuscation, ...opts.obfuscation, version: awgVersion, junk, i1 }),
+    );
   }
   interfaceLines.push(`MTU = ${mtu}`, `Address = ${address}`, `DNS = ${finalDnsLine}`);
 
