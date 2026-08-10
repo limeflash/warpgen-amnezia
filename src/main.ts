@@ -5,6 +5,8 @@ import { checkLicense, generateTestLicense, generateWarpKey } from "./core/licen
 import { runProxyCheck, runBruteforce } from "./core/proxy";
 import { httpFetch } from "./core/http";
 import * as ws from "./core/warpscout";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { downloadDir, join } from "@tauri-apps/api/path";
 
 // ─────────────── DOM helpers ───────────────
 function $<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -153,16 +155,24 @@ function resetDefaults(): void {
   updateCustomI1Visibility();
 }
 
-function downloadConfig(): void {
+async function downloadConfig(): Promise<void> {
   const text = $<HTMLTextAreaElement>("configOutput").value;
   const name = lastConfigType === "wireguard" ? "WARP_WireGuard.conf" : "WARP_AmneziaWG.conf";
-  const blob = new Blob([text], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Write straight to Downloads via the fs plugin — reliable on every platform
+  // (WKWebView on macOS doesn't honour <a download> for blobs).
+  try {
+    const path = await join(await downloadDir(), name);
+    await writeTextFile(path, text);
+    setText("resultStatus", `Сохранено: ${path}`);
+    return;
+  } catch {
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 }
 
 async function copyText(text: string, btn: HTMLButtonElement, done: string, normal: string): Promise<void> {
@@ -246,10 +256,18 @@ async function wsRun(kind: "scan" | "import" | "junk" | "sni"): Promise<void> {
 }
 
 async function checkWarpscout(): Promise<void> {
-  const ok = await ws.isWarpscoutAvailable();
-  if (!ok) {
-    ($("wsMissing")).style.display = "block";
-    for (const id of ["wsScanBtn", "wsImportBtn", "wsJunkBtn", "wsSniBtn"]) $<HTMLButtonElement>(id).disabled = true;
+  try {
+    const v = await ws.warpscoutVersion();
+    setText("wsStatus", `warpscout ${v} готов.`);
+    ($("wsMissing")).style.display = "none";
+  } catch (err) {
+    // Surface the real reason instead of just hiding — buttons stay enabled so a
+    // manual scan also reports what actually goes wrong.
+    const msg = err instanceof Error ? err.message : String(err);
+    const box = $("wsMissing");
+    box.style.display = "block";
+    box.textContent = `warpscout недоступен: ${msg}`;
+    console.error("warpscout probe failed:", err);
   }
 }
 

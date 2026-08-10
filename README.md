@@ -35,12 +35,26 @@ npm run fetch:warpscout   # downloads the warpscout sidecar for your platform
 npm run app:dev           # launches the app (Vite + Tauri)
 ```
 
-Build an installer:
+Build an installer (produces a `.dmg` on macOS, `.msi`/`.exe` on Windows, `.deb`/`.AppImage` on Linux):
 
 ```bash
-npm run fetch:warpscout -- --all   # bundle every platform's sidecar (optional)
+npm run fetch:warpscout       # sidecar for the current platform
 npm run app:build
 ```
+
+### Cross-platform / releases
+
+The app is cross-platform; each OS build just needs its own warpscout sidecar.
+
+- **CI:** `.github/workflows/release.yml` builds macOS (Apple Silicon + Intel), Windows
+  and Linux in one matrix — each job fetches the sidecar for its target
+  (`node scripts/fetch-warpscout.mjs --target=<triple>`). Push a `v*` tag to publish a
+  draft release with all installers; a manual run uploads them as artifacts. Building
+  macOS bundles requires a macOS machine/runner (they can't be cross-compiled from Windows).
+- **macOS locally:** `npm install && npm run fetch:warpscout && npm run app:build` on a Mac.
+  The bundle is unsigned — first launch: right-click the app → *Open* (or
+  `xattr -dr com.apple.quarantine /Applications/WarpGen.app`). For distribution, add
+  Apple signing/notarization secrets to the workflow.
 
 ## Scripts
 

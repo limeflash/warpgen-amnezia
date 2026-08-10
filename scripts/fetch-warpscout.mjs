@@ -18,6 +18,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const VERSION = (args.find((a) => a.startsWith("--version="))?.split("=")[1] ?? "0.12.0").replace(/^v/, "");
 const ALL = args.includes("--all");
+// --target=<rust-triple> fetches for a specific triple (CI cross-target builds);
+// "universal-apple-darwin" pulls both macOS arches.
+const targetArg = args.find((a) => a.startsWith("--target"));
+const TARGET_TRIPLE = targetArg ? (targetArg.includes("=") ? targetArg.split("=")[1] : args[args.indexOf(targetArg) + 1]) : null;
 const REPO = "vernette/warpscout";
 
 // os/arch → { triple, ext, assetOs, assetArch, archive }
@@ -96,7 +100,18 @@ async function fetchTarget(t) {
   }
 }
 
-const targets = ALL ? TARGETS : [currentTarget()];
+function selectTargets() {
+  if (ALL) return TARGETS;
+  if (TARGET_TRIPLE === "universal-apple-darwin") return TARGETS.filter((t) => t.triple.endsWith("apple-darwin"));
+  if (TARGET_TRIPLE) {
+    const t = TARGETS.find((x) => x.triple === TARGET_TRIPLE);
+    if (!t) throw new Error(`unknown target triple: ${TARGET_TRIPLE}`);
+    return [t];
+  }
+  return [currentTarget()];
+}
+
+const targets = selectTargets();
 for (const t of targets) {
   await fetchTarget(t);
 }

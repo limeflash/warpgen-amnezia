@@ -1,0 +1,71 @@
+name: release
+
+# Builds installers for macOS (Apple Silicon + Intel), Windows and Linux.
+# Push a tag like `v2.0.0` to publish a draft GitHub release with the bundles;
+# a manual run just uploads them as workflow artifacts.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, label: macOS (Apple Silicon) }
+          - { os: macos-13, target: x86_64-apple-darwin, label: macOS (Intel) }
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, label: Linux }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, label: Windows }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libssl-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Fetch warpscout sidecar for target
+        run: node scripts/fetch-warpscout.mjs --target=${{ matrix.target }}
+
+      - name: Build app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Non-empty only on a tag push → creates/updates a draft release.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: WarpGen ${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.target }}
+
+      - name: Upload bundles as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: warpgen-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
+          if-no-files-found: warn
