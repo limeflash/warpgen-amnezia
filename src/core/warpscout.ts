@@ -89,6 +89,8 @@ export interface ScanParams {
   country?: string;
   node?: string;
   excludeNode?: string;
+  speed?: boolean;
+  tunPing?: boolean;
   onLine?: LineSink;
   signal?: AbortSignal;
 }
@@ -100,6 +102,8 @@ export async function scanBest(params: ScanParams = {}): Promise<{ endpoint: str
   if (params.country) args.push("-country", params.country);
   if (params.node) args.push("-node", params.node);
   if (params.excludeNode) args.push("-exclude-node", params.excludeNode);
+  if (params.speed) args.push("-speed"); // download-test each endpoint (SPEED column)
+  if (params.tunPing) args.push("-P"); // TUN PING + LOSS columns
 
   const { stdout, code } = await runSidecar(args, params.onLine, params.signal);
   const endpoint = lastEndpoint(stdout);

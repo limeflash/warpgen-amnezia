@@ -306,6 +306,10 @@
         <input type="text" id="wsFilter" placeholder="напр. DE,NL или нода HEL" spellcheck="false" />
       </div>
     </div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+      <label class="split-item" style="flex:1; min-width:180px;"><input type="checkbox" id="wsSpeed" /> <span>Тест скорости (-speed)</span></label>
+      <label class="split-item" style="flex:1; min-width:180px;"><input type="checkbox" id="wsTunPing" /> <span>Пинг/потери туннеля (-P)</span></label>
+    </div>
     <div class="btn-row" style="margin-bottom:10px;">
       <button class="btn" id="wsScanBtn" style="flex:2;">Найти лучший endpoint</button>
       <button class="btn btn-sec" id="wsImportBtn">Импортировать конфиг</button>

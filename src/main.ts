@@ -299,13 +299,21 @@ async function wsRun(kind: "scan" | "import" | "junk" | "sni"): Promise<void> {
   setText("wsStatus", "Работает warpscout… (может занять до минуты)");
   const proto = val("wsProto") as ws.Proto;
   const onLine: ws.LineSink = (line) => wsLog(line);
+  const scanOpts: ws.ScanParams = {
+    proto,
+    ...wsFilters(),
+    speed: $<HTMLInputElement>("wsSpeed").checked,
+    tunPing: $<HTMLInputElement>("wsTunPing").checked,
+    onLine,
+    signal: wsAbort.signal,
+  };
   try {
     if (kind === "scan") {
-      const { endpoint } = await ws.scanBest({ proto, ...wsFilters(), onLine, signal: wsAbort.signal });
+      const { endpoint } = await ws.scanBest(scanOpts);
       applyEndpoint(endpoint);
       setText("wsStatus", `✓ Лучший endpoint: ${endpoint} — подставлен в форму.`);
     } else if (kind === "import") {
-      const { config, endpoint } = await ws.importConfig({ proto, ...wsFilters(), onLine, signal: wsAbort.signal });
+      const { config, endpoint } = await ws.importConfig(scanOpts);
       $<HTMLTextAreaElement>("configOutput").value = config;
       lastConfigType = proto === "wg" ? "wireguard" : "amnezia";
       $("accountBadge").textContent = "warpscout";
