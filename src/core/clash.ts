@@ -229,6 +229,23 @@ export async function decodeAmneziaVpnLink(link: string): Promise<string> {
   const compressed = base64UrlToBytes(raw.slice("vpn://".length));
   if (compressed.length <= 4) throw new Error("Поврежденный vpn:// payload.");
   const root = JSON.parse(await inflate(compressed));
+
+  // Amnezia Premium links carry an API config (api_config / auth_data /
+  // api_endpoint+api_key), not a ready .conf — say so instead of failing on a
+  // missing field.
+  const isPremium =
+    (root?.api_config && typeof root.api_config === "object") ||
+    (root?.auth_data && typeof root.auth_data === "object") ||
+    (typeof root?.api_endpoint === "string" && typeof root?.api_key === "string") ||
+    root?.service_type === "amnezia-premium" ||
+    root?.api_config?.service_type === "amnezia-premium";
+  if (isPremium) {
+    throw new Error(
+      "Это ссылка Amnezia Premium — она содержит доступ к API подписки, а не готовый конфиг. " +
+        "Получите .conf в приложении AmneziaVPN и вставьте его сюда.",
+    );
+  }
+
   const container = Array.isArray(root?.containers) ? root.containers[0] : null;
   if (!container?.awg?.last_config) throw new Error("В vpn:// payload отсутствует awg.last_config.");
   const nested = JSON.parse(String(container.awg.last_config || "{}"));

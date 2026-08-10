@@ -8,6 +8,8 @@
  * anywhere.
  */
 
+import { validateChainSize } from "./awg-meta.ts";
+
 export type AwgIface = Record<string, string>;
 export interface AwgParsed {
   iface: AwgIface;
@@ -429,6 +431,15 @@ export function runChecks(iface: AwgIface, peer: AwgIface, version: AwgVersionIn
 
   if (I1 && /<\s*b\b/i.test(I1)) {
     for (const e of parseI1(I1).errors) add("CPS Мимикрия", "Проблема в I1", "warn", "—", e, 0, 0);
+  }
+
+  // AmneziaWG rejects a config whose combined I1–I5 chain exceeds 4096 bytes.
+  if (chain > 0) {
+    const size = validateChainSize({
+      i1: I1, i2: getStr(iface, "i2"), i3: getStr(iface, "i3"), i4: getStr(iface, "i4"), i5: getStr(iface, "i5"),
+    });
+    add("CPS Мимикрия", "Размер цепочки I1–I5", size.ok ? "pass" : "fail", `${size.bytes} / ${size.limit} Б`,
+      size.message ?? `Цепочка ${size.bytes} Б — в пределах лимита ${size.limit} Б ✓`, size.ok ? 3 : 0, 3);
   }
 
   // MTU
