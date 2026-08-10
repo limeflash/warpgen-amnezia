@@ -619,7 +619,8 @@ function mountAwgSection(): void {
     `<div style="font-size:11.5px;color:var(--text-3)">Рекомендуемый MTU для профиля: ` +
     `<span id="mtuRec" style="color:var(--text);font-weight:600;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace"></span></div>` +
     `<div id="applyMtu" class="scp9" style="padding:4px 10px;border-radius:7px;border:1px solid var(--line-2);font-size:11px;font-weight:600;color:var(--text-2);cursor:pointer">Применить</div></div>` +
-    `</div>`;
+    `</div>` +
+    `<div id="awgGroups"></div>`;
   card.appendChild(body);
 
   onClick("applyMtu", () => {
@@ -638,6 +639,74 @@ function mountAwgSection(): void {
   updateAwgVersion();
 }
 
+/** Editable AWG parameters, keyed as the design keys them. Empty = use default. */
+const awgParams: Record<string, string> = {};
+
+/**
+ * The design's version-gated parameter groups (Junk / Размеры / Заголовки / CPS /
+ * AWG 3.0). Rebuilt whenever the version changes; values feed generateConfig.
+ */
+function renderAwgGroups(): void {
+  const host = $("awgGroups");
+  if (!host) return;
+  const v = groupValue("awgVer") || "1.5";
+  const vi = ["wg", "1.0", "1.5", "2.0", "3.0"].indexOf(v);
+  if (vi < 1) {
+    host.innerHTML = ""; // WireGuard: no obfuscation params
+    return;
+  }
+  type F = [string, string, string];
+  const groups: Array<{ title: string; hint: string; fields: F[] }> = [
+    { title: "Junk-пакеты", hint: "Jmin ≤ Jmax", fields: [["Jc", "jc", "4"], ["Jmin", "jmin", "40"], ["Jmax", "jmax", "70"]] },
+    { title: "Размеры junk", hint: vi >= 3 ? "S3/S4 — с 2.0" : "init / response",
+      fields: vi >= 3 ? [["S1", "s1", "0"], ["S2", "s2", "0"], ["S3", "s3", "0"], ["S4", "s4", "0"]] : [["S1", "s1", "0"], ["S2", "s2", "0"]] },
+    { title: "Магические заголовки", hint: vi >= 3 ? "можно диапазоном: 5-10" : "дефолт 1/2/3/4",
+      fields: [["H1", "h1", "1"], ["H2", "h2", "2"], ["H3", "h3", "3"], ["H4", "h4", "4"]] },
+  ];
+  if (vi >= 2) groups.push({ title: "Цепочка CPS", hint: "первый тег обязан быть <b 0x…>",
+    fields: [["I1", "i1", "<b 0xc3000000…><r 200>"], ["I2", "i2", "опционально"], ["I3", "i3", "опционально"], ["I4", "i4", "опционально"], ["I5", "i5", "опционально"]] });
+  if (vi >= 4) groups.push({ title: "AWG 3.0", hint: "шифрование заголовка и таймеры",
+    fields: [["HeaderProtectionKey", "hpk", "base64 ChaCha20 key"], ["ContentPaddingAddition", "cpa", "0"], ["Rekey", "rekey", "120"], ["Reject", "reject", "180"], ["Keepalive", "ka", "25"], ["MaxHandshakeAttempts", "mha", "5"]] });
+
+  host.innerHTML = groups.map((g) =>
+    `<div style="padding:13px 0;border-top:1px solid var(--line)">` +
+    `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px">` +
+    `<div style="font-size:12.5px;font-weight:600;letter-spacing:-.012em">${esc(g.title)}</div>` +
+    `<div style="font-size:11px;color:var(--text-3)">${esc(g.hint)}</div></div>` +
+    `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px;max-width:660px">` +
+    g.fields.map(([label, key, ph]) =>
+      `<div style="min-width:0"><div style="font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);margin-bottom:5px">${esc(label)}</div>` +
+      `<input data-awgp="${key}" value="${esc(awgParams[key] ?? "")}" placeholder="${esc(ph)}" spellcheck="false" style="width:100%;padding:8px 11px;border-radius:9px;border:1px solid var(--line-2);background:var(--panel-2);box-shadow:inset 0 1px 2px rgba(10,12,27,.05);font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:12px;outline:none" /></div>`).join("") +
+    `</div></div>`).join("");
+
+  for (const inp of host.querySelectorAll<HTMLInputElement>("[data-awgp]")) {
+    inp.addEventListener("input", () => {
+      awgParams[inp.dataset.awgp!] = inp.value;
+      saveSettings();
+    });
+  }
+}
+
+/** Turns the edited AWG params into generateConfig's obfuscation overrides. */
+function awgObfuscation(): { customJunk?: { jc: number; jmin: number; jmax: number }; obfuscation?: Record<string, unknown> } {
+  const num = (k: string): number | undefined => (awgParams[k]?.trim() ? Number(awgParams[k]) : undefined);
+  const str = (k: string): string | undefined => (awgParams[k]?.trim() ? awgParams[k].trim() : undefined);
+  const jc = num("jc"), jmin = num("jmin"), jmax = num("jmax");
+  const obf: Record<string, unknown> = {};
+  for (const k of ["s1", "s2", "s3", "s4"]) { const n = num(k); if (n !== undefined) obf[k] = n; }
+  const h = ["h1", "h2", "h3", "h4"].map((k) => str(k));
+  if (h.some(Boolean)) obf.h = [h[0] ?? "1", h[1] ?? "2", h[2] ?? "3", h[3] ?? "4"];
+  for (const k of ["i2", "i3", "i4", "i5"]) { const s = str(k); if (s && s !== "опционально") obf[k] = s; }
+  // I1 itself is driven by the I1-mask card / custom domain, not this field
+  if (str("hpk")) obf.headerProtectionKey = str("hpk");
+  const cpa = num("cpa"); if (cpa !== undefined) obf.contentPaddingAddition = cpa;
+  return {
+    customJunk: jc !== undefined || jmin !== undefined || jmax !== undefined
+      ? { jc: jc ?? 4, jmin: jmin ?? 40, jmax: jmax ?? 70 } : undefined,
+    obfuscation: Object.keys(obf).length ? obf : undefined,
+  };
+}
+
 /** Keeps the chip, the compatibility warning and the MTU hint in sync. */
 function updateAwgVersion(): void {
   const v = groupValue("awgVer") || "1.5";
@@ -649,9 +718,11 @@ function updateAwgVersion(): void {
   show($("verWarn"), !!warn);
   setText("mtuRec", String(v === "wg" ? 1420 : recommendedMtu(v as AwgVersion)));
   // design formula: 'Jc N · H h1/h2/h3/h4' + ' · CPS' when version ≥ 1.5
-  const jc = architect?.junk.jc ?? 5;
+  const jc = awgParams.jc?.trim() || String(architect?.junk.jc ?? 5);
   const vi = ["wg", "1.0", "1.5", "2.0", "3.0"].indexOf(v);
-  setText("awgSummary", `Jc ${jc} · H 1/2/3/4${vi >= 2 ? " · CPS" : ""}`);
+  const h = [awgParams.h1 || "1", awgParams.h2 || "2", awgParams.h3 || "3", awgParams.h4 || "4"].join("/");
+  setText("awgSummary", `Jc ${jc} · H ${h}${vi >= 2 ? " · CPS" : ""}`);
+  renderAwgGroups();
 }
 
 /** «Дополнительно» — MTU / keepalive / IPv6, built into the captured header. */
@@ -1007,7 +1078,10 @@ async function onGenerate(): Promise<void> {
       mtu: parseInt(inputValue("mtuInput"), 10) || recommendedMtu((groupValue("awgVer") === "wg" ? "1.0" : groupValue("awgVer") || "1.5") as AwgVersion),
       persistentKeepalive: parseInt(inputValue("keepaliveInput"), 10) || null,
       includeIpv6: advState.ipv6,
-      ...(architect ? { customJunk: architect.junk, obfuscation: architect.obfuscation } : {}),
+      // Architect (find-junk) takes precedence; otherwise the hand-edited AWG fields
+      ...(architect
+        ? { customJunk: architect.junk, obfuscation: architect.obfuscation }
+        : awgObfuscation()),
     });
 
     const plus = result.accountType === "warp_plus" || result.accountType === "unlimited";
@@ -1921,6 +1995,7 @@ function saveSettings(): void {
     mtu: inputValue("mtuInput"), keepalive: inputValue("keepaliveInput"), ipv6: advState.ipv6,
     archJunk: inputValue("archJunk"), i1Domain: inputValue("i1Domain"),
     dpiPorts: inputValue("dpiPorts"), dpiTtl: inputValue("dpiTtl"), dpiQuic: toggleValue("dpiQuic"),
+    awgParams: { ...awgParams },
     splitTargets: selectedSplit(),
   });
 }
@@ -1942,6 +2017,7 @@ function loadSettings(): void {
   if (typeof s.dpiPorts === "string") setInput("dpiPorts", s.dpiPorts);
   if (typeof s.dpiTtl === "string") setInput("dpiTtl", s.dpiTtl);
   if (s.dpiQuic === true) setToggle("dpiQuic", true);
+  if (s.awgParams && typeof s.awgParams === "object") Object.assign(awgParams, s.awgParams);
   advState.ipv6 = s.ipv6 === true;
   if (Array.isArray(s.splitTargets)) setSplit(s.splitTargets as string[]);
   updateAwgVersion();
