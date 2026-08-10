@@ -38,6 +38,9 @@
     ],
     "externalBin": ["binaries/warpscout"],
     "resources": [],
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "category": "Utility",
     "shortDescription": "Cloudflare WARP config generator for AmneziaWG",
     "longDescription": "Generates Cloudflare WARP configs for AmneziaWG 2.x / WireGuard and finds the best endpoint with the bundled warpscout scanner."
