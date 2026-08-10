@@ -153,6 +153,18 @@
     #configOutput { min-height: 320px; }
     .empty { text-align: center; color: var(--muted); padding: 40px 16px; font-size: 13px; }
 
+    /* ── warpscout results table ── */
+    .ws-results { margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .ws-scroll { max-height: 360px; overflow-y: auto; }
+    .ws-row { display: grid; grid-template-columns: 1.5fr 62px 58px 52px 1fr; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 10px 12px; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-family: inherit; font-size: 12.5px; cursor: pointer; transition: background .12s; }
+    .ws-row:last-child { border-bottom: none; }
+    .ws-row:hover:not(.head) { background: var(--panel-2); }
+    .ws-row.sel { background: rgba(124,107,219,0.15); box-shadow: inset 3px 0 0 var(--accent); }
+    .ws-row.head { position: sticky; top: 0; background: rgba(0,0,0,0.35); color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; cursor: default; }
+    .ws-row .ep { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; }
+    .ws-row .ping { font-weight: 700; text-align: right; }
+    .ws-row .loc { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
     /* ── Responsive: sidebar → top bar ── */
     @media(max-width:760px){
       .app { grid-template-columns: 1fr; }
@@ -395,8 +407,8 @@
               <label class="check"><input type="checkbox" id="wsTunPing" /> <span>Пинг/потери (-P)</span></label>
             </div>
             <div class="btn-row" style="margin-top:14px;">
-              <button class="btn" id="wsScanBtn" style="flex:2;">Найти лучший endpoint</button>
-              <button class="btn sec" id="wsImportBtn">Импортировать конфиг</button>
+              <button class="btn" id="wsScanBtn" style="flex:2;">🔍 Сканировать сеть</button>
+              <button class="btn sec" id="wsImportBtn">Импорт конфига</button>
             </div>
             <div class="btn-row" style="margin-top:10px;">
               <button class="btn sec" id="wsJunkBtn">find-junk</button>
@@ -404,6 +416,7 @@
               <button class="btn danger" id="wsStopBtn" disabled style="flex:0.5;">⏹</button>
             </div>
             <div class="status" id="wsStatus"></div>
+            <div id="wsResults" class="ws-results hidden"></div>
             <div id="wsLog" class="log hidden"></div>
             <div class="hint" id="wsMissing" style="display:none; color:var(--warn);">
               Бинарник warpscout не найден. Запустите <code>npm run fetch:warpscout</code>.

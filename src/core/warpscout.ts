@@ -113,6 +113,70 @@ export async function scanBest(params: ScanParams = {}): Promise<{ endpoint: str
   return { endpoint, raw: stdout };
 }
 
+export interface ScanRow {
+  subnet: string;
+  endpoint: string;
+  ping: number;
+  country: string;
+  node: string;
+  location: string;
+}
+
+// Split a box-drawn table line into its trimmed cells (drops the edge columns).
+function splitCells(line: string): string[] {
+  return line
+    .split("│")
+    .map((c) => c.trim())
+    .filter((_, i, a) => i > 0 && i < a.length - 1);
+}
+
+/** Parses warpscout's `-plain` "best endpoint per subnet" table (header-driven, so extra -speed/-P columns are fine). */
+function parseScanTable(raw: string): ScanRow[] {
+  const lines = raw.split(/\r?\n/).filter((l) => l.includes("│"));
+  const header = lines.find((l) => l.includes("SUBNET") && l.includes("ENDPOINT"));
+  if (!header) return [];
+  const cols = splitCells(header);
+  const at = (name: string) => cols.indexOf(name);
+  const iSub = at("SUBNET");
+  const iEp = at("ENDPOINT");
+  const iPing = at("ENDPOINT PING");
+  const iCc = at("SEEN AS");
+  const iNode = at("NODE");
+  const iLoc = at("NODE LOCATION");
+
+  const rows: ScanRow[] = [];
+  for (const line of lines) {
+    if (line === header) continue;
+    const cells = splitCells(line);
+    if (cells.length !== cols.length) continue;
+    const endpoint = cells[iEp] ?? "";
+    if (!/^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(endpoint)) continue; // skips "no working endpoints"
+    rows.push({
+      subnet: cells[iSub] ?? "",
+      endpoint,
+      ping: parseInt(cells[iPing] ?? "", 10) || 9999,
+      country: cells[iCc] ?? "",
+      node: cells[iNode] ?? "",
+      location: cells[iLoc] ?? "",
+    });
+  }
+  return rows;
+}
+
+/** Full scan → parsed, ping-sorted list of the best endpoint per subnet. */
+export async function scanEndpoints(params: ScanParams = {}): Promise<{ rows: ScanRow[]; raw: string }> {
+  const path = await ensureAccount(params.onLine);
+  const args = ["scan", "-p", params.proto ?? "awg", "-no-report", "-plain", "-a", path];
+  if (params.country) args.push("-country", params.country);
+  if (params.node) args.push("-node", params.node);
+  if (params.excludeNode) args.push("-exclude-node", params.excludeNode);
+  if (params.speed) args.push("-speed");
+  if (params.tunPing) args.push("-P");
+  const { stdout } = await runSidecar(args, params.onLine, params.signal);
+  const rows = parseScanTable(stdout).sort((a, b) => a.ping - b.ping);
+  return { rows, raw: stdout };
+}
+
 /** Scans and returns a ready-to-use config (`scan -best -conf -`). */
 export async function importConfig(params: ScanParams = {}): Promise<{ config: string; endpoint: string | null }> {
   const path = await ensureAccount(params.onLine);

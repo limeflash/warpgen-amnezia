@@ -298,6 +298,81 @@ function applyEndpoint(endpoint: string): void {
   portSel.value = port;
 }
 
+function flag(cc: string): string {
+  if (!/^[A-Za-z]{2}$/.test(cc)) return "";
+  return [...cc.toUpperCase()].map((c) => String.fromCodePoint(0x1f1e6 + c.charCodeAt(0) - 65)).join("");
+}
+function pingColor(ms: number): string {
+  return ms < 60 ? "var(--success)" : ms < 150 ? "var(--warn)" : "var(--danger)";
+}
+
+function renderScanTable(rows: ws.ScanRow[]): void {
+  const box = $("wsResults");
+  box.textContent = "";
+  show(box, rows.length > 0);
+  if (!rows.length) return;
+
+  const head = document.createElement("div");
+  head.className = "ws-row head";
+  head.innerHTML =
+    "<span>Endpoint</span><span class='ping'>Ping</span><span>Страна</span><span>Нода</span><span class='loc'>Локация</span>";
+
+  const scroll = document.createElement("div");
+  scroll.className = "ws-scroll";
+  rows.forEach((r, i) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "ws-row" + (i === 0 ? " sel" : "");
+    row.innerHTML =
+      `<span class="ep">${esc(r.endpoint)}</span>` +
+      `<span class="ping" style="color:${pingColor(r.ping)}">${r.ping}ms</span>` +
+      `<span>${flag(r.country)} ${esc(r.country)}</span>` +
+      `<span>${esc(r.node)}</span>` +
+      `<span class="loc">${esc(r.location)}</span>`;
+    row.addEventListener("click", () => {
+      scroll.querySelectorAll(".ws-row").forEach((el) => el.classList.remove("sel"));
+      row.classList.add("sel");
+      applyEndpoint(r.endpoint);
+      setText("wsStatus", `✓ Выбран ${r.endpoint} · ${r.ping}ms · ${r.location} — подставлен в «Генератор».`);
+    });
+    scroll.appendChild(row);
+  });
+  box.append(head, scroll);
+}
+
+async function onScan(): Promise<void> {
+  if (wsAbort) return;
+  wsAbort = new AbortController();
+  wsBusy(true);
+  show($("wsResults"), false);
+  setText("wsStatus", "Сканирование сети… (до ~минуты)");
+  try {
+    const { rows } = await ws.scanEndpoints({
+      proto: val("wsProto") as ws.Proto,
+      ...wsFilters(),
+      speed: $<HTMLInputElement>("wsSpeed").checked,
+      tunPing: $<HTMLInputElement>("wsTunPing").checked,
+      onLine: (line) => wsLog(line),
+      signal: wsAbort.signal,
+    });
+    if (!rows.length) {
+      setText("wsStatus", "Рабочих endpoint'ов не найдено.");
+      return;
+    }
+    renderScanTable(rows);
+    applyEndpoint(rows[0].endpoint);
+    setText(
+      "wsStatus",
+      `✓ Найдено ${rows.length}. Быстрейший ${rows[0].endpoint} (${rows[0].ping}ms, ${rows[0].location}) подставлен. Кликните строку — выбрать другой.`,
+    );
+  } catch (err) {
+    setText("wsStatus", wsAbort?.signal.aborted ? "⏹ Остановлено." : `⚠ ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    wsBusy(false);
+    wsAbort = null;
+  }
+}
+
 async function wsRun(kind: "scan" | "import" | "junk" | "sni"): Promise<void> {
   if (wsAbort) return;
   wsAbort = new AbortController();
@@ -720,7 +795,7 @@ function init(): void {
     }),
   );
 
-  $("wsScanBtn").addEventListener("click", () => wsRun("scan"));
+  $("wsScanBtn").addEventListener("click", onScan);
   $("wsImportBtn").addEventListener("click", () => wsRun("import"));
   $("wsJunkBtn").addEventListener("click", () => wsRun("junk"));
   $("wsSniBtn").addEventListener("click", () => wsRun("sni"));
