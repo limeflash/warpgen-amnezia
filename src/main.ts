@@ -2151,4 +2151,12 @@ function init(): void {
   void initWindowChrome();
 }
 
-init();
+try {
+  init();
+} catch (err) {
+  // surface a startup failure instead of a blank window
+  const box = document.createElement("pre");
+  box.style.cssText = "position:fixed;inset:0;margin:0;padding:24px;background:#0d0d11;color:#f4666a;font:12px ui-monospace,monospace;white-space:pre-wrap;overflow:auto;z-index:99999";
+  box.textContent = "init() failed:\n\n" + (err instanceof Error ? `${err.message}\n\n${err.stack}` : String(err));
+  document.body.appendChild(box);
+}
