@@ -1,6 +1,7 @@
 import { generateConfig } from "./core/generate.ts";
 import { I1_GROUPS, DEFAULT_I1_KEY } from "./core/i1.ts";
 import { splitTargetList, catalogTargetGroups } from "./core/split.ts";
+import { SVC_CATEGORIES, CATEGORY_MAP, designService, svcId, svcHue, tileColor } from "./core/design-services.ts";
 import { DNS_SERVERS } from "./core/dns.ts";
 import { checkLicense, generateTestLicense, generateWarpKey } from "./core/license.ts";
 import { runProxyCheck, runBruteforce } from "./core/proxy.ts";
@@ -13,7 +14,6 @@ import * as winws from "./core/winws.ts";
 import { loadJson, saveJson, addHistory, loadHistory, deleteHistory, clearHistory, updateHistoryTag } from "./core/store.ts";
 import { generateSignature, MIMIC_PROFILES, type GeneratedSignature } from "./core/signature.ts";
 import { PROTOCOL_INFO, calcChainSize, CPS_MAX_BYTES } from "./core/awg-meta.ts";
-import { BRAND_ICONS } from "./core/brand-icons.ts";
 import { type AwgVersion, compatWarning, recommendedMtu } from "./core/obfuscation.ts";
 import { analyzeConfig, type AnalysisResult } from "./core/analyzer.ts";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
@@ -210,6 +210,36 @@ function repairHooks(): void {
   const histNav = document.querySelector<HTMLElement>('.nav-item[data-view="history"]');
   if (histNav && histNav.children.length > 2) histNav.lastElementChild!.id = "historyCount";
 
+  // The generator's hero card, «Параметры» panel and «Дополнительно» header are
+  // captured but static; tag them so updateProfile() can drive them live.
+  const leaf = (text: string): HTMLElement | undefined =>
+    [...gen.querySelectorAll<HTMLElement>("div")].find((d) => !d.children.length && d.textContent?.trim() === text);
+  const hero = [...gen.querySelectorAll<HTMLElement>("div")].find((d) => (d.getAttribute("style") || "").includes("var(--hero-bg)"));
+  if (hero) {
+    hero.querySelector<HTMLElement>('[style*="font-size: 24px"]')?.setAttribute("id", "heroType");
+    hero.querySelector<HTMLElement>('[style*="ui-monospace"][style*="opacity: 0.6"], [style*="ui-monospace"][style*="opacity:.6"]')?.setAttribute("id", "heroEp");
+    for (const [k, id] of [["Порт", "heroPort"], ["DNS", "heroDns"], ["MTU", "heroMtu"]] as const) {
+      [...hero.querySelectorAll<HTMLElement>("div")].find((d) => !d.children.length && d.textContent?.trim() === k)?.nextElementSibling?.setAttribute("id", id);
+    }
+  }
+  for (const [k, id] of [["Маскировка I1", "pMask"], ["Keepalive", "pKeep"], ["IPv6", "pIpv6"], ["Аккаунт", "pAccount"]] as const) {
+    const el = [...gen.querySelectorAll<HTMLElement>("div")].find((d) => !d.children.length && d.textContent?.trim() === k);
+    el?.nextElementSibling?.setAttribute("id", id);
+  }
+  // two rows read "Маршрутизация" (nav vs param) — take the one inside the panel
+  const routeRows = [...gen.querySelectorAll<HTMLElement>("div")].filter((d) => !d.children.length && d.textContent?.trim() === "Маршрутизация");
+  routeRows[routeRows.length - 1]?.nextElementSibling?.setAttribute("id", "pRoute");
+
+  const advCap = leaf("Дополнительно");
+  const advHead = advCap?.parentElement;
+  if (advHead) {
+    advHead.id = "advHead";
+    advHead.classList.add("scp1");
+    (advHead.style as CSSStyleDeclaration).cursor = "pointer";
+    advHead.children[1]?.firstElementChild?.setAttribute("id", "advSummary");
+    advHead.children[1]?.lastElementChild?.setAttribute("id", "advArrow");
+  }
+
   // Only the result screen's empty state was captured, so tag the places its
   // config branch has to be rebuilt into.
   const res = screenEl("result");
@@ -271,38 +301,52 @@ function buildControls(): void {
 }
 
 /**
- * Split-tunnel service picker, rebuilt to the design: a search field, category
- * chips with counts and a grid of service tiles with a check in the corner.
- * The mockup keeps this behind `showSvc`, so it was never captured.
+ * Split-tunnel service picker, built to the design: title and hint from its
+ * view-model, a search row with the "N из M выбрано" counter, the six category
+ * chips and a grid of tiles with the design's two-letter mark, oklch colour and
+ * corner check. The mockup keeps all of it behind `showSvc`, so nothing of it
+ * was captured.
  */
 const splitState = { selected: new Set<string>(), cat: "all", query: "" };
 
-/** Every pickable service, flattened: base targets first, then the catalog. */
-const splitCatalog = (): Array<{ key: string; label: string; cat: string }> => [
-  ...splitTargetList().map((t) => ({ ...t, cat: "Основные" })),
-  ...catalogTargetGroups().flatMap((g) => g.targets.map((t) => ({ ...t, cat: g.label }))),
-];
+interface PickerService {
+  key: string;
+  label: string;
+  cat: string;
+  mark: string;
+  hue: number;
+}
 
-/** Deterministic tile colour, so a service always looks the same. */
-function tileColor(key: string): string {
-  let h = 0;
-  for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return "hsl(" + h + " 52% 52%)";
+/** Every pickable service, tagged the way the design tags them. */
+function splitCatalog(): PickerService[] {
+  const seen = new Set<string>();
+  const out: PickerService[] = [];
+  const add = (key: string, label: string, fallbackCat: string): void => {
+    const id = svcId(label);
+    if (seen.has(id)) return;
+    seen.add(id);
+    const known = designService(label);
+    out.push({
+      key,
+      label,
+      cat: known?.category ?? fallbackCat,
+      mark: known?.mark ?? initials(label),
+      hue: known?.hue ?? svcHue(id),
+    });
+  };
+  for (const t of splitTargetList()) add(t.key, t.label, "cloud");
+  for (const g of catalogTargetGroups()) {
+    const cat = CATEGORY_MAP[g.key] ?? "cloud";
+    for (const t of g.targets) {
+      if (/^Все /.test(t.label)) continue; // category aggregates are the chips' job
+      add(t.key, t.label, cat);
+    }
+  }
+  return out;
 }
 
 const initials = (label: string): string =>
   label.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase();
-
-/** Brand mark for a service tile, falling back to initials on a tinted square. */
-function mark(key: string, label: string): string {
-  // catalog entries come through as `cat:<id>`
-  const icon = BRAND_ICONS[key] ?? BRAND_ICONS[key.replace(/^cat:/, "")];
-  if (icon) {
-    return `<div style="width:30px;height:30px;border-radius:9px;background:${icon.h};display:grid;place-items:center">` +
-      `<svg viewBox="0 0 24 24" width="17" height="17" style="fill:#fff;flex:0 0 17px"><path d="${icon.p}"></path></svg></div>`;
-  }
-  return `<div style="width:30px;height:30px;border-radius:9px;background:${tileColor(key)};display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;letter-spacing:-.02em">${esc(initials(label))}</div>`;
-}
 
 function buildSplitPicker(): void {
   const card = cardOf(document.querySelector<HTMLElement>('[data-group="splitMode"]'));
@@ -314,34 +358,37 @@ function buildSplitPicker(): void {
   box.style.cssText = "padding:14px 0 4px;border-top:1px solid var(--line);margin-top:14px";
   box.innerHTML =
     `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px">` +
-    `<div style="font-size:12.5px;font-weight:600;letter-spacing:-.012em">Сервисы</div>` +
-    `<div id="splitCount" style="font-size:11px;color:var(--text-3);text-align:right">выбрано 0</div></div>` +
+    `<div id="svcTitle" style="font-size:12.5px;font-weight:600;letter-spacing:-.012em">Сервисы в туннеле</div>` +
+    `<div id="svcHint" style="font-size:11px;color:var(--text-3);text-align:right">домены и IP пойдут в AllowedIPs</div></div>` +
     `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:11px;border:1px solid var(--line-2);background:var(--panel-2);box-shadow:inset 0 1px 2px rgba(10,12,27,.05)">` +
     `<svg width="15" height="15" style="fill:none;stroke:var(--text-3);stroke-width:1.6;stroke-linecap:round;flex:0 0 15px"><circle cx="6.6" cy="6.6" r="4.4"></circle><line x1="10" y1="10" x2="13.2" y2="13.2"></line></svg>` +
     `<input id="catalogSearch" placeholder="discord, steam, ai…" spellcheck="false" style="flex:1;min-width:0;border:0;background:transparent;outline:none;font-size:12.5px;color:inherit" />` +
     `<div id="svcTotal" style="font-size:11.5px;color:var(--text-3);white-space:nowrap"></div></div>` +
     `<div id="svcCats" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>` +
-    `<div id="splitGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(102px,1fr));gap:7px;margin-top:11px;max-height:340px;overflow-y:auto;overflow-x:hidden;padding:2px 8px 2px 2px"></div>` +
+    `<div id="splitGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(102px,1fr));gap:7px;margin-top:11px;max-height:340px;overflow-y:auto;overflow-x:hidden;padding:2px"></div>` +
     `<div id="svcEmpty" class="hidden" style="padding:26px 0;text-align:center;font-size:12.5px;color:var(--text-3)">Ничего не найдено</div>` +
     `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">` +
     `<div style="font-size:11.5px;color:var(--text-3);margin-right:3px">Быстрый выбор</div>` +
-    `<div id="splitPresets" style="display:flex;gap:6px;flex-wrap:wrap"></div></div>`;
+    `<div id="splitPresets" style="display:flex;flex-wrap:wrap;gap:6px"></div></div>`;
   card.appendChild(box);
 
-  const presets: Array<[string, string[]]> = [
-    ["Часто нужно", ["discord", "youtube", "x_com", "instagram", "twitch", "telegram", "whatsapp", "tiktok"]],
-    ["Игры", ["steam", "faceit", "apex_legends", "ea_app", "battle_net", "cs2", "pubg"]],
-    ["AI", ["cat:openai", "cat:anthropic", "cat:gemini", "cat:grok", "cat:copilot", "cat:perplexity"]],
-    ["Очистить", []],
+  const preset = (label: string, pick: (all: PickerService[]) => string[]): [string, (all: PickerService[]) => string[]] => [label, pick];
+  const COMMON = ["discord", "youtube", "telegram", "instagram", "xcom", "chatgpt", "claude", "steam", "twitch", "tiktok", "spotify", "github"];
+  const presets = [
+    preset("Часто нужно", (all) => all.filter((s) => COMMON.includes(svcId(s.label))).map((s) => s.key)),
+    preset("Игры", (all) => all.filter((s) => s.cat === "games").map((s) => s.key)),
+    preset("AI", (all) => all.filter((s) => s.cat === "ai").map((s) => s.key)),
+    preset("Всё", (all) => all.map((s) => s.key)),
+    preset("Очистить", () => []),
   ];
   const pbox = must("splitPresets");
   pbox.innerHTML = presets
     .map(([label], i) =>
-      `<div data-preset="${i}" class="scpc" style="padding:5px 10px;border-radius:8px;border:1px solid var(--line-2);background:var(--panel-2);font-size:11.5px;font-weight:600;color:var(--text-2);cursor:pointer">${esc(label)}</div>`)
+      `<div data-preset="${i}" class="scp9" style="padding:4px 10px;border-radius:7px;border:1px solid var(--line-2);font-size:11px;font-weight:600;color:var(--text-2);cursor:pointer">${esc(label)}</div>`)
     .join("");
   for (const el of pbox.querySelectorAll<HTMLElement>("[data-preset]")) {
     el.addEventListener("click", () => {
-      setSplit(presets[Number(el.dataset.preset)][1]);
+      setSplit(presets[Number(el.dataset.preset)][1](splitCatalog()));
       saveSettings();
     });
   }
@@ -354,17 +401,17 @@ function buildSplitPicker(): void {
 
 function renderSplit(): void {
   const all = splitCatalog();
-  const cats = [...new Set(all.map((s) => s.cat))];
   const chip = (value: string, label: string, n: number): string => {
     const on = splitState.cat === value;
-    return `<div data-cat="${esc(value)}" class="scp7" style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;border:1px solid ${on ? "var(--accent)" : "var(--line-2)"};background:${on ? "var(--sel)" : "var(--panel-2)"};color:${on ? "var(--accent)" : "var(--text)"};font-size:11.5px;font-weight:${on ? "650" : "500"};cursor:pointer">` +
+    return `<div data-cat="${esc(value)}" class="scp7" style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;border:1px solid ${on ? "var(--accent)" : "var(--line-2)"};background:${on ? "var(--sel)" : "var(--panel-2)"};color:${on ? "var(--accent)" : "var(--text-2)"};font-size:11.5px;font-weight:${on ? "650" : "550"};cursor:pointer">` +
       `<span>${esc(label)}</span><span style="font-size:10.5px;opacity:.55;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace">${n}</span></div>`;
   };
 
   const catsBox = $("svcCats");
   if (catsBox) {
-    catsBox.innerHTML = chip("all", "Все", all.length) +
-      cats.map((c) => chip(c, c, all.filter((s) => s.cat === c).length)).join("");
+    catsBox.innerHTML = SVC_CATEGORIES
+      .map((c) => chip(c.value, c.label, c.value === "all" ? all.length : all.filter((s) => s.cat === c.value).length))
+      .join("");
     for (const el of catsBox.querySelectorAll<HTMLElement>("[data-cat]")) {
       el.addEventListener("click", () => {
         splitState.cat = el.dataset.cat!;
@@ -382,7 +429,7 @@ function renderSplit(): void {
     grid.innerHTML = shown.map((s) => {
       const on = splitState.selected.has(s.key);
       return `<div data-split="${esc(s.key)}" class="scp6" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:13px 8px 11px;border-radius:13px;border:1px solid ${on ? "var(--accent)" : "var(--line-2)"};background:${on ? "var(--sel)" : "var(--panel-2)"};cursor:pointer;user-select:none;transition:border-color .14s ease,background .14s ease,transform .14s ease">` +
-        mark(s.key, s.label) +
+        `<div style="width:30px;height:30px;border-radius:9px;background:${tileColor(s.hue)};display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;letter-spacing:-.02em">${esc(s.mark)}</div>` +
         `<div style="font-size:11.5px;font-weight:${on ? "650" : "500"};color:${on ? "var(--accent)" : "var(--text)"};text-align:center;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${esc(s.label)}</div>` +
         `<div style="position:absolute;top:7px;right:7px;width:13px;height:13px;border-radius:5px;background:${on ? "var(--accent)" : "transparent"};border:1.5px solid ${on ? "var(--accent)" : "var(--line-2)"};display:grid;place-items:center">` +
         `<div style="width:4px;height:4px;border-radius:1px;background:${on ? "var(--on-accent)" : "transparent"}"></div></div></div>`;
@@ -396,9 +443,15 @@ function renderSplit(): void {
       });
     }
   }
+
+  // the design shows the type-specific caption and counts against the whole list
+  const clash = groupValue("configType") === "clash";
+  setText("svcTitle", clash ? "Сервисы через туннель" : "Сервисы в туннеле");
+  setText("svcHint", clash ? "правила DOMAIN-SUFFIX · резолв не нужен" : "домены и IP пойдут в AllowedIPs");
+  setText("svcTotal", `${splitState.selected.size} из ${all.length} выбрано`);
   show($("svcEmpty"), shown.length === 0);
-  setText("svcTotal", `${all.length} сервисов`);
   updateSplitCount();
+  updateProfile();
 }
 
 const selectedSplit = (): string[] => [...splitState.selected];
@@ -492,9 +545,91 @@ function updateAwgVersion(): void {
   setText("awgSummary", v === "wg" ? "без обфускации" : `${v === "1.0" ? "" : "CPS · "}Jc ${architect?.junk.jc ?? 4}`);
 }
 
+/** «Дополнительно» — MTU / keepalive / IPv6, built into the captured header. */
+function mountAdvSection(): void {
+  const head = $("advHead");
+  const card = head?.parentElement;
+  if (!head || !card || $("advBody")) return;
+
+  const body = document.createElement("div");
+  body.id = "advBody";
+  body.className = "hidden";
+  body.style.cssText = "padding:2px 18px 14px;border-top:1px solid var(--line)";
+  const rowTop = "display:grid;grid-template-columns:154px minmax(0,1fr);gap:18px;align-items:center;padding:13px 0";
+  const rowMid = `${rowTop};border-top:1px solid var(--line)`;
+  const field = (id: string, val: string) =>
+    `<div style="min-width:0;max-width:430px"><div style="max-width:140px"><input id="${id}" value="${esc(val)}" spellcheck="false" style="width:100%;padding:8px 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--panel-2);box-shadow:inset 0 1px 2px rgba(10,12,27,.05);font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:12.5px;outline:none" /></div></div>`;
+  const label = (t: string, sub: string) =>
+    `<div style="min-width:0"><div style="font-size:12.5px;font-weight:600;letter-spacing:-.012em">${t}</div><div style="font-size:11px;color:var(--text-3);margin-top:2px">${sub}</div></div>`;
+  body.innerHTML =
+    `<div style="${rowTop}">${label("MTU", "по умолчанию 1280")}${field("mtuInput", "1280")}</div>` +
+    `<div style="${rowMid}">${label("PersistentKeepalive", "0 — выключено")}${field("keepaliveInput", "25")}</div>` +
+    `<div style="${rowMid}">${label("IPv6", "адрес и AllowedIPs")}` +
+    `<div style="min-width:0"><div id="ipv6Toggle" style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">` +
+    `<div id="ipv6Track" style="width:34px;height:20px;border-radius:99px;background:var(--line-2);padding:2px;display:flex;transition:background .2s ease">` +
+    `<div id="ipv6Knob" style="width:16px;height:16px;border-radius:99px;background:#fff;box-shadow:var(--shadow-sm);transform:translateX(0);transition:transform .22s cubic-bezier(.4,0,.2,1)"></div></div>` +
+    `<span id="ipv6Label" style="font-size:12px;color:var(--text-3)">выключен</span></div></div></div>`;
+  card.appendChild(body);
+
+  onClick("advHead", () => {
+    const open = !must("advBody").classList.toggle("hidden");
+    must("advArrow").style.transform = open ? "rotate(-135deg)" : "rotate(45deg)";
+  });
+  for (const id of ["mtuInput", "keepaliveInput"]) {
+    $(id)?.addEventListener("input", () => {
+      updateProfile();
+      saveSettings();
+    });
+  }
+  onClick("ipv6Toggle", () => {
+    advState.ipv6 = !advState.ipv6;
+    updateProfile();
+    saveSettings();
+  });
+}
+
+const advState = { ipv6: false };
+
+/** The hero card, «Параметры» panel and «Дополнительно» summary, live. */
+function updateProfile(): void {
+  const type = groupValue("configType");
+  const typeLabel = type === "clash" ? "Clash / Mihomo" : type === "wireguard" ? "WireGuard" : "AmneziaWG";
+  const ip = selectValue("endpointIp") || "auto";
+  const port = groupValue("endpointPort") || "2408";
+  const split = groupValue("splitMode") === "selective";
+  const mtu = inputValue("mtuInput") || "1280";
+  const keep = inputValue("keepaliveInput") || "0";
+  // sel labels carry extras (DNS shows " · <ip>", I1 an emoji / "(рекомендуется)") —
+  // the hero and panel want the short name, as the design spells it
+  const short = (t: string): string => t.split(" · ")[0].replace(/^\p{Emoji}\s*/u, "").replace(/\s*\([^)]*\)$/, "").trim();
+  const dnsLabel = short(document.querySelector<HTMLElement>('[data-sel-label="dnsServer"]')?.textContent || "—");
+  const i1Label = short(document.querySelector<HTMLElement>('[data-sel-label="i1Preset"]')?.textContent || "—");
+  const plus = ($("accountBadge")?.textContent || "Free").includes("WARP+");
+
+  setText("heroType", typeLabel);
+  setText("heroEp", `${ip}:${port}  ·  ${split ? `split · ${splitState.selected.size}` : "full tunnel"}`);
+  setText("heroPort", port);
+  setText("heroDns", dnsLabel);
+  setText("heroMtu", mtu);
+
+  setText("pMask", type === "amnezia" ? i1Label : "—");
+  setText("pRoute", split ? `Split · ${splitState.selected.size} серв.` : "Full Tunnel");
+  setText("pKeep", Number(keep) > 0 ? `${keep} c` : "выкл");
+  setText("pIpv6", advState.ipv6 ? "включён" : "выключен");
+  setText("pAccount", plus ? "WARP+" : "Free");
+
+  setText("advSummary", `MTU ${mtu} · KA ${keep}${advState.ipv6 ? " · IPv6" : ""}`);
+
+  const track = $("ipv6Track"), knob = $("ipv6Knob");
+  if (track) track.style.background = advState.ipv6 ? "var(--accent)" : "var(--line-2)";
+  if (knob) knob.style.transform = advState.ipv6 ? "translateX(14px)" : "translateX(0)";
+  setText("ipv6Label", advState.ipv6 ? "включён" : "выключен");
+}
+
 function updateVisibility(): void {
   const type = groupValue("configType");
   show($("awgCard"), type === "amnezia");
+  updateProfile();
   // Amnezia-only cards: obfuscation profile, I1 mask, Architect
   for (const group of ["obfsProfile", "archProfile", "archIntensity"]) {
     show(cardOf(document.querySelector<HTMLElement>(`[data-group="${group}"]`)), type === "amnezia");
@@ -700,7 +835,9 @@ async function onGenerate(): Promise<void> {
       splitMode: groupValue("splitMode") === "selective" ? "selective" : "full",
       splitTargets: selectedSplit(),
       awgVersion: (groupValue("awgVer") === "wg" ? "1.0" : groupValue("awgVer") || "1.5") as AwgVersion,
-      mtu: recommendedMtu((groupValue("awgVer") === "wg" ? "1.0" : groupValue("awgVer") || "1.5") as AwgVersion),
+      mtu: parseInt(inputValue("mtuInput"), 10) || recommendedMtu((groupValue("awgVer") === "wg" ? "1.0" : groupValue("awgVer") || "1.5") as AwgVersion),
+      persistentKeepalive: parseInt(inputValue("keepaliveInput"), 10) || null,
+      includeIpv6: advState.ipv6,
       ...(architect ? { customJunk: architect.junk, obfuscation: architect.obfuscation } : {}),
     });
 
@@ -1433,6 +1570,7 @@ function saveSettings(): void {
     endpointIp: selectValue("endpointIp"), dnsServer: selectValue("dnsServer"),
     i1Preset: selectValue("i1Preset"), archBrowser: groupValue("archBrowser"),
     configName: inputValue("configName"), archHost: inputValue("archHost"),
+    mtu: inputValue("mtuInput"), keepalive: inputValue("keepaliveInput"), ipv6: advState.ipv6,
     splitTargets: selectedSplit(),
   });
 }
@@ -1447,7 +1585,12 @@ function loadSettings(): void {
   }
   if (typeof s.configName === "string") setInput("configName", s.configName);
   if (typeof s.archHost === "string") setInput("archHost", s.archHost);
+  if (typeof s.mtu === "string") setInput("mtuInput", s.mtu);
+  if (typeof s.keepalive === "string") setInput("keepaliveInput", s.keepalive);
+  advState.ipv6 = s.ipv6 === true;
   if (Array.isArray(s.splitTargets)) setSplit(s.splitTargets as string[]);
+  updateAwgVersion();
+  updateProfile();
 }
 
 // ─────────────── init ───────────────
@@ -1539,6 +1682,7 @@ function init(): void {
   });
 
   mountAwgSection();
+  mountAdvSection();
   loadSettings();
   renderHistory();
   updateVisibility();

@@ -31,8 +31,9 @@ export function splitTargetList(): Array<{ key: string; label: string }> {
 }
 
 /** The full catalog grouped by category, keys prefixed for split-target use. */
-export function catalogTargetGroups(): Array<{ label: string; targets: Array<{ key: string; label: string }> }> {
+export function catalogTargetGroups(): Array<{ key: string; label: string; targets: Array<{ key: string; label: string }> }> {
   return catalogByCategory().map((g) => ({
+    key: g.category,
     label: g.label,
     targets: g.services.map((s) => ({ key: `${CATALOG_PREFIX}${s.id}`, label: s.name })),
   }));
