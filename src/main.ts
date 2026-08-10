@@ -13,7 +13,7 @@ import * as winws from "./core/winws.ts";
 import { loadJson, saveJson, addHistory, loadHistory, deleteHistory, clearHistory, updateHistoryTag } from "./core/store.ts";
 import { generateSignature, MIMIC_PROFILES, type GeneratedSignature } from "./core/signature.ts";
 import { PROTOCOL_INFO, calcChainSize, CPS_MAX_BYTES } from "./core/awg-meta.ts";
-import { type AwgVersion } from "./core/obfuscation.ts";
+import { type AwgVersion, compatWarning, recommendedMtu } from "./core/obfuscation.ts";
 import { analyzeConfig, type AnalysisResult } from "./core/analyzer.ts";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
@@ -295,8 +295,84 @@ function setSplit(keys: string[]): void {
 }
 const updateSplitCount = () => setText("splitCount", `выбрано ${selectedSplit().length}`);
 
+/**
+ * «Расширенная обфускация» — the design ships this card collapsed, so it was
+ * never captured; its markup is copied from the mockup source instead.
+ */
+const AWG_VERSIONS: Array<[string, string, string]> = [
+  ["wg", "WireGuard", "без обфускации"],
+  ["1.0", "AWG 1.0", "Jc / S / H"],
+  ["1.5", "AWG 1.5", "+ CPS (I1…I5)"],
+  ["2.0", "AWG 2.0", "+ S3/S4, H-диапазоны"],
+  ["3.0", "AWG 3.0", "+ шифрование заголовка"],
+];
+
+function mountAwgSection(): void {
+  const col = screenEl("generate").querySelector<HTMLElement>('[style*="padding: 18px 26px"]');
+  if (!col || $("awgCard")) return;
+  const tileBase = "padding:9px 11px;border-radius:11px;cursor:pointer;min-width:0;transition:border-color .14s ease,background .14s ease,transform .14s ease";
+  const off = `${tileBase};border:1px solid var(--line-2);background:var(--panel-2)`;
+  const on = `${tileBase};border:1px solid var(--accent);background:var(--sel)`;
+
+  const card = document.createElement("div");
+  card.id = "awgCard";
+  card.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow-sm),inset 0 1px 0 var(--hl);margin-top:14px";
+  card.innerHTML =
+    `<div id="awgHead" class="scp1" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;cursor:pointer;border-radius:15px">` +
+    `<div style="display:flex;align-items:center;gap:10px">` +
+    `<div style="font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3)">Расширенная обфускация</div>` +
+    `<div id="awgVerChip" style="font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:99px;background:var(--sel);color:var(--accent)">AWG 1.5</div></div>` +
+    `<div style="display:flex;align-items:center;gap:10px">` +
+    `<span id="awgSummary" style="font-size:11.5px;color:var(--text-3);font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace"></span>` +
+    `<div id="awgArrow" style="width:7px;height:7px;border-right:1.6px solid var(--text-3);border-bottom:1.6px solid var(--text-3);transform:rotate(45deg)"></div></div></div>` +
+    `<div id="awgBody" class="hidden" style="padding:2px 18px 16px;border-top:1px solid var(--line)">` +
+    `<div style="padding:13px 0">` +
+    `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px">` +
+    `<div style="font-size:12.5px;font-weight:600;letter-spacing:-.012em">Версия профиля</div>` +
+    `<div style="font-size:11px;color:var(--text-3)">новее — сильнее маскировка</div></div>` +
+    `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:7px;max-width:660px">` +
+    AWG_VERSIONS.map(([v, t, d]) =>
+      `<div class="scp6" data-group="awgVer" data-value="${v}" data-on="${on}" data-off="${off}" style="${v === "1.5" ? on : off}">` +
+      `<div data-ver-title style="font-size:12.5px;letter-spacing:-.015em;line-height:1.25">${t}</div>` +
+      `<div style="font-size:10.5px;color:var(--text-3);margin-top:2px">${d}</div></div>`).join("") +
+    `</div>` +
+    `<div id="verWarn" class="hidden" style="display:flex;align-items:flex-start;gap:10px;margin-top:11px;padding:11px 13px;border-radius:11px;background:var(--panel-2);border:1px solid var(--warn);max-width:660px">` +
+    `<div style="flex:0 0 16px;width:16px;height:16px;border-radius:99px;background:var(--warn);display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;line-height:1">!</div>` +
+    `<div id="verWarnText" style="font-size:11.5px;color:var(--text-2);line-height:1.5"></div></div>` +
+    `<div style="display:flex;align-items:center;gap:10px;margin-top:11px">` +
+    `<div style="font-size:11.5px;color:var(--text-3)">Рекомендуемый MTU для профиля: <span id="mtuRec" style="color:var(--text);font-weight:600;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace"></span></div></div>` +
+    `</div></div>`;
+  col.appendChild(card);
+
+  onClick("awgHead", () => {
+    const body = must("awgBody");
+    const open = body.classList.toggle("hidden");
+    must("awgArrow").style.transform = open ? "rotate(45deg)" : "rotate(-135deg)";
+  });
+  bindGroup("awgVer", (v) => {
+    if (v === "wg") setGroup("configType", "wireguard");
+    updateAwgVersion();
+    saveSettings();
+  });
+  updateAwgVersion();
+}
+
+/** Keeps the chip, the compatibility warning and the MTU hint in sync. */
+function updateAwgVersion(): void {
+  const v = groupValue("awgVer") || "1.5";
+  setText("awgVerChip", AWG_VERSIONS.find(([k]) => k === v)?.[1] ?? "AWG 1.5");
+  const warn = v === "wg"
+    ? "Без обфускации DPI видит сигнатуру WireGuard — используйте только там, где блокировок нет."
+    : compatWarning(v as AwgVersion);
+  setText("verWarnText", warn ?? "");
+  show($("verWarn"), !!warn);
+  setText("mtuRec", String(v === "wg" ? 1420 : recommendedMtu(v as AwgVersion)));
+  setText("awgSummary", v === "wg" ? "без junk" : `${v === "1.5" || v === "2.0" || v === "3.0" ? "CPS · " : ""}Jc ${architect?.junk.jc ?? 4}`);
+}
+
 function updateVisibility(): void {
   const type = groupValue("configType");
+  show($("awgCard"), type === "amnezia");
   // Amnezia-only cards: obfuscation profile, I1 mask, Architect
   for (const group of ["obfsProfile", "archProfile", "archIntensity"]) {
     show(cardOf(document.querySelector<HTMLElement>(`[data-group="${group}"]`)), type === "amnezia");
@@ -501,7 +577,8 @@ async function onGenerate(): Promise<void> {
       dnsServer: selectValue("dnsServer") || "malw_link",
       splitMode: groupValue("splitMode") === "selective" ? "selective" : "full",
       splitTargets: selectedSplit(),
-      awgVersion: "1.5" as AwgVersion,
+      awgVersion: (groupValue("awgVer") === "wg" ? "1.0" : groupValue("awgVer") || "1.5") as AwgVersion,
+      mtu: recommendedMtu((groupValue("awgVer") === "wg" ? "1.0" : groupValue("awgVer") || "1.5") as AwgVersion),
       ...(architect ? { customJunk: architect.junk, obfuscation: architect.obfuscation } : {}),
     });
 
@@ -1224,6 +1301,7 @@ function saveSettings(): void {
     configType: groupValue("configType"), obfsProfile: groupValue("obfsProfile"),
     endpointPort: groupValue("endpointPort"), splitMode: groupValue("splitMode"),
     archProfile: groupValue("archProfile"), archIntensity: groupValue("archIntensity"),
+    awgVer: groupValue("awgVer"),
     endpointIp: selectValue("endpointIp"), dnsServer: selectValue("dnsServer"),
     i1Preset: selectValue("i1Preset"), archBrowser: selectValue("archBrowser"),
     configName: inputValue("configName"), archHost: inputValue("archHost"),
@@ -1233,7 +1311,7 @@ function saveSettings(): void {
 
 function loadSettings(): void {
   const s = loadJson<Record<string, unknown>>(SETTINGS_KEY, {});
-  for (const g of ["configType", "obfsProfile", "endpointPort", "splitMode", "archProfile", "archIntensity"]) {
+  for (const g of ["configType", "obfsProfile", "endpointPort", "splitMode", "archProfile", "archIntensity", "awgVer"]) {
     if (typeof s[g] === "string") setGroup(g, s[g] as string);
   }
   for (const id of ["endpointIp", "dnsServer", "i1Preset", "archBrowser"]) {
@@ -1330,6 +1408,7 @@ function init(): void {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void onGenerate();
   });
 
+  mountAwgSection();
   loadSettings();
   renderHistory();
   updateVisibility();

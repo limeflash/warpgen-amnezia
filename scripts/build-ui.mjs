@@ -127,6 +127,9 @@ ${css}
     .sel-wrap > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
     .live-input { width: 100%; background: transparent; border: 0; outline: none; padding: 0; font: inherit; color: inherit; }
     .live-input::placeholder { color: var(--text-3); }
+    /* AWG version tiles: the design also recolours the caption when selected */
+    [data-ver-title] { font-weight: 500; color: var(--text); }
+    [data-selected="1"] > [data-ver-title] { font-weight: 650; color: var(--accent); }
     /* selected scan row (the design binds this per row: sel when its IP is in the generator) */
     .scan-row.sel { background: var(--sel); }
 ${STATE_CSS}
