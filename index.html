@@ -326,6 +326,31 @@
     </div>
   </div>
 
+  <!-- ── DPI bypass (Windows) ── -->
+  <div class="card hidden" id="dpiCard">
+    <div class="card-title">🛡 DPI-обход WARP (winws / zapret2)</div>
+    <div class="grid2">
+      <div class="field" style="margin-bottom:12px;">
+        <label>WARP UDP порты</label>
+        <input type="text" id="dpiPorts" value="2408,500,4500,1701,4443,8443,8095,443" spellcheck="false" />
+      </div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>fake-ttl (0 = не задавать)</label>
+        <input type="number" id="dpiTtl" value="0" min="0" max="64" />
+      </div>
+    </div>
+    <label class="split-item" style="margin-bottom:10px;"><input type="checkbox" id="dpiQuic" /> <span>Добавить QUIC payload</span></label>
+    <div class="btn-row">
+      <button class="btn" id="dpiStartBtn" style="flex:2;">▶ Включить DPI-обход</button>
+      <button class="btn btn-danger" id="dpiStopBtn" disabled>⏹ Стоп</button>
+    </div>
+    <div class="status" id="dpiStatus"></div>
+    <div id="dpiLog" class="log hidden" style="margin-top:10px;"></div>
+    <div class="hint" style="color:var(--warn); margin-top:8px;">
+      ⚠ Требует прав администратора (UAC) и загружает драйвер WinDivert. winws2/WinDivert/Lua скачиваются с github.com/bol-van/zapret-win-bundle при первом запуске. Только Windows.
+    </div>
+  </div>
+
   <!-- ── Clients ── -->
   <div class="card">
     <div class="card-title">📦 Клиенты (скачать)</div>

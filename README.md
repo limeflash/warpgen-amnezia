@@ -18,7 +18,12 @@ to find a working, low-latency endpoint from your network.
   obfuscation profiles, endpoint/port/DNS selection, IPv6 toggle, MTU/keepalive, and
   split tunneling by service (domains resolved via DoH at generation time).
 - **🛰 warpscout** — *Find best endpoint* (auto-fills the form), *Import config*,
-  *find-junk* (AmneziaWG obfuscation tuning) and *find-sni* (MASQUE), all streamed live and stoppable.
+  *find-junk* (AmneziaWG obfuscation tuning), *find-sni* (MASQUE), plus `-speed`
+  (download-test) and `-P` (tun-ping/loss) toggles — all streamed live and stoppable.
+- **Clash / Mihomo** output (`.yaml`) + import a `.conf` or Amnezia `vpn://` link, and a **QR** for any config.
+- **📦 Clients** — one-click download links for WireGuard / AmneziaVPN / Clash Verge / WireSock (OS auto-detected).
+- **🕘 History & settings** — every config is logged (load / tag / copy / delete); the form is remembered across restarts.
+- **🛡 DPI bypass (Windows)** — runs zapret2's `winws2` to push the WARP handshake through DPI (see below).
 - **🔑 Tools** (tap the logo 7×) — WARP+ key check, test-key generation, and a
   proxy checker + key generator/checker with rotating proxies.
 
@@ -55,6 +60,21 @@ The app is cross-platform; each OS build just needs its own warpscout sidecar.
   The bundle is unsigned — first launch: right-click the app → *Open* (or
   `xattr -dr com.apple.quarantine /Applications/WarpGen.app`). For distribution, add
   Apple signing/notarization secrets to the workflow.
+
+### DPI bypass (winws / zapret2) — Windows
+
+The 🛡 card runs zapret2's `winws2` to push the WARP UDP handshake through DPI
+(filters the WARP ports both ways, matches the WireGuard L7 + payloads, and
+injects Lua "fake" desync packets with a tuned fake-TTL). On first *Start* it
+downloads `winws2` + `WinDivert` + the Lua scripts from
+[`bol-van/zapret-win-bundle`](https://github.com/bol-van/zapret-win-bundle) into
+the app-data dir and launches `winws2` **elevated (UAC)** — WinDivert is a kernel
+driver, so Administrator is required. *Stop* kills it. After enabling, run the
+warpscout scan to find endpoints that now get through.
+
+> ⚠ Not verifiable in CI (needs admin + a live network) — test on your own
+> machine. macOS/Linux `tpws` is **not wired up yet** (it needs root + pf/iptables
+> redirect) — planned follow-up.
 
 ## Scripts
 

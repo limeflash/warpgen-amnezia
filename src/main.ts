@@ -9,8 +9,9 @@ import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { downloadDir, join } from "@tauri-apps/api/path";
 import { qrDataUrl } from "./core/qr";
 import { clashFromNode, parseImportedConf, normalizeImportedConfig } from "./core/clash";
-import { clientList, downloadUrl } from "./core/client-downloads";
+import { clientList, downloadUrl, currentOs } from "./core/client-downloads";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
+import * as winws from "./core/winws";
 import { loadJson, saveJson, addHistory, loadHistory, deleteHistory, clearHistory, updateHistoryTag } from "./core/store";
 
 // ─────────────── DOM helpers ───────────────
@@ -528,6 +529,58 @@ function onLogoTap(): void {
   }
 }
 
+// ─────────────── DPI bypass (winws, Windows) ───────────────
+let dpiBusy = false;
+
+function dpiLog(line: string): void {
+  const l = $("dpiLog");
+  show(l, true);
+  l.textContent += line + "\n";
+  l.scrollTop = l.scrollHeight;
+}
+
+function dpiSetRunning(on: boolean): void {
+  $<HTMLButtonElement>("dpiStartBtn").disabled = on;
+  $<HTMLButtonElement>("dpiStopBtn").disabled = !on;
+  setText("dpiStatus", on ? "🟢 DPI-обход активен." : "⚪ Выключено.");
+}
+
+async function dpiStart(): Promise<void> {
+  if (dpiBusy) return;
+  dpiBusy = true;
+  $<HTMLButtonElement>("dpiStartBtn").disabled = true;
+  setText("dpiStatus", "Запуск… (подтвердите UAC)");
+  try {
+    await winws.startWinws(
+      { ports: val("dpiPorts"), fakeTtl: parseInt(val("dpiTtl"), 10) || 0, quic: $<HTMLInputElement>("dpiQuic").checked },
+      dpiLog,
+    );
+    dpiSetRunning(true);
+  } catch (err) {
+    setText("dpiStatus", `⚠ ${err instanceof Error ? err.message : String(err)}`);
+    $<HTMLButtonElement>("dpiStartBtn").disabled = false;
+  } finally {
+    dpiBusy = false;
+  }
+}
+
+async function dpiStop(): Promise<void> {
+  try {
+    await winws.stopWinws(dpiLog);
+  } catch {
+    /* ignore */
+  }
+  dpiSetRunning(false);
+}
+
+async function initDpi(): Promise<void> {
+  if (currentOs() !== "windows") return;
+  show($("dpiCard"), true);
+  $("dpiStartBtn").addEventListener("click", dpiStart);
+  $("dpiStopBtn").addEventListener("click", dpiStop);
+  dpiSetRunning(await winws.winwsRunning());
+}
+
 // ─────────────── Settings persistence ───────────────
 const SETTINGS_KEY = "warpgen.settings";
 
@@ -714,6 +767,7 @@ function init(): void {
   updateSplitVisibility();
   updateCustomI1Visibility();
   void checkWarpscout();
+  void initDpi();
 }
 
 init();
