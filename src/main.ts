@@ -28,6 +28,8 @@ type ConfigKind = "amnezia" | "wireguard" | "clash";
 
 let lastConfigType: ConfigKind = "amnezia";
 let lastConfig = "";
+/** History id of the config on screen, so «Сохранённые» can mark it active. */
+let activeConfigId = 0;
 let architect: GeneratedSignature | null = null;
 
 // ─────────────── window chrome ───────────────
@@ -167,6 +169,18 @@ function repairHooks(): void {
     rows.id = "historyList";
     header!.id = "historyHead";
   }
+
+  // Only the result screen's empty state was captured, so tag the places its
+  // config branch has to be rebuilt into.
+  const res = screenEl("result");
+  const col = res.querySelector<HTMLElement>('[style*="padding: 18px 26px 40px"]');
+  if (col) {
+    col.id = "resultCol";
+    col.firstElementChild?.setAttribute("id", "resultEmpty");
+  }
+  const bar = res.querySelector<HTMLElement>('[style*="position: sticky"]');
+  bar?.children[1]?.setAttribute("id", "resultActions");
+  bar?.children[0]?.children[1]?.setAttribute("id", "resultSub");
 }
 
 /** The design's card container around a control (panel background + radius). */
@@ -343,34 +357,132 @@ function fileName(): string {
   return lastConfigType === "clash" ? `${base}.yaml` : `${base}.conf`;
 }
 
+/**
+ * The design's code view: a gutter number per line and tokens coloured from the
+ * --tk-* palette. Same rules as the mockup's tokenize(), so a config looks the
+ * same here as it does there.
+ */
+function tokenizeConfig(text: string): string {
+  const V = {
+    sec: "var(--tk-sec)", key: "var(--tk-key)", num: "var(--tk-num)", str: "var(--tk-str)",
+    tag: "var(--tk-tag)", com: "var(--tk-com)", op: "var(--tk-op)", fg: "var(--code-fg)",
+  };
+  return text.split("\n").map((line, i) => {
+    const parts: string[] = [];
+    const push = (t: string, c: string, w = "450"): void => {
+      if (t) parts.push(`<span style="color:${c};font-weight:${w}">${esc(t)}</span>`);
+    };
+    const ci = line.indexOf("#");
+    const body = ci >= 0 ? line.slice(0, ci) : line;
+    const com = ci >= 0 ? line.slice(ci) : "";
+    if (/^\s*\[/.test(body)) push(body, V.sec, "700");
+    else {
+      const m = body.match(/^(\s*)([A-Za-z][A-Za-z0-9_-]*)(\s*[=:]\s*)([\s\S]*)$/);
+      if (m) {
+        push(m[1], V.fg);
+        push(m[2], V.key, "600");
+        push(m[3], V.op);
+        const rx = /(<[^>]*>)|([0-9]+(?:\.[0-9]+){0,3}(?::[0-9]+)?(?:\/[0-9]+)?)|([\s,]+)|([^\s,]+)/g;
+        for (let x = rx.exec(m[4]); x; x = rx.exec(m[4])) {
+          if (x[1]) push(x[1], V.tag, "550");
+          else if (x[2]) push(x[2], V.num, "550");
+          else if (x[3]) push(x[3], V.fg);
+          else push(x[4], V.str);
+        }
+      } else push(body, V.fg);
+    }
+    if (com) push(com, V.com);
+    if (!parts.length) push(" ", V.fg);
+    return (
+      `<div class="scpb" style="display:flex;align-items:flex-start;gap:14px;padding:0 18px;min-height:21px">` +
+      `<div style="flex:0 0 24px;text-align:right;color:var(--code-gut);user-select:none;font-variant-numeric:tabular-nums">${i + 1}</div>` +
+      `<div style="flex:1;min-width:0;white-space:pre-wrap;word-break:break-word">${parts.join("")}</div></div>`
+    );
+  }).join("");
+}
+
+/** «Сохранённые» column — the history, with the shown config marked active. */
+function savedCards(): string {
+  return loadHistory().map((e) => {
+    const on = e.id === activeConfigId;
+    const d = new Date(e.ts);
+    const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const type = e.configType === "clash" ? "Clash" : e.configType === "wireguard" ? "WireGuard" : "AmneziaWG";
+    return (
+      `<div data-card="${e.id}" class="scp7" style="padding:10px 12px;border-radius:12px;border:1px solid ${on ? "var(--line-2)" : "var(--line)"};background:${on ? "var(--panel-2)" : "var(--panel)"};box-shadow:${on ? "inset 2px 0 0 var(--accent)" : "var(--shadow-sm)"};cursor:pointer;min-width:0;transition:border-color .14s ease,background .14s ease">` +
+      `<div style="display:flex;align-items:center;gap:8px;min-width:0">` +
+      `<div style="width:5px;height:5px;border-radius:99px;background:${on ? "var(--accent)" : "var(--line-2)"};flex:0 0 5px"></div>` +
+      `<input data-name="${e.id}" value="${esc(e.tag)}" placeholder="Без названия" class="scp5 scpa" style="flex:1;min-width:0;padding:2px 5px;margin-left:-5px;border:1px solid transparent;border-radius:6px;background:transparent;font-size:12.5px;font-weight:650;letter-spacing:-.015em;color:${on ? "var(--accent)" : "var(--text)"};outline:none;transition:border-color .14s ease" /></div>` +
+      `<div style="display:flex;align-items:center;gap:7px;margin-top:5px;padding-left:13px;min-width:0">` +
+      `<div style="flex:0 0 auto;font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:5px;background:var(--panel-3);color:var(--text-3)">${esc(type)}</div>` +
+      `<div style="flex:1;min-width:0;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:11px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.endpoint || "—")}</div>` +
+      `<div style="flex:0 0 auto;font-size:10.5px;color:var(--text-3);opacity:.8">${time}</div></div></div>`
+    );
+  }).join("");
+}
+
+/** Копировать / QR / Скачать live in the screen's sticky bar, as in the design. */
+function resultActions(): void {
+  const bar = $("resultActions");
+  if (!bar) return;
+  bar.innerHTML =
+    `<div style="display:flex;align-items:center;gap:8px">` +
+    `<div id="copyCfg" class="scp0" style="padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);font-size:12.5px;font-weight:600;color:var(--text-2);cursor:pointer;transition:background .14s ease,color .14s ease,border-color .14s ease;white-space:nowrap">Копировать</div>` +
+    `<div id="qrBtn" class="scp1" style="padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);font-size:12.5px;font-weight:600;color:var(--text-2);cursor:pointer">QR</div>` +
+    `<div id="dlBtn" class="scp4 scpj" style="display:flex;align-items:center;gap:8px;padding:8px 16px;border-radius:10px;background:var(--accent);color:var(--on-accent);box-shadow:inset 0 -1px 0 rgba(0,0,0,.14);transition:transform .12s ease,opacity .12s ease;font-size:12.5px;font-weight:650;cursor:pointer;white-space:nowrap"><span>Скачать</span></div></div>`;
+  onClick("copyCfg", () => void copyText(lastConfig, "copyCfg", "Скопировано", "Копировать"));
+  onClick("qrBtn", toggleQr);
+  onClick("dlBtn", () => void downloadConfig());
+}
+
 function setResult(config: string, type: ConfigKind, meta: string): void {
   lastConfig = config;
   lastConfigType = type;
   show($("resultEmpty"), false);
+  setText("resultSub", meta ? `${fileName()} · ${meta}` : fileName());
+  resultActions();
 
-  const view = screenEl("result");
-  const box = ensureBox("resultBox", view);
-  box.style.cssText = "margin-bottom:14px";
+  const box = ensureBox("resultBox", $("resultCol") ?? screenEl("result"));
   box.innerHTML =
-    `<div style="background:var(--code-bg);border:1px solid var(--code-line);border-radius:14px;overflow:hidden">` +
-    `<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--code-head);border-bottom:1px solid var(--code-line);font-family:ui-monospace,monospace;font-size:11px;color:var(--code-dim)">` +
-    `<span>${esc(fileName())}</span><span>${esc(meta)}</span></div>` +
-    `<textarea id="configOutput" readonly spellcheck="false" style="width:100%;min-height:320px;border:0;background:transparent;color:var(--code-fg);font-family:ui-monospace,monospace;font-size:12px;line-height:1.6;padding:14px;outline:none;resize:vertical"></textarea></div>` +
-    `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">` +
-    ["Скачать", "Копировать", "QR-код", "Анализировать"]
-      .map((t, i) => `<div id="res${i}" style="padding:9px 15px;border-radius:9px;font-size:12.5px;font-weight:600;cursor:pointer;${i === 0 ? "background:var(--accent);color:var(--on-accent)" : "background:var(--panel-2);border:1px solid var(--line);color:var(--text)"}">${t}</div>`)
-      .join("") +
-    `</div><div id="qrWrap" class="hidden" style="text-align:center;margin-top:14px"><img id="qrImg" alt="QR" style="width:250px;height:250px;image-rendering:pixelated;background:#fff;border-radius:12px;padding:10px" /></div>`;
-  (must("configOutput") as HTMLTextAreaElement).value = config;
+    `<div style="display:grid;grid-template-columns:minmax(0,272px) minmax(0,1fr);gap:16px;align-items:start">` +
+    `<div style="display:flex;flex-direction:column;gap:9px;min-width:0">` +
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 2px 2px">` +
+    `<div style="font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3)">Сохранённые</div>` +
+    `<div id="newCfg" style="font-size:11.5px;font-weight:600;color:var(--accent);cursor:pointer">+ Новый</div></div>` +
+    savedCards() +
+    `</div>` +
+    `<div style="min-width:0;background:var(--code-bg);border:1px solid var(--code-line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden">` +
+    `<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--code-line);background:var(--code-head)">` +
+    `<div style="display:flex;gap:6px">` +
+    `<div style="width:9px;height:9px;border-radius:99px;background:#ff5f57"></div>` +
+    `<div style="width:9px;height:9px;border-radius:99px;background:#febc2e"></div>` +
+    `<div style="width:9px;height:9px;border-radius:99px;background:#28c840"></div></div>` +
+    `<div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:8px">` +
+    `<div style="min-width:0;flex:0 1 auto;font-size:12.5px;font-weight:650;letter-spacing:-.015em;color:var(--code-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(meta || "Конфиг")}</div>` +
+    `<div style="flex:0 1 auto;min-width:0;font-size:11px;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;color:var(--code-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fileName())}</div></div>` +
+    `<div style="flex:0 0 auto;font-size:11px;color:var(--code-dim);white-space:nowrap">${config.split("\n").length} строк · read-only</div></div>` +
+    `<div style="margin:0;padding:14px 0 16px;max-height:min(56vh,560px);overflow-y:auto;overflow-x:hidden;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:12px;line-height:1.75;color:var(--code-fg)">${tokenizeConfig(config)}</div></div>` +
+    `<div id="qrWrap" class="hidden" style="grid-column:2;width:232px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:var(--shadow-sm);animation:rise .15s ease-out">` +
+    `<img id="qrImg" alt="QR" style="width:200px;height:200px;image-rendering:pixelated;background:#fff;border-radius:12px;border:1px solid var(--line-2)" />` +
+    `<div style="font-size:11.5px;color:var(--text-3);margin-top:11px;line-height:1.45">Отсканируйте в мобильном клиенте AmneziaVPN или WireGuard.</div></div>` +
+    `</div>`;
 
-  onClick("res0", () => void downloadConfig());
-  onClick("res1", () => void copyText(config, "res1", "Скопировано", "Копировать"));
-  onClick("res2", toggleQr);
-  onClick("res3", () => {
-    setInput("analyzerInput", lastConfig);
-    showView("analyzer");
-    onAnalyze();
-  });
+  onClick("newCfg", () => showView("generate"));
+  for (const card of box.querySelectorAll<HTMLElement>("[data-card]")) {
+    card.addEventListener("click", (ev) => {
+      if ((ev.target as HTMLElement).dataset.name) return; // renaming, not opening
+      const e = loadHistory().find((h) => h.id === Number(card.dataset.card));
+      if (!e) return;
+      activeConfigId = e.id;
+      setResult(e.config, e.configType as ConfigKind, "из истории");
+    });
+  }
+  for (const input of box.querySelectorAll<HTMLInputElement>("[data-name]")) {
+    input.addEventListener("change", () => {
+      updateHistoryTag(Number(input.dataset.name), input.value);
+      renderHistory();
+    });
+  }
   showView("result");
 }
 
@@ -399,8 +511,8 @@ async function onGenerate(): Promise<void> {
 
     let meta = result.endpoint;
     if (result.splitTunnel.mode === "selective") meta += ` · ${result.splitTunnel.resolvedAllowedIps} маршрутов`;
+    pushHistory(result.configType, result.endpoint, result.config); // before setResult, so «Сохранённые» shows it
     setResult(result.config, result.configType, meta);
-    pushHistory(result.configType, result.endpoint, result.config);
     if (result.licenseError) status("result", `⚠ Ключ: ${esc(result.licenseError)}`, "err");
   } catch (err) {
     status("generate", `⚠ ${esc(err instanceof Error ? err.message : String(err))}`, "err");
@@ -518,38 +630,50 @@ function applyEndpoint(endpoint: string): void {
 }
 
 /** find-junk result card: the measured junk parameters, as the design shows them. */
+/**
+ * The design's shared find-junk / find-sni card: what warpscout measured, and a
+ * jump to the Architect where the values were just applied.
+ */
+function renderFindCard(title: string, note: string, params: Array<[string, string]>): void {
+  const box = ensureBox("wsFindResult", hostCard("scan").parentElement ?? screenEl("scan"));
+  placeAfterCard("scan", box);
+  box.style.cssText =
+    "background:var(--panel);border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow-sm),inset 0 1px 0 var(--hl);margin-bottom:16px;animation:pop .26s cubic-bezier(.2,.8,.2,1)";
+  const tile = ([k, v]: [string, string]) =>
+    `<div style="padding:10px 12px;border-radius:11px;background:var(--panel-2);border:1px solid var(--line)">` +
+    `<div style="font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)">${esc(k)}</div>` +
+    `<div style="font-size:13px;font-weight:650;letter-spacing:-.02em;margin-top:4px;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v)}</div></div>`;
+
+  box.innerHTML =
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px 11px;border-bottom:1px solid var(--line)">` +
+    `<div style="font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3)">${esc(title)}</div>` +
+    `<div style="display:flex;align-items:center;gap:7px">` +
+    `<div style="width:6px;height:6px;border-radius:99px;background:var(--ok)"></div>` +
+    `<div style="font-size:11px;font-weight:600;color:var(--text-2)">подставлено в Architect</div></div></div>` +
+    `<div style="padding:14px 18px 16px">` +
+    `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px">${params.map(tile).join("")}</div>` +
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:14px;padding-top:13px;border-top:1px solid var(--line)">` +
+    `<div style="font-size:11.5px;color:var(--text-3);min-width:0">${esc(note)}</div>` +
+    `<div id="openArchitect" class="scp4 scpd" style="display:flex;align-items:center;gap:7px;padding:8px 15px;border-radius:10px;background:var(--accent);color:var(--on-accent);box-shadow:inset 0 -1px 0 rgba(0,0,0,.14);transition:transform .12s ease,opacity .12s ease;font-size:12.5px;font-weight:650;cursor:pointer;white-space:nowrap;flex:0 0 auto">` +
+    `<span>Открыть в Architect</span><span style="opacity:.75">→</span></div></div></div>`;
+
+  onClick("openArchitect", () => {
+    showView("generate");
+    document.querySelector('[data-group="archProfile"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
+
 function renderJunkResult(
   junk: { jc: number; jmin: number; jmax: number },
   handshakeMs?: string,
   packets?: string,
   attempts?: string,
 ): void {
-  const box = ensureBox("wsJunkResult", hostCard("scan").parentElement ?? screenEl("scan"));
-  placeAfterCard("scan", box);
-  box.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:16px 18px;margin-bottom:14px";
-  const tile = (label: string, value: string) =>
-    `<div style="padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)">` +
-    `<div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">${esc(label)}</div>` +
-    `<div style="font-size:15px;font-weight:650;margin-top:2px">${esc(value)}</div></div>`;
-
-  box.innerHTML =
-    `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">` +
-    `<b style="font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">find-junk · параметры обфускации</b>` +
-    `<span style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-2)">` +
-    `<i style="width:6px;height:6px;border-radius:99px;background:var(--ok)"></i>подставлено в Architect</span></div>` +
-    `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:9px">` +
-    tile("Jc", String(junk.jc)) + tile("Jmin", String(junk.jmin)) + tile("Jmax", String(junk.jmax)) +
-    tile("Handshake", handshakeMs ? `${handshakeMs} ms` : "—") +
-    `</div>` +
-    `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding-top:13px;border-top:1px solid var(--line)">` +
-    `<span style="font-size:11.5px;color:var(--text-3)">Профиль обфускации переключён на Custom${packets ? ` · ${packets} пакетов` : ""}${attempts ? `, ${attempts} попытки` : ""}</span>` +
-    `<div id="openArchitect" class="scp4 scpd" style="display:flex;align-items:center;gap:7px;padding:8px 15px;border-radius:10px;background:var(--accent);color:var(--on-accent);box-shadow:inset 0 -1px 0 rgba(0,0,0,.14);transition:transform .12s ease,opacity .12s ease;font-size:12.5px;font-weight:650;cursor:pointer;white-space:nowrap;flex:0 0 auto">` +
-    `<span>Открыть в Architect</span><span style="opacity:.75">→</span></div></div>`;
-
-  onClick("openArchitect", () => {
-    showView("generate");
-    document.querySelector('[data-group="archProfile"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
-  });
+  renderFindCard(
+    "find-junk · параметры обфускации",
+    `Профиль обфускации переключён на Custom${packets ? ` · ${packets} пакетов` : ""}${attempts ? `, ${attempts} попытки` : ""}`,
+    [["Jc", String(junk.jc)], ["Jmin", String(junk.jmin)], ["Jmax", String(junk.jmax)], ["Handshake", handshakeMs ? `${handshakeMs} ms` : "—"]],
+  );
 }
 
 /**
@@ -608,6 +732,7 @@ async function onScan(): Promise<void> {
   if (wsAbort) return;
   wsAbort = new AbortController();
   $("wsResults")?.remove();
+  $("wsFindResult")?.remove(); // the design clears `find` when a scan starts
   status("scan", "");
   scanProgress("Проверка доступных портов…", 8, "ports");
   const note: Partial<Record<ScanStep, string>> = {};
@@ -655,8 +780,9 @@ async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
   try {
     if (kind === "import") {
       const { config, endpoint } = await ws.importConfig({ proto, ...wsFilters(), signal: wsAbort.signal });
-      setResult(config, proto === "wg" ? "wireguard" : "amnezia", `warpscout${endpoint ? ` · ${endpoint}` : ""}`);
-      pushHistory(lastConfigType, endpoint ?? "", config);
+      const kind = proto === "wg" ? "wireguard" : "amnezia";
+      pushHistory(kind, endpoint ?? "", config);
+      setResult(config, kind, `warpscout${endpoint ? ` · ${endpoint}` : ""}`);
     } else if (kind === "junk") {
       const out = await ws.findJunk({ proto, signal: wsAbort.signal });
       const m = out.match(/jc\s*=?\s*(\d+).*?jmin\s*=?\s*(\d+).*?jmax\s*=?\s*(\d+)/is);
@@ -675,7 +801,14 @@ async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
       const host = out.match(/\b([a-z0-9-]+\.[a-z]{2,}(?:\.[a-z]{2,})?)\b/i)?.[1];
       if (host) {
         setInput("archHost", host);
-        wsStatus(`find-sni: ${host} — подставлен в Architect.`);
+        const rtt = out.match(/(\d+(?:\.\d+)?)\s*ms/i)?.[1];
+        const tried = out.match(/(\d+)\s*(?:domains?|домен)/i)?.[1];
+        renderFindCard(
+          "find-sni · рабочий SNI",
+          `Маскировка I1 переключена на ${proto === "masque" ? "MASQUE" : "QUIC"} под ${host}${tried ? ` · проверено ${tried} доменов` : ""}`,
+          [["SNI", host], ["Протокол", proto === "masque" ? "MASQUE" : "QUIC"], ["RTT", rtt ? `${rtt} ms` : "—"]],
+        );
+        status("scan", "");
       } else wsStatus("find-sni завершён.");
     }
   } catch (err) {
@@ -686,6 +819,41 @@ async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
 }
 
 // ─────────────── DPI ───────────────
+/** The design's running state: header word, pill, button label and the nav dot. */
+function setDpiOn(on: boolean): void {
+  setText("dpiState", on ? "Работает" : "Выключен");
+
+  const pill = screenEl("dpi").querySelector<HTMLElement>('[style*="border-radius: 99px"][style*="padding: 5px 12px"]');
+  if (pill) {
+    pill.style.background = on ? "var(--sel)" : "var(--panel-2)";
+    pill.style.border = `1px solid ${on ? "var(--accent-2)" : "var(--line)"}`;
+    const dot = pill.firstElementChild as HTMLElement | null;
+    if (dot) dot.style.background = on ? "var(--ok)" : "var(--text-3)";
+    const label = pill.lastElementChild as HTMLElement | null;
+    if (label && label !== dot) {
+      label.textContent = on ? "Работает" : "Выключен";
+      label.style.color = on ? "var(--accent)" : "var(--text-3)";
+    }
+  }
+
+  const btn = $("dpiStartBtn");
+  if (btn) {
+    btn.textContent = on ? "Перезапустить" : "Включить DPI-обход";
+    btn.style.background = on ? "transparent" : "var(--accent)";
+    btn.style.color = on ? "var(--accent)" : "var(--on-accent)";
+    btn.style.border = "1px solid var(--accent)";
+  }
+
+  const nav = document.querySelector<HTMLElement>('.nav-item[data-view="dpi"]');
+  nav?.querySelector("[data-dpi-dot]")?.remove();
+  if (on && nav) {
+    const dot = document.createElement("div");
+    dot.dataset.dpiDot = "1";
+    dot.style.cssText = "margin-left:auto;width:6px;height:6px;border-radius:99px;background:var(--ok)";
+    nav.appendChild(dot);
+  }
+}
+
 async function dpiStart(): Promise<void> {
   setText("dpiState", "Запуск…");
   status("dpi", "Подтвердите UAC…");
@@ -694,26 +862,48 @@ async function dpiStart(): Promise<void> {
       { ports: inputValue("dpiPorts"), fakeTtl: parseInt(inputValue("dpiTtl"), 10) || 0, quic: toggleValue("dpiQuic") },
       (l) => status("dpi", esc(l)),
     );
-    setText("dpiState", "Работает");
+    setDpiOn(true);
     status("dpi", "DPI-обход активен.", "ok");
   } catch (err) {
-    setText("dpiState", "Выключен");
+    setDpiOn(false);
     status("dpi", `⚠ ${esc(err instanceof Error ? err.message : String(err))}`, "err");
   }
 }
 
 // ─────────────── import ───────────────
+/** The design puts import feedback in a bar at the bottom of the code card. */
+function importStatus(text: string, ok = false): void {
+  const card = $("importInput")?.closest<HTMLElement>('[style*="code-line"]');
+  let bar = $("importStatus");
+  if (!text) {
+    bar?.remove();
+    return;
+  }
+  if (!card) return;
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "importStatus";
+    card.appendChild(bar);
+  }
+  bar.style.cssText = `padding:11px 16px;border-top:1px solid var(--code-line);background:var(--panel-2);font-size:12px;font-weight:550;color:${ok ? "var(--ok)" : "var(--err)"}`;
+  bar.textContent = text;
+}
+
 async function onImport(toClash: boolean): Promise<void> {
   const input = inputValue("importInput").trim();
-  if (!input) return;
+  if (!input) {
+    importStatus("Вставьте конфиг или ссылку vpn://");
+    return;
+  }
   try {
     const raw = await normalizeImportedConfig(input);
     const output = toClash ? clashFromNode(parseImportedConf(raw)) : raw;
     const type: ConfigKind = toClash ? "clash" : /(\bJc\s*=|\bI1\s*=)/.test(raw) ? "amnezia" : "wireguard";
-    setResult(output, type, toClash ? "импорт → Clash" : "импорт");
+    importStatus("");
     pushHistory(type, "", output);
+    setResult(output, type, toClash ? "импорт → Clash" : "импорт");
   } catch (err) {
-    status("import", `⚠ ${esc(err instanceof Error ? err.message : String(err))}`, "err");
+    importStatus(err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -784,7 +974,10 @@ function renderHistory(): void {
         `<svg width="14" height="14" style="fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round"><line x1="2.4" y1="4.2" x2="11.6" y2="4.2"></line><path d="M4 4.2 L4.5 11.4 A1.4 1.4 0 0 0 5.9 12.6 H8.1 A1.4 1.4 0 0 0 9.5 11.4 L10 4.2"></path><line x1="5.6" y1="2.2" x2="8.4" y2="2.2"></line></svg></div></div>`;
       const tag = row.querySelector("input");
       tag?.addEventListener("change", () => updateHistoryTag(e.id, tag.value));
-      row.querySelector<HTMLElement>('[data-act="open"]')?.addEventListener("click", () => setResult(e.config, e.configType as ConfigKind, "из истории"));
+      row.querySelector<HTMLElement>('[data-act="open"]')?.addEventListener("click", () => {
+        activeConfigId = e.id;
+        setResult(e.config, e.configType as ConfigKind, "из истории");
+      });
       row.querySelector<HTMLElement>('[data-act="copy"]')?.addEventListener("click", () => void navigator.clipboard.writeText(e.config));
       row.querySelector<HTMLElement>('[data-act="ask"]')?.addEventListener("click", () => draw(true));
     };
@@ -793,7 +986,7 @@ function renderHistory(): void {
 }
 
 function pushHistory(configType: string, endpoint: string, config: string): void {
-  addHistory({ configType, endpoint, config });
+  activeConfigId = addHistory({ configType, endpoint, config })[0]?.id ?? 0;
   renderHistory();
 }
 
@@ -960,22 +1153,66 @@ async function onCheckProxies(): Promise<void> {
   proxyAbort = null;
 }
 
+/** The design's checker panel: progress bar, four counters, log, found keys. */
+function checkerPanel(pct: number, counters: Array<[string, number, string]>, log: Array<[string, string]>, found: string[]): void {
+  const box = ensureBox("bfPanel", hostCard("tools").parentElement ?? screenEl("tools"));
+  placeAfterCard("tools", box);
+  box.style.cssText = "margin-top:18px";
+  box.innerHTML =
+    `<div style="height:5px;border-radius:99px;background:var(--panel-3);overflow:hidden;margin-bottom:13px">` +
+    `<div style="height:100%;border-radius:99px;width:${pct}%;transition:width .3s linear;background-color:var(--accent);background-image:repeating-linear-gradient(115deg,rgba(255,255,255,.22) 0 8px,rgba(255,255,255,0) 8px 16px);background-size:28px 100%;animation:flow .7s linear infinite"></div></div>` +
+    `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:13px">` +
+    counters.map(([k, v, fg]) =>
+      `<div style="padding:11px 14px;border-radius:12px;background:var(--panel-2);border:1px solid var(--line)">` +
+      `<div style="font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3)">${esc(k)}</div>` +
+      `<div style="font-size:19px;font-weight:700;letter-spacing:-.03em;margin-top:3px;color:${fg};font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace">${v}</div></div>`).join("") +
+    `</div>` +
+    `<div style="border-radius:12px;background:var(--panel-2);border:1px solid var(--line);padding:12px 14px;max-height:150px;overflow:auto;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:11.5px;line-height:1.75;color:var(--text-2)">` +
+    log.map(([t, fg]) => `<div style="color:${fg}">${esc(t)}</div>`).join("") + `</div>` +
+    (found.length
+      ? `<div style="margin-top:13px">` +
+        `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">` +
+        `<div style="font-size:11.5px;font-weight:550;color:var(--text-2)">Найденные WARP+ ключи</div>` +
+        `<div id="copyFound" class="scp0" style="padding:5px 11px;border-radius:8px;border:1px solid var(--line-2);font-size:11.5px;font-weight:600;color:var(--text-2);cursor:pointer">Копировать</div></div>` +
+        `<textarea readonly style="width:100%;height:90px;resize:vertical;padding:12px 14px;border-radius:12px;border:1px solid var(--line-2);background:var(--panel-2);box-shadow:inset 0 1px 2px rgba(10,12,27,.05);font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:12px;line-height:1.7;outline:none;color:var(--ok)">${esc(found.join("\n"))}</textarea></div>`
+      : "");
+  if (found.length) onClick("copyFound", () => void copyText(found.join("\n"), "copyFound", "Скопировано", "Копировать"));
+}
+
 let bfAbort: AbortController | null = null;
 async function onBruteforce(): Promise<void> {
   const count = Math.min(Math.max(parseInt(inputValue("bfCount"), 10) || 100, 1), 10000);
   const keys = Array.from({ length: count }, generateWarpKey);
   const proxies = inputValue("bfProxies").trim().split("\n").map((l) => l.trim()).filter(Boolean);
+  const threads = parseInt(inputValue("bfThreads"), 10) || 30;
   bfAbort = new AbortController();
   setBusy("bfStartBtn", true, "Проверяем…");
+  status("tools", "");
+
   const found: string[] = [];
+  const log: Array<[string, string]> = [[`[start] потоков ${threads}, ключей ${count}`, "var(--accent)"]];
+  const draw = (pct: number, checked: number): void =>
+    checkerPanel(pct, [
+      ["Проверено", checked, "var(--text)"],
+      ["Найдено", found.length, "var(--ok)"],
+      ["Живых прокси", proxies.length, "var(--text)"],
+      ["Потоки", threads, "var(--text)"],
+    ], log.slice(-40), found);
+  draw(0, 0);
+
   await runBruteforce(keys, proxies, {
-    concurrency: parseInt(inputValue("bfThreads"), 10) || 30,
+    concurrency: threads,
     signal: bfAbort.signal,
     onEvent: (e) => {
-      if (e.type === "valid") found.push(e.key);
-      status("tools", `Проверено ${e.checked}/${e.total} · найдено ${e.found}${found.length ? `<br><b style="color:var(--ok)">${found.map(esc).join("<br>")}</b>` : ""}`);
+      if (e.type === "valid") {
+        found.push(e.key);
+        log.push([`[+] ${e.key}`, "var(--ok)"]);
+      }
+      draw(Math.round((e.checked / e.total) * 100), e.checked);
     },
   });
+  log.push([`[done] найдено ${found.length}`, found.length ? "var(--ok)" : "var(--text-3)"]);
+  draw(100, count);
   setBusy("bfStartBtn", false, undefined, "Сгенерировать и проверить");
   bfAbort = null;
 }
@@ -1046,7 +1283,7 @@ function init(): void {
   onClick("dpiStartBtn", () => void dpiStart());
   onClick("dpiStopBtn", async () => {
     await winws.stopWinws().catch(() => {});
-    setText("dpiState", "Выключен");
+    setDpiOn(false);
   });
 
   onClick("importClashBtn", () => void onImport(true));
@@ -1100,7 +1337,7 @@ function init(): void {
 
   const dpiNav = document.querySelector<HTMLElement>('.nav-item[data-view="dpi"]');
   if (currentOs() !== "windows") show(dpiNav, false);
-  else void winws.winwsRunning().then((on) => setText("dpiState", on ? "Работает" : "Выключен"));
+  else void winws.winwsRunning().then(setDpiOn);
 
   void ws.warpscoutVersion().catch((err) => status("scan", `warpscout недоступен: ${esc(String(err))}`, "err"));
   showView("generate");
