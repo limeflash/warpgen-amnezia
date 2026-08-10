@@ -21,7 +21,7 @@ import { downloadDir, join } from "@tauri-apps/api/path";
 import {
   $, must, setText, show, esc, bindGroup, groupValue, setGroup, fillSelect, bindSelect, selectValue,
   setSelect, addSelectOption, bindToggle, toggleValue, onClick, inputValue, setInput,
-  setBusy, panel, sectionTitle,
+  setBusy,
 } from "./ui.ts";
 
 type ConfigKind = "amnezia" | "wireguard" | "clash";
@@ -759,41 +759,97 @@ function pushHistory(configType: string, endpoint: string, config: string): void
 }
 
 // ─────────────── analyzer ───────────────
-function renderAnalysis(a: AnalysisResult): void {
-  const camo = a.camouflage === "HIGH" ? "var(--ok)" : a.camouflage === "MEDIUM" ? "var(--warn)" : "var(--err)";
-  const mark: Record<string, [string, string]> = {
-    pass: ["✓", "var(--ok)"], warn: ["!", "var(--warn)"], fail: ["✕", "var(--err)"], info: ["·", "var(--text-3)"],
-  };
-  const cell = (label: string, value: string, color = "var(--text)") =>
-    `<div style="background:var(--panel-2);padding:11px 13px"><span style="display:block;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)">${esc(label)}</span><b style="font-size:13px;color:${color}">${esc(value)}</b></div>`;
+const AWG_SCALE = ["WireGuard", "1.0", "1.5", "2.0", "3.0"];
 
+/** Analyzer report — the design's right-hand column. */
+function renderAnalysis(a: AnalysisResult): void {
   const box = must("analyzerReport");
   box.removeAttribute("style");
+  const camoColor = a.camouflage === "HIGH" ? "var(--ok)" : a.camouflage === "MEDIUM" ? "var(--warn)" : "var(--err)";
+  const verKey = a.version.ver === "WireGuard" ? "WireGuard" : a.version.ver.replace("AWG ", "");
+  const chain = ["i1", "i2", "i3", "i4", "i5"].map((k) => a.parsed.iface[k]).filter(Boolean);
+  const counts = {
+    fail: a.checks.filter((c) => c.status === "fail").length,
+    warn: a.checks.filter((c) => c.status === "warn").length,
+    pass: a.checks.filter((c) => c.status === "pass").length,
+  };
+
+  // circular gauge
+  const R = 34, C = 2 * Math.PI * R;
+  const gauge =
+    `<svg width="86" height="86" viewBox="0 0 86 86" style="flex:0 0 86px">` +
+    `<circle cx="43" cy="43" r="${R}" fill="none" stroke="var(--hero-line)" stroke-width="7"/>` +
+    `<circle cx="43" cy="43" r="${R}" fill="none" stroke="${camoColor}" stroke-width="7" stroke-linecap="round"` +
+    ` stroke-dasharray="${(a.scores.total / 100) * C} ${C}" transform="rotate(-90 43 43)"/>` +
+    `<text x="43" y="41" text-anchor="middle" fill="var(--on-hero)" font-size="21" font-weight="700">${a.scores.total}</text>` +
+    `<text x="43" y="55" text-anchor="middle" fill="${camoColor}" font-size="8.5" font-weight="700" letter-spacing="1">${a.camouflage}</text></svg>`;
+
+  const scale = AWG_SCALE.map((s) => {
+    const on = s === verKey;
+    return `<div style="flex:1"><div style="height:3px;border-radius:99px;background:${on ? "var(--on-hero)" : "var(--hero-line)"}"></div>` +
+      `<div style="font-size:9.5px;margin-top:5px;text-align:center;color:${on ? "var(--on-hero)" : "rgba(243,246,255,.45)"}">${esc(s)}</div></div>`;
+  }).join("");
+
+  const metric = (label: string, value: number) =>
+    `<div style="flex:1;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px">` +
+    `<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">${esc(label)}</span>` +
+    `<b style="font-size:12.5px;color:var(--accent)">${value}%</b></div>` +
+    `<div style="height:4px;border-radius:99px;background:var(--panel-3);margin-top:9px;overflow:hidden"><div style="height:100%;width:${value}%;background:var(--accent);border-radius:99px"></div></div></div>`;
+
+  const card = (title: string, right: string, inner: string) =>
+    `<div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px;margin-bottom:11px">` +
+    `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:9px">` +
+    `<span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)">${esc(title)}</span>` +
+    `<span style="font-size:10.5px;color:var(--text-3)">${right}</span></div>${inner}</div>`;
+
+  const badge = (n: number, label: string, color: string) =>
+    `<span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text-2)">` +
+    `<i style="width:5px;height:5px;border-radius:99px;background:${color}"></i>${n} ${esc(label)}</span>`;
+
+  const marks: Record<string, [string, string]> = {
+    pass: ["✓", "var(--ok)"], warn: ["!", "var(--warn)"], fail: ["✕", "var(--err)"], info: ["·", "var(--text-3)"],
+  };
+
   box.innerHTML =
-    panel(
-      sectionTitle(`Профиль · ${a.version.ver}`) +
-        `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:1px;background:var(--line);border-radius:12px;overflow:hidden;margin-bottom:12px">` +
-        cell("Версия", a.version.ver) + cell("Маскировка", a.camouflage, camo) +
-        cell("DPI-детект", `${a.scores.dpi}%`) + cell("Stealth", `${a.scores.stealth}%`) +
-        cell("Оценка", `${a.scores.total}/100`) + `</div>` +
-        `<div style="font-size:11.5px;color:var(--text-3);line-height:1.5;margin-bottom:10px">${esc(a.version.desc)}</div>` +
-        a.summary.map((r) => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:12.5px"><span style="color:var(--text-3)">${esc(r.label)}</span><b>${esc(r.value)}</b></div>`).join(""),
+    `<div style="background:var(--hero-bg);border-radius:16px;padding:18px;margin-bottom:11px;color:var(--on-hero)">` +
+    `<div style="display:flex;gap:16px;align-items:center">${gauge}` +
+    `<div style="min-width:0"><div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(243,246,255,.5)">Профиль</div>` +
+    `<div style="font-size:22px;font-weight:700;letter-spacing:-.02em;margin:1px 0 5px">${esc(a.version.ver)}</div>` +
+    `<div style="font-size:11.5px;line-height:1.45;color:rgba(243,246,255,.68)">${esc(a.version.desc)}</div></div></div>` +
+    `<div style="display:flex;gap:6px;margin-top:16px">${scale}</div></div>` +
+    `<div style="display:flex;gap:11px;margin-bottom:11px">${metric("DPI-стойкость", 100 - a.scores.dpi)}${metric("Stealth", a.scores.stealth)}</div>` +
+    card("Мимикрия I1", "", `<b style="font-size:14px">${esc(a.version.protocol ?? "—")}</b>`) +
+    card(
+      "Цепочка CPS",
+      `${chain.length} тег(ов) · порядок важен`,
+      chain.length
+        ? chain.map((c) => `<div style="display:flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid var(--line);border-radius:9px;background:var(--panel-2);margin-bottom:6px">` +
+            `<i style="width:5px;height:5px;border-radius:99px;background:var(--ok);flex:0 0 5px"></i>` +
+            `<span style="font-family:ui-monospace,monospace;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c)}</span></div>`).join("")
+        : `<span style="font-size:12px;color:var(--text-3)">I1 не задан</span>`,
     ) +
-    panel(
-      sectionTitle(`Проверки · ${a.checks.length}`) +
-        a.checks
-          .map((c) => {
-            const [m, col] = mark[c.status];
-            return `<div style="display:grid;grid-template-columns:20px 1fr auto;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px">` +
-              `<span style="color:${col};font-weight:700">${m}</span>` +
-              `<span><b>${esc(c.title)}</b><div style="color:var(--text-3);font-size:11.5px">${esc(c.detail)}</div></span>` +
-              `<span style="font-family:ui-monospace,monospace;color:var(--text-3)">${esc(c.value)}</span></div>`;
-          })
-          .join(""),
+    card(
+      "Проверки",
+      `${badge(counts.fail, "ошибок", "var(--err)")} &nbsp; ${badge(counts.warn, "предупр.", "var(--warn)")} &nbsp; ${badge(counts.pass, "ок", "var(--ok)")}`,
+      a.checks
+        .map((c) => {
+          const [m, col] = marks[c.status];
+          return `<div style="display:grid;grid-template-columns:20px 1fr;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);margin-bottom:6px">` +
+            `<span style="color:${col};font-weight:700">${m}</span>` +
+            `<span><b style="font-size:12.5px">${esc(c.title)}</b>` +
+            `<div style="font-size:11px;color:var(--text-3);line-height:1.45;margin-top:2px">${esc(c.detail)}</div></span></div>`;
+        })
+        .join(""),
     ) +
     (a.hints.length
-      ? panel(sectionTitle("Как усилить") + a.hints.map((h) => `<div style="padding:6px 0;font-size:12.5px;color:var(--text-2)">→ ${esc(h)}</div>`).join(""))
+      ? card("Как усилить", "", a.hints.map((h) => `<div style="font-size:11.5px;color:var(--text-2);padding:5px 0">→ ${esc(h)}</div>`).join(""))
       : "");
+
+  // header subtitle mirrors the verdict, as in the design
+  const sub = [...screenEl("analyzer").querySelectorAll<HTMLElement>("*")].find(
+    (e) => e.children.length === 0 && /вставьте \.conf|AWG|маскировка/.test(e.textContent ?? ""),
+  );
+  if (sub) sub.textContent = `${a.version.ver} · маскировка ${a.camouflage}`;
 }
 
 function onAnalyze(): void {
