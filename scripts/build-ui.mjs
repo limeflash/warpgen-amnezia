@@ -74,7 +74,7 @@ const screensHtml = SCREENS.map((name) => {
 shell = shell.replace("<!--SCREENS-->", screensHtml);
 
 // Logos live in public/ so Vite serves them from the root.
-shell = shell.replace(/src="logo-solid\.svg"/g, 'src="/logo-solid.svg"').replace(/src="logo-gradient\.svg"/g, 'src="/logo-gradient.svg"');
+shell = shell.replace(/src="logo-solid\.svg"/g, 'src="/logo-accent.svg"').replace(/src="logo-gradient\.svg"/g, 'src="/logo-gradient.svg"');
 
 const css = readFileSync(cssPath, "utf8");
 

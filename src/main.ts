@@ -13,6 +13,7 @@ import * as winws from "./core/winws.ts";
 import { loadJson, saveJson, addHistory, loadHistory, deleteHistory, clearHistory, updateHistoryTag } from "./core/store.ts";
 import { generateSignature, MIMIC_PROFILES, type GeneratedSignature } from "./core/signature.ts";
 import { PROTOCOL_INFO, calcChainSize, CPS_MAX_BYTES } from "./core/awg-meta.ts";
+import { BRAND_ICONS } from "./core/brand-icons.ts";
 import { type AwgVersion, compatWarning, recommendedMtu } from "./core/obfuscation.ts";
 import { analyzeConfig, type AnalysisResult } from "./core/analyzer.ts";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
@@ -292,6 +293,17 @@ function tileColor(key: string): string {
 const initials = (label: string): string =>
   label.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase();
 
+/** Brand mark for a service tile, falling back to initials on a tinted square. */
+function mark(key: string, label: string): string {
+  // catalog entries come through as `cat:<id>`
+  const icon = BRAND_ICONS[key] ?? BRAND_ICONS[key.replace(/^cat:/, "")];
+  if (icon) {
+    return `<div style="width:30px;height:30px;border-radius:9px;background:${icon.h};display:grid;place-items:center">` +
+      `<svg viewBox="0 0 24 24" width="17" height="17" style="fill:#fff;flex:0 0 17px"><path d="${icon.p}"></path></svg></div>`;
+  }
+  return `<div style="width:30px;height:30px;border-radius:9px;background:${tileColor(key)};display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;letter-spacing:-.02em">${esc(initials(label))}</div>`;
+}
+
 function buildSplitPicker(): void {
   const card = cardOf(document.querySelector<HTMLElement>('[data-group="splitMode"]'));
   if (!card || $("splitBox")) return;
@@ -309,7 +321,7 @@ function buildSplitPicker(): void {
     `<input id="catalogSearch" placeholder="discord, steam, ai…" spellcheck="false" style="flex:1;min-width:0;border:0;background:transparent;outline:none;font-size:12.5px;color:inherit" />` +
     `<div id="svcTotal" style="font-size:11.5px;color:var(--text-3);white-space:nowrap"></div></div>` +
     `<div id="svcCats" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>` +
-    `<div id="splitGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(102px,1fr));gap:7px;margin-top:11px;max-height:340px;overflow-y:auto;overflow-x:hidden;padding:2px"></div>` +
+    `<div id="splitGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(102px,1fr));gap:7px;margin-top:11px;max-height:340px;overflow-y:auto;overflow-x:hidden;padding:2px 8px 2px 2px"></div>` +
     `<div id="svcEmpty" class="hidden" style="padding:26px 0;text-align:center;font-size:12.5px;color:var(--text-3)">Ничего не найдено</div>` +
     `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">` +
     `<div style="font-size:11.5px;color:var(--text-3);margin-right:3px">Быстрый выбор</div>` +
@@ -370,7 +382,7 @@ function renderSplit(): void {
     grid.innerHTML = shown.map((s) => {
       const on = splitState.selected.has(s.key);
       return `<div data-split="${esc(s.key)}" class="scp6" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:13px 8px 11px;border-radius:13px;border:1px solid ${on ? "var(--accent)" : "var(--line-2)"};background:${on ? "var(--sel)" : "var(--panel-2)"};cursor:pointer;user-select:none;transition:border-color .14s ease,background .14s ease,transform .14s ease">` +
-        `<div style="width:30px;height:30px;border-radius:9px;background:${tileColor(s.key)};display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;letter-spacing:-.02em">${esc(initials(s.label))}</div>` +
+        mark(s.key, s.label) +
         `<div style="font-size:11.5px;font-weight:${on ? "650" : "500"};color:${on ? "var(--accent)" : "var(--text)"};text-align:center;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${esc(s.label)}</div>` +
         `<div style="position:absolute;top:7px;right:7px;width:13px;height:13px;border-radius:5px;background:${on ? "var(--accent)" : "transparent"};border:1.5px solid ${on ? "var(--accent)" : "var(--line-2)"};display:grid;place-items:center">` +
         `<div style="width:4px;height:4px;border-radius:1px;background:${on ? "var(--on-accent)" : "transparent"}"></div></div></div>`;

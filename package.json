@@ -1,6 +1,6 @@
 {
   "name": "warpgen",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Cloudflare WARP config generator for AmneziaWG 2.x — Tauri desktop app with the warpscout endpoint scanner",
   "type": "module",
   "scripts": {
@@ -26,6 +26,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "simple-icons": "^16.28.0",
     "vite": "^6.3.5"
   }
 }
