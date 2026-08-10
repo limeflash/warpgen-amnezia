@@ -9,6 +9,8 @@ import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { downloadDir, join } from "@tauri-apps/api/path";
 import { qrDataUrl } from "./core/qr";
 import { clashFromNode, parseImportedConf, normalizeImportedConfig } from "./core/clash";
+import { clientList, downloadUrl } from "./core/client-downloads";
+import { open as shellOpen } from "@tauri-apps/plugin-shell";
 
 // ─────────────── DOM helpers ───────────────
 function $<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -60,7 +62,23 @@ function buildSplitGrid(): void {
 const SPLIT_PRESETS: Record<string, string[]> = {
   social: ["discord", "youtube", "x_com", "instagram", "twitch", "telegram", "whatsapp", "viber", "tiktok", "ipcheck_2ip", "speedtest", "fast_com", "whoer"],
   gaming: ["steam", "faceit", "apex_legends", "ea_app", "battle_net", "cs2", "hearthstone", "pubg"],
+  ai: ["chatgpt", "claude_ai", "gemini", "grok"],
 };
+
+function buildClientButtons(): void {
+  const box = $("clientBtns");
+  for (const { key, title } of clientList()) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip-btn";
+    b.textContent = `⬇ ${title}`;
+    b.addEventListener("click", () => {
+      const url = downloadUrl(key);
+      if (url) void shellOpen(url);
+    });
+    box.appendChild(b);
+  }
+}
 
 function splitCheckboxes(): HTMLInputElement[] {
   return Array.from(document.querySelectorAll<HTMLInputElement>("input[data-split]"));
@@ -502,6 +520,7 @@ function onLogoTap(): void {
 function init(): void {
   buildI1Select();
   buildSplitGrid();
+  buildClientButtons();
   setText("siteVersion", `v${__APP_VERSION__}`);
 
   $("generateBtn").addEventListener("click", onGenerate);
