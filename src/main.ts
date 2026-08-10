@@ -2,6 +2,7 @@ import { generateConfig } from "./core/generate.ts";
 import { I1_GROUPS, DEFAULT_I1_KEY } from "./core/i1.ts";
 import { splitTargetList, catalogTargetGroups } from "./core/split.ts";
 import { SVC_CATEGORIES, CATEGORY_MAP, designService, svcId, svcHue, tileColor } from "./core/design-services.ts";
+import { BRAND_ICONS } from "./core/brand-icons.ts";
 import { DNS_SERVERS } from "./core/dns.ts";
 import { checkLicense, generateTestLicense, generateWarpKey } from "./core/license.ts";
 import { runProxyCheck, runBruteforce } from "./core/proxy.ts";
@@ -230,6 +231,11 @@ function repairHooks(): void {
   const routeRows = [...gen.querySelectorAll<HTMLElement>("div")].filter((d) => !d.children.length && d.textContent?.trim() === "Маршрутизация");
   routeRows[routeRows.length - 1]?.nextElementSibling?.setAttribute("id", "pRoute");
 
+  // the obfuscation-profile section shares the Конфигурация card with the type
+  // selector; tag it so it can be hidden without taking the whole card
+  const obfCap = leaf("Профиль обфускации");
+  if (obfCap?.parentElement?.parentElement) obfCap.parentElement.parentElement.id = "obfSection";
+
   const advCap = leaf("Дополнительно");
   const advHead = advCap?.parentElement;
   if (advHead) {
@@ -348,6 +354,20 @@ function splitCatalog(): PickerService[] {
 const initials = (label: string): string =>
   label.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase();
 
+/**
+ * The design draws a two-letter mark on an oklch tile. We keep that tile, but
+ * drop the real brand glyph on top where simple-icons has one (white on the
+ * brand colour), falling back to the design's mark otherwise.
+ */
+function svcMark(s: { key: string; mark: string; hue: number }): string {
+  const icon = BRAND_ICONS[s.key] ?? BRAND_ICONS[s.key.replace(/^cat:/, "")];
+  if (icon) {
+    return `<div style="width:30px;height:30px;border-radius:9px;background:${icon.h};display:grid;place-items:center">` +
+      `<svg viewBox="0 0 24 24" width="17" height="17" style="fill:#fff"><path d="${icon.p}"></path></svg></div>`;
+  }
+  return `<div style="width:30px;height:30px;border-radius:9px;background:${tileColor(s.hue)};display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;letter-spacing:-.02em">${esc(s.mark)}</div>`;
+}
+
 function buildSplitPicker(): void {
   const card = cardOf(document.querySelector<HTMLElement>('[data-group="splitMode"]'));
   if (!card || $("splitBox")) return;
@@ -429,7 +449,7 @@ function renderSplit(): void {
     grid.innerHTML = shown.map((s) => {
       const on = splitState.selected.has(s.key);
       return `<div data-split="${esc(s.key)}" class="scp6" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:13px 8px 11px;border-radius:13px;border:1px solid ${on ? "var(--accent)" : "var(--line-2)"};background:${on ? "var(--sel)" : "var(--panel-2)"};cursor:pointer;user-select:none;transition:border-color .14s ease,background .14s ease,transform .14s ease">` +
-        `<div style="width:30px;height:30px;border-radius:9px;background:${tileColor(s.hue)};display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;letter-spacing:-.02em">${esc(s.mark)}</div>` +
+        svcMark(s) +
         `<div style="font-size:11.5px;font-weight:${on ? "650" : "500"};color:${on ? "var(--accent)" : "var(--text)"};text-align:center;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${esc(s.label)}</div>` +
         `<div style="position:absolute;top:7px;right:7px;width:13px;height:13px;border-radius:5px;background:${on ? "var(--accent)" : "transparent"};border:1.5px solid ${on ? "var(--accent)" : "var(--line-2)"};display:grid;place-items:center">` +
         `<div style="width:4px;height:4px;border-radius:1px;background:${on ? "var(--on-accent)" : "transparent"}"></div></div></div>`;
@@ -630,8 +650,12 @@ function updateVisibility(): void {
   const type = groupValue("configType");
   show($("awgCard"), type === "amnezia");
   updateProfile();
-  // Amnezia-only cards: obfuscation profile, I1 mask, Architect
-  for (const group of ["obfsProfile", "archProfile", "archIntensity"]) {
+  // The obfuscation profile lives INSIDE the Конфигурация card next to the type
+  // selector, so it must be hidden at the section level — hiding cardOf() would
+  // take the whole card (type/port/endpoint/DNS) with it. Architect and the I1
+  // mask are their own cards, so cardOf is right for them.
+  show($("obfSection"), type === "amnezia");
+  for (const group of ["archProfile", "archIntensity"]) {
     show(cardOf(document.querySelector<HTMLElement>(`[data-group="${group}"]`)), type === "amnezia");
   }
   show(cardOf($("i1Preset")), type === "amnezia");
@@ -1114,9 +1138,30 @@ async function onScan(): Promise<void> {
   }
 }
 
+/**
+ * The design's find tiles carry their own state: the "запустить" label becomes
+ * "измеряю…", the leading dot pulses, then a short result stays inline. Both the
+ * generator tiles and the scan-screen tiles share ids, so we style whichever
+ * exist.
+ */
+function tileState(kind: "junk" | "sni", label: string, busy: boolean): void {
+  for (const id of [kind === "junk" ? "genJunkBtn" : "genSniBtn", kind === "junk" ? "wsJunkBtn" : "wsSniBtn"]) {
+    const tile = $(id);
+    if (!tile) continue;
+    const right = tile.querySelector<HTMLElement>('[style*="margin-left: auto"], [style*="margin-left:auto"]');
+    if (right) {
+      right.textContent = label;
+      right.style.color = busy ? "var(--accent)" : "var(--text-3)";
+    }
+    const dot = tile.querySelector<HTMLElement>('[style*="width: 6px"][style*="height: 6px"], [style*="width:6px"][style*="height:6px"]');
+    if (dot) dot.style.animation = busy ? "pulse 1.1s ease-in-out infinite" : "none";
+  }
+}
+
 async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
   if (wsAbort) return;
   wsAbort = new AbortController();
+  if (kind !== "import") tileState(kind, "измеряю…", true);
   wsStatus(kind === "import" ? "Импорт конфига…" : kind === "junk" ? "Подбор junk-параметров…" : "Поиск SNI…", true);
   const proto = (groupValue("wsProto") || "awg") as ws.Proto;
   try {
@@ -1130,14 +1175,20 @@ async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
       const m = out.match(/jc\s*=?\s*(\d+).*?jmin\s*=?\s*(\d+).*?jmax\s*=?\s*(\d+)/is);
       if (m) {
         architect = { junk: { jc: +m[1], jmin: +m[2], jmax: +m[3] }, profile: architect?.profile ?? "quic_initial", obfuscation: architect?.obfuscation ?? {} };
+        const hs = out.match(/(\d+(?:\.\d+)?)\s*ms/i)?.[1];
         renderJunkResult(
           { jc: +m[1], jmin: +m[2], jmax: +m[3] },
-          out.match(/(\d+(?:\.\d+)?)\s*ms/i)?.[1],
+          hs,
           out.match(/(\d+)\s*(?:packets|пакет)/i)?.[1],
           out.match(/(\d+)\s*(?:attempts?|попыт)/i)?.[1],
         );
+        tileState("junk", `junk ${m[1]}${hs ? ` · ${hs} ms` : ""}`, false);
         status("scan", "");
-      } else wsStatus("find-junk завершён.");
+        status("generate", "");
+      } else {
+        tileState("junk", "готово", false);
+        wsStatus("find-junk завершён.");
+      }
     } else {
       const out = await ws.findSni({ proto, signal: wsAbort.signal });
       const host = out.match(/\b([a-z0-9-]+\.[a-z]{2,}(?:\.[a-z]{2,})?)\b/i)?.[1];
@@ -1150,10 +1201,16 @@ async function wsRun(kind: "import" | "junk" | "sni"): Promise<void> {
           `Маскировка I1 переключена на ${proto === "masque" ? "MASQUE" : "QUIC"} под ${host}${tried ? ` · проверено ${tried} доменов` : ""}`,
           [["SNI", host], ["Протокол", proto === "masque" ? "MASQUE" : "QUIC"], ["RTT", rtt ? `${rtt} ms` : "—"]],
         );
+        tileState("sni", `${host}${rtt ? ` · ${rtt} ms` : ""}`, false);
         status("scan", "");
-      } else wsStatus("find-sni завершён.");
+        status("generate", "");
+      } else {
+        tileState("sni", "готово", false);
+        wsStatus("find-sni завершён.");
+      }
     }
   } catch (err) {
+    if (kind !== "import") tileState(kind, "ошибка", false);
     wsStatus(wsAbort?.signal.aborted ? "Остановлено." : `⚠ ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     wsAbort = null;
@@ -1595,6 +1652,11 @@ function loadSettings(): void {
 
 // ─────────────── init ───────────────
 function init(): void {
+  // desktop app: suppress the webview's own context menu except in text fields
+  document.addEventListener("contextmenu", (e) => {
+    if (!(e.target as HTMLElement).closest("input, textarea")) e.preventDefault();
+  });
+
   repairHooks();
   buildControls();
   buildSplitPicker();

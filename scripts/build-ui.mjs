@@ -115,6 +115,9 @@ const out = `<!DOCTYPE html>
   <style>
 ${css}
     /* ── app additions on top of the design system ── */
+    /* a desktop app, not a web page: no text selection or drag of the chrome */
+    * { -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
+    input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
     .view { display: none; }
     .view.active { display: block; animation: fadeUp .24s cubic-bezier(.2,.8,.2,1); }
     .hidden { display: none !important; }
