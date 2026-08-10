@@ -78,6 +78,33 @@ shell = shell.replace(/src="logo-solid\.svg"/g, 'src="/logo-solid.svg"').replace
 
 const css = readFileSync(cssPath, "utf8");
 
+// The mockup writes interaction states as style-hover / style-focus / style-active
+// attributes; its runtime compiles them into these .scpN rules and tags the elements
+// with the matching class. The captured DOM keeps the classes but not the rules, so
+// they are reproduced here verbatim (dumped from the design's own stylesheet).
+const STATE_CSS = `
+    .scp0:hover { background: var(--hover) !important; color: var(--text) !important; }
+    .scp1:hover { background: var(--hover) !important; }
+    .scp2:hover { background: #ff5f57 !important; }
+    .scp3:active { transform: translateY(1px) !important; font-size: 12.5px !important; font-weight: 650 !important; cursor: pointer !important; white-space: nowrap !important; }
+    .scp4:hover { opacity: .92 !important; }
+    .scp5:focus { border-color: var(--accent) !important; background: var(--panel) !important; }
+    .scp6:hover { border-color: var(--accent-2) !important; transform: translateY(-1px) !important; }
+    .scp7:hover { border-color: var(--accent-2) !important; }
+    .scp8:active { transform: translateY(1px) !important; }
+    .scp9:hover { background: var(--sel) !important; color: var(--accent) !important; border-color: var(--accent-2) !important; }
+    .scpa:hover { border-color: var(--line-2) !important; }
+    .scpb:hover { background: var(--code-head) !important; }
+    .scpc:hover { background: var(--hover) !important; border-color: var(--accent-2) !important; }
+    .scpd:active { transform: translateY(1px) !important; font-size: 12.5px !important; font-weight: 650 !important; cursor: pointer !important; white-space: nowrap !important; flex: 0 0 auto !important; }
+    .scpe:focus { border-color: var(--accent) !important; background: var(--panel-2) !important; color: var(--text) !important; }
+    .scpf:hover { color: var(--text) !important; background: var(--hover) !important; }
+    .scpg:hover { border-color: var(--err) !important; color: var(--err) !important; background: var(--hover) !important; }
+    .scph:hover { opacity: .9 !important; }
+    .scpi:active { transform: translateY(1px) !important; font-size: 12.5px !important; font-weight: 650 !important; cursor: pointer !important; }
+    .scpj:active { transform: translateY(1px) !important; font-size: 12.5px !important; font-weight: 650 !important; cursor: pointer !important; display: flex !important; align-items: center !important; gap: 8px !important; }
+    .scpk:hover { background: rgba(255,255,255,.06) !important; color: var(--code-fg) !important; }`;
+
 const out = `<!DOCTYPE html>
 <html lang="ru" data-theme="dark">
 
@@ -100,9 +127,9 @@ ${css}
     .sel-wrap > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
     .live-input { width: 100%; background: transparent; border: 0; outline: none; padding: 0; font: inherit; color: inherit; }
     .live-input::placeholder { color: var(--text-3); }
-    /* scan results — the design's row background / style-hover, which the capture can't carry */
+    /* selected scan row (the design binds this per row: sel when its IP is in the generator) */
     .scan-row.sel { background: var(--sel); }
-    .scan-row:hover { background: var(--hover); }
+${STATE_CSS}
   </style>
 </head>
 

@@ -157,14 +157,15 @@ function repairHooks(): void {
 
   // #historyList must be the rows container inside the history screen.
   const hist = screenEl("history");
+  // the design renders the caption lowercase and uppercases it in CSS
   const header = [...hist.querySelectorAll<HTMLElement>("*")].find(
-    (e) => e.textContent?.trim() === "ENDPOINT" && e.children.length === 0,
-  );
-  const rows = header?.parentElement?.parentElement;
+    (e) => e.textContent?.trim().toLowerCase() === "endpoint" && e.children.length === 0,
+  )?.parentElement;
+  const rows = header?.parentElement;
   if (rows) {
     $("historyList")?.removeAttribute("id");
     rows.id = "historyList";
-    rows.dataset.headerKeep = String([...rows.children].indexOf(header!.parentElement!));
+    header!.id = "historyHead";
   }
 }
 
@@ -542,7 +543,8 @@ function renderJunkResult(
     `</div>` +
     `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding-top:13px;border-top:1px solid var(--line)">` +
     `<span style="font-size:11.5px;color:var(--text-3)">Профиль обфускации переключён на Custom${packets ? ` · ${packets} пакетов` : ""}${attempts ? `, ${attempts} попытки` : ""}</span>` +
-    `<div id="openArchitect" style="padding:9px 15px;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:12.5px;font-weight:600;cursor:pointer">Открыть в Architect →</div></div>`;
+    `<div id="openArchitect" class="scp4 scpd" style="display:flex;align-items:center;gap:7px;padding:8px 15px;border-radius:10px;background:var(--accent);color:var(--on-accent);box-shadow:inset 0 -1px 0 rgba(0,0,0,.14);transition:transform .12s ease,opacity .12s ease;font-size:12.5px;font-weight:650;cursor:pointer;white-space:nowrap;flex:0 0 auto">` +
+    `<span>Открыть в Architect</span><span style="opacity:.75">→</span></div></div>`;
 
   onClick("openArchitect", () => {
     showView("generate");
@@ -574,7 +576,7 @@ function renderScanRows(rows: ws.ScanRow[]): void {
 
   rows.forEach((r, i) => {
     const row = document.createElement("div");
-    row.className = "scan-row" + (r.endpoint.split(":")[0] === currentIp ? " sel" : "");
+    row.className = "scan-row scp1" + (r.endpoint.split(":")[0] === currentIp ? " sel" : "");
     row.style.cssText =
       `display:grid;grid-template-columns:${cols};align-items:center;padding:11px 18px;border-bottom:1px solid var(--line);cursor:pointer;` +
       `animation:fadeUp .34s cubic-bezier(.2,.8,.2,1) both;animation-delay:${i * 45}ms;transition:background .14s ease`;
@@ -716,17 +718,25 @@ async function onImport(toClash: boolean): Promise<void> {
 }
 
 // ─────────────── history ───────────────
+/** Same grid as the design's history header row, so cells line up with it. */
+const HISTORY_COLS =
+  "display:grid;grid-template-columns:minmax(70px,104px) minmax(0,172px) minmax(0,96px) minmax(64px,1fr) 168px";
+
 function renderHistory(): void {
   const list = loadHistory();
   setText("historyCount", String(list.length));
   const box = $("historyList");
   if (!box) return;
-  // keep the design's header row, drop the rest (mock rows / previous render)
+  // drop the previous render (and the mock rows the design ships with); the
+  // header row is the design's own and stays, hidden when there is nothing to head
   for (const row of [...box.children]) {
-    if (!row.textContent?.includes("ENDPOINT")) row.remove();
+    if (row.id !== "historyHead") row.remove();
   }
+  const head = $("historyHead");
+  if (head) head.style.display = list.length ? "grid" : "none";
   if (!list.length) {
     const empty = document.createElement("div");
+    empty.dataset.hist = "1";
     empty.style.cssText = "text-align:center;padding:46px 24px";
     empty.innerHTML =
       `<b style="display:block;font-size:14px;margin-bottom:6px">История пуста</b>` +
@@ -741,31 +751,44 @@ function renderHistory(): void {
   for (const e of list) {
     const d = new Date(e.ts);
     const date = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} · ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const type = e.configType === "clash" ? "Clash" : e.configType === "wireguard" ? "WireGuard" : "AmneziaWG";
     const row = document.createElement("div");
-    row.style.cssText = "display:grid;grid-template-columns:120px 1fr 110px 100px auto;gap:12px;align-items:center;padding:11px 15px;border-bottom:1px solid var(--line);font-size:12.5px";
-    row.innerHTML =
-      `<b>${esc(e.configType === "clash" ? "Clash" : e.configType === "wireguard" ? "WireGuard" : "AmneziaWG")}</b>` +
-      `<span style="font-family:ui-monospace,monospace;color:var(--text-3)">${esc(e.endpoint || "—")}</span>` +
-      `<span style="color:var(--text-3)">${esc(date)}</span>`;
-    const tag = document.createElement("input");
-    tag.value = e.tag;
-    tag.placeholder = "тег";
-    tag.style.cssText = "padding:5px 8px;font-size:11.5px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--text);outline:none";
-    tag.addEventListener("change", () => updateHistoryTag(e.id, tag.value));
-    const acts = document.createElement("div");
-    acts.style.cssText = "display:flex;gap:6px";
-    for (const [label, fn] of [
-      ["Открыть", () => setResult(e.config, e.configType as ConfigKind, "из истории")],
-      ["✕", () => { deleteHistory(e.id); renderHistory(); }],
-    ] as Array<[string, () => void]>) {
-      const b = document.createElement("div");
-      b.textContent = label;
-      b.style.cssText = "padding:5px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);font-size:11.5px;cursor:pointer";
-      b.addEventListener("click", fn);
-      acts.appendChild(b);
-    }
-    row.append(tag, acts);
+    row.dataset.hist = "1";
     box.appendChild(row);
+
+    /** The design shows the row either idle or asking to confirm a delete. */
+    const draw = (confirm: boolean): void => {
+      if (confirm) {
+        row.className = "";
+        row.style.cssText = "display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel-2)";
+        row.innerHTML =
+          `<div style="flex:1;min-width:140px;font-size:12.5px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Удалить <span style="font-weight:650;color:var(--text)">${esc(`${type} · ${e.endpoint || "—"}`)}</span>?</div>` +
+          `<div data-act="del" class="scph" style="flex:0 0 auto;padding:6px 12px;border-radius:9px;background:var(--err);color:#fff;box-shadow:inset 0 -1px 0 rgba(0,0,0,.14);font-size:11.5px;font-weight:650;cursor:pointer">Удалить</div>` +
+          `<div data-act="cancel" class="scp0" style="flex:0 0 auto;padding:6px 12px;border-radius:9px;border:1px solid var(--line-2);font-size:11.5px;font-weight:600;color:var(--text-2);cursor:pointer">Отмена</div>`;
+        row.querySelector<HTMLElement>('[data-act="del"]')?.addEventListener("click", () => { deleteHistory(e.id); renderHistory(); });
+        row.querySelector<HTMLElement>('[data-act="cancel"]')?.addEventListener("click", () => draw(false));
+        return;
+      }
+      row.className = "scp1";
+      row.style.cssText = `${HISTORY_COLS};align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--line)`;
+      row.innerHTML =
+        `<div style="justify-self:start;font-size:11px;font-weight:650;padding:3px 9px;border-radius:99px;background:var(--soft);color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${esc(type)}</div>` +
+        `<div style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.endpoint || "—")}</div>` +
+        `<div style="font-size:11.5px;color:var(--text-3);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(date)}</div>` +
+        `<input value="${esc(e.tag)}" placeholder="тег" class="scpe scpa" style="width:100%;min-width:0;padding:5px 9px;border-radius:8px;border:1px solid transparent;background:transparent;font-size:12px;color:var(--text-2);outline:none" />` +
+        `<div style="display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:nowrap;min-width:0">` +
+        `<div data-act="open" class="scp9" style="flex:0 0 auto;padding:6px 11px;border-radius:9px;border:1px solid var(--line-2);font-size:11.5px;font-weight:600;color:var(--text-2);cursor:pointer;white-space:nowrap">Открыть</div>` +
+        `<div data-act="copy" title="Копировать" class="scpf" style="width:29px;height:27px;flex:0 0 29px;display:grid;place-items:center;border-radius:9px;border:1px solid var(--line-2);color:var(--text-3);cursor:pointer">` +
+        `<svg width="14" height="14" style="fill:none;stroke:currentColor;stroke-width:1.4"><rect x="4.4" y="4.4" width="7.2" height="7.2" rx="2"></rect><path d="M9.4 2.4H4a1.6 1.6 0 0 0-1.6 1.6v5.4"></path></svg></div>` +
+        `<div data-act="ask" title="Удалить" class="scpg" style="width:29px;height:27px;flex:0 0 29px;display:grid;place-items:center;border-radius:9px;border:1px solid var(--line-2);color:var(--text-3);cursor:pointer">` +
+        `<svg width="14" height="14" style="fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round"><line x1="2.4" y1="4.2" x2="11.6" y2="4.2"></line><path d="M4 4.2 L4.5 11.4 A1.4 1.4 0 0 0 5.9 12.6 H8.1 A1.4 1.4 0 0 0 9.5 11.4 L10 4.2"></path><line x1="5.6" y1="2.2" x2="8.4" y2="2.2"></line></svg></div></div>`;
+      const tag = row.querySelector("input");
+      tag?.addEventListener("change", () => updateHistoryTag(e.id, tag.value));
+      row.querySelector<HTMLElement>('[data-act="open"]')?.addEventListener("click", () => setResult(e.config, e.configType as ConfigKind, "из истории"));
+      row.querySelector<HTMLElement>('[data-act="copy"]')?.addEventListener("click", () => void navigator.clipboard.writeText(e.config));
+      row.querySelector<HTMLElement>('[data-act="ask"]')?.addEventListener("click", () => draw(true));
+    };
+    draw(false);
   }
 }
 
