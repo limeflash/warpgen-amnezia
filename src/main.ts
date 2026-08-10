@@ -120,7 +120,6 @@ async function onGenerate(): Promise<void> {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Генерируем…';
   errBox.style.display = "none";
-  show($("resultCard"), false);
 
   try {
     const keepaliveRaw = parseInt(val("keepalive"), 10);
@@ -345,6 +344,7 @@ async function onScan(): Promise<void> {
   wsAbort = new AbortController();
   wsBusy(true);
   show($("wsResults"), false);
+  show($("wsLog"), false);
   setText("wsStatus", "Сканирование сети… (до ~минуты)");
   try {
     const { rows } = await ws.scanEndpoints({
@@ -352,7 +352,10 @@ async function onScan(): Promise<void> {
       ...wsFilters(),
       speed: $<HTMLInputElement>("wsSpeed").checked,
       tunPing: $<HTMLInputElement>("wsTunPing").checked,
-      onLine: (line) => wsLog(line),
+      // Show only progress phases in the status line — the table is the result.
+      onLine: (line) => {
+        if (/phase|probing|verifying|reachable/i.test(line)) setText("wsStatus", line.trim());
+      },
       signal: wsAbort.signal,
     });
     if (!rows.length) {
